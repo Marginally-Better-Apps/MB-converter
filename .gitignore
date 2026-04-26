@@ -1,0 +1,43 @@
+# macOS
+.DS_Store
+
+# Xcode user data
+*.xcuserstate
+*.xcuserdata/
+
+# Xcode build artifacts
+DerivedData/
+build/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.pins
+Package.resolved
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+
+# Temporary/editor files
+*.swp
+*.swo
+*~
+
+# cursor
+.cursor/
+
+# Xcode / tooling
+*.xcresult
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM.zip
+.swiftpm/configuration/registries.json
+
+# Misc
+.direnv
+.env
+.envrc
