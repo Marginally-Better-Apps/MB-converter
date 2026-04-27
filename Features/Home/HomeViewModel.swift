@@ -74,7 +74,7 @@ final class HomeViewModel {
 
         do {
             let url = try await operation()
-            let media = try await MediaInspector.inspect(url: url)
+            let media = try await importService.validatedMediaFile(at: url)
             Haptics.success()
             return media
         } catch {

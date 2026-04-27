@@ -8,6 +8,7 @@ enum ImportError: LocalizedError {
     case invalidRemoteURL
     case couldNotDetermineRemoteFileType
     case networkFailed(String)
+    case codecNotDecodable(codecLabel: String, reason: String)
 
     var errorDescription: String? {
         switch self {
@@ -25,6 +26,8 @@ enum ImportError: LocalizedError {
             "Could not tell the file type from the link or server response. Try a URL whose path ends with a supported extension (for example .mp4)."
         case .networkFailed(let message):
             "Download failed: \(message)"
+        case .codecNotDecodable(let codecLabel, let reason):
+            "This file uses \(codecLabel), which the bundled FFmpeg can't decode. \(reason)"
         }
     }
 }

@@ -9,6 +9,7 @@ enum ConversionError: LocalizedError {
     case engineFailed(String)
     case cancelled
     case targetUnreachable
+    case codecUnavailable(reason: String)
 
     var errorDescription: String? {
         switch self {
@@ -22,6 +23,8 @@ enum ConversionError: LocalizedError {
             "Cancelled."
         case .targetUnreachable:
             "Couldn't hit the target size with the chosen settings."
+        case .codecUnavailable(let reason):
+            "Codec unavailable: \(reason)"
         }
     }
 }
@@ -603,8 +606,8 @@ enum AutoTargetPlanner {
         }
 
         var candidates = [DimensionCandidate(target: nil, actual: source)]
-        for edge in [1080.0, 720.0, 480.0, 360.0] {
-            let size = scaledDimensions(maxLongEdge: edge, source: source)
+        for edge in [1440.0, 1080.0, 720.0, 480.0, 360.0] {
+            let size = scaledDimensions(presetShortEdge: edge, source: source)
             if !containsEquivalentDimension(size, in: candidates) {
                 candidates.append(DimensionCandidate(target: size, actual: size))
             }
@@ -669,10 +672,10 @@ enum AutoTargetPlanner {
         return candidates.isEmpty ? [capped(suggested)] : candidates
     }
 
-    private static func scaledDimensions(maxLongEdge: Double, source: CGSize) -> CGSize {
-        let longEdge = max(Double(source.width), Double(source.height))
-        guard longEdge > 0 else { return source }
-        let scale = min(1, maxLongEdge / longEdge)
+    private static func scaledDimensions(presetShortEdge: Double, source: CGSize) -> CGSize {
+        let shortEdge = min(Double(source.width), Double(source.height))
+        guard shortEdge > 0 else { return source }
+        let scale = min(1, presetShortEdge / shortEdge)
         return CGSize(
             width: (Double(source.width) * scale).rounded(),
             height: (Double(source.height) * scale).rounded()

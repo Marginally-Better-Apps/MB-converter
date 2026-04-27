@@ -290,6 +290,7 @@ private struct PersistedConversionConfig: Codable, Hashable {
     var cropHeight: Double?
     var imageQuality: Double?
     var videoQuality: Double?
+    var usesSinglePassVideoTargetEncode: Bool?
     var frameTimeForExtraction: Double?
     var preferredAudioBitrateKbps: Int?
     var operationMode: OutputOperationMode
@@ -402,6 +403,7 @@ private extension PersistedConversionConfig {
         self.cropHeight = config.cropRegion?.height
         self.imageQuality = config.imageQuality
         self.videoQuality = config.videoQuality
+        self.usesSinglePassVideoTargetEncode = config.usesSinglePassVideoTargetEncode
         self.frameTimeForExtraction = config.frameTimeForExtraction
         self.preferredAudioBitrateKbps = config.preferredAudioBitrateKbps
         self.operationMode = config.operationMode
@@ -430,6 +432,7 @@ private extension PersistedConversionConfig {
             cropRegion: crop,
             imageQuality: imageQuality,
             videoQuality: videoQuality,
+            usesSinglePassVideoTargetEncode: usesSinglePassVideoTargetEncode ?? false,
             frameTimeForExtraction: frameTimeForExtraction,
             preferredAudioBitrateKbps: preferredAudioBitrateKbps,
             operationMode: operationMode,

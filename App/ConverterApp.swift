@@ -4,6 +4,7 @@ import SwiftUI
 struct ConverterApp: App {
 
     init() {
+        FFmpegRuntimeInfo.logSummary()
         TempStorage.cleanAll()
         ImportStorage.cleanAll()
         ConversionHistoryStore.cleanSessionHistory()

@@ -92,7 +92,7 @@ final class AudioConverter: Converter {
                     input: input,
                     outputURL: outputURL,
                     format: .m4a,
-                    audioCodec: "aac",
+                    audioCodec: CodecCapability.encoderName(for: .m4a),
                     bitrateKbps: bitrate,
                     treatAsLossyForBitrateArg: true,
                     duration: duration,
@@ -120,7 +120,7 @@ final class AudioConverter: Converter {
                 input: input,
                 outputURL: outputURL,
                 format: .m4a,
-                audioCodec: "aac",
+                audioCodec: CodecCapability.encoderName(for: .m4a),
                 bitrateKbps: bitrate,
                 treatAsLossyForBitrateArg: true,
                 duration: duration,
@@ -215,9 +215,10 @@ final class AudioConverter: Converter {
         metadata: MetadataExportPolicy,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> ConversionResult {
-        let codec = audioCodec ?? Self.ffmpegAudioCodec(for: format)
-        guard !codec.isEmpty else {
-            throw ConversionError.unsupportedConversion
+        guard let codec = audioCodec ?? Self.ffmpegAudioCodec(for: format) else {
+            throw ConversionError.codecUnavailable(
+                reason: CodecCapability.unsupportedReason(for: format) ?? "The selected audio encoder is unavailable."
+            )
         }
 
         let inputPath = FFmpegCommandRunner.quoted(input.url.path)
@@ -251,23 +252,8 @@ final class AudioConverter: Converter {
         }
     }
 
-    private static func ffmpegAudioCodec(for format: OutputFormat) -> String {
-        switch format {
-        case .mp3:
-            return "libmp3lame"
-        case .aac, .m4a:
-            return "aac"
-        case .flac:
-            return "flac"
-        case .ogg:
-            return "libvorbis"
-        case .opus:
-            return "libopus"
-        case .wav:
-            return "pcm_s16le"
-        default:
-            return ""
-        }
+    private static func ffmpegAudioCodec(for format: OutputFormat) -> String? {
+        CodecCapability.encoderName(for: format)
     }
 
     /// Native (AVAudio) file writers don't apply container tags; use FFmpeg when the user needs specific metadata preserved.
@@ -281,7 +267,7 @@ final class AudioConverter: Converter {
     private static func ffmpegAudioFormatArguments(for format: OutputFormat) -> String {
         switch format {
         case .mp3:
-            // libmp3lame rejects some source layouts/rates (for example multi-channel FLAC);
+            // MP3 encoders reject some source layouts/rates (for example multi-channel FLAC);
             // normalize to broadly-compatible stereo 48 kHz before encode.
             return " -ac 2 -ar 48000"
         case .m4a:

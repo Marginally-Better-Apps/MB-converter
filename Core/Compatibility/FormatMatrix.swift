@@ -19,7 +19,7 @@ enum FormatMatrix {
 
     /// Outputs allowed for each input category (v1 set).
     static func allowedOutputs(for category: MediaCategory) -> [OutputFormat] {
-        switch category {
+        let formats: [OutputFormat] = switch category {
         case .video:
             [
                 // Same-category
@@ -39,6 +39,7 @@ enum FormatMatrix {
                 .jpg, .png, .heic, .tiff
             ]
         }
+        return formats.filter { CodecCapability.canEncode($0) }
     }
 
     /// Detects the input category from a file URL.

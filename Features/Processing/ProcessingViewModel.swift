@@ -110,14 +110,26 @@ final class ProcessingViewModel {
         onComplete: @escaping @MainActor (ConversionResult) -> Void
     ) {
         guard !started else { return }
+        do {
+            try Self.validateCapabilities(input: input, config: config)
+        } catch {
+            errorMessage = error.localizedDescription
+            Haptics.error()
+            print("[APP ERROR] \(error.localizedDescription)")
+            return
+        }
+
         started = true
         isRunning = true
         errorMessage = nil
         liveStats = nil
-        showTwoPassProgress = (input.category == .video || input.category == .animatedImage)
+        let isVideoOutput = (input.category == .video || input.category == .animatedImage)
             && config.outputFormat.category == .video
-        progressIsDeterminate = !showTwoPassProgress || Self.hasKnownDuration(input)
-        passLabel = progressIsDeterminate ? "Preparing..." : "Analyzing source..."
+        showTwoPassProgress = isVideoOutput && !config.usesSinglePassVideoTargetEncode
+        progressIsDeterminate = !isVideoOutput || Self.hasKnownDuration(input)
+        passLabel = progressIsDeterminate
+            ? "Preparing..."
+            : (showTwoPassProgress ? "Analyzing source..." : "Reading stream timing...")
         startDate = Date()
         startTimer()
 
@@ -186,6 +198,8 @@ final class ProcessingViewModel {
             }
             if progress >= 1 {
                 passLabel = "Finishing..."
+            } else if !showTwoPassProgress {
+                passLabel = progressIsDeterminate ? "Encoding..." : "Reading stream timing..."
             } else if progressIsDeterminate {
                 passLabel = progress < 0.45 ? "Analyzing..." : "Encoding..."
             } else {
@@ -216,5 +230,20 @@ final class ProcessingViewModel {
     private static func hasKnownDuration(_ input: MediaFile) -> Bool {
         guard let duration = input.duration else { return false }
         return duration.isFinite && duration > 0
+    }
+
+    private static func validateCapabilities(input: MediaFile, config: ConversionConfig) throws {
+        guard CodecCapability.canEncode(config.outputFormat) else {
+            throw ConversionError.codecUnavailable(
+                reason: CodecCapability.unsupportedReason(for: config.outputFormat)
+                    ?? "The selected output format is not supported by the bundled FFmpeg runtime."
+            )
+        }
+
+        if let issue = CodecCapability.decodeIssue(for: input) {
+            throw ConversionError.codecUnavailable(
+                reason: "\(issue.codecLabel) cannot be decoded by the bundled FFmpeg runtime. \(issue.reason)"
+            )
+        }
     }
 }

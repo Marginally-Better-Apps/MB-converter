@@ -87,6 +87,9 @@ final class OutputConfigViewModel {
             if !selectedFormat.supportsTargetSize {
                 operationMode = .manual
             }
+            if selectedFormat.category != .video {
+                usesSinglePassVideoTargetEncode = false
+            }
             clampTargetFractionToMinimum()
             refreshAutoTargetSelections()
         }
@@ -142,6 +145,7 @@ final class OutputConfigViewModel {
         }
     }
     var megabytesText = ""
+    var usesSinglePassVideoTargetEncode = false
     var videoOutputAudioQuality: VideoOutputAudioQualityPreset = .auto {
         didSet {
             guard !isApplyingAutoTarget else { return }
@@ -239,17 +243,18 @@ final class OutputConfigViewModel {
 
     var resolutionOptions: [ResolutionOption] {
         guard let source = effectiveSourceDimensions, shouldShowResolution else { return [] }
-        let sourceMax = max(source.width, source.height)
+        let sourceShortEdge = min(source.width, source.height)
         var options = [ResolutionOption(id: "original", label: "Original", dimensions: nil)]
         let presets: [(String, CGFloat)] = [
+            ("2K", 1440),
             ("1080p", 1080),
             ("720p", 720),
             ("480p", 480),
             ("360p", 360)
         ]
 
-        for preset in presets where sourceMax >= preset.1 {
-            let dimensions = scaledDimensions(maxLongEdge: preset.1, source: source)
+        for preset in presets where sourceShortEdge > preset.1 {
+            let dimensions = scaledDimensions(presetShortEdge: preset.1, source: source)
             options.append(ResolutionOption(id: preset.0, label: preset.0, dimensions: dimensions))
         }
 
@@ -271,12 +276,13 @@ final class OutputConfigViewModel {
 
     var videoAudioQualityOptions: [VideoOutputAudioQualityPreset] {
         guard shouldShowVideoOutputAudio else { return VideoOutputAudioQualityPreset.allCases }
-        let sourceKbps = input.audioBitrate.map { max(1, $0 / 1000) }
-        let sourcePreset = sourceKbps.map(VideoOutputAudioQualityPreset.closestPreset(for:))
+        guard let sourceKbps = input.audioBitrate.map({ max(1, $0 / 1000) }) else {
+            return VideoOutputAudioQualityPreset.allCases
+        }
         return VideoOutputAudioQualityPreset.allCases.filter { preset in
             guard preset != .auto else { return true }
-            guard let sourcePreset else { return true }
-            return preset != sourcePreset
+            guard let explicitKbps = preset.explicitKbps else { return false }
+            return explicitKbps < sourceKbps
         }
     }
 
@@ -327,6 +333,12 @@ final class OutputConfigViewModel {
 
     var shouldShowTargetSize: Bool {
         selectedFormat.supportsTargetSize
+    }
+
+    var shouldShowSinglePassVideoTargetToggle: Bool {
+        selectedFormat.category == .video
+            && selectedFormat.supportsTargetSize
+            && !usesVideoQualityFallback
     }
 
     var shouldShowWebPQuality: Bool {
@@ -444,7 +456,7 @@ final class OutputConfigViewModel {
                     ? " · audio \(plan.audioBitrateKbps) kbps"
                     : ""
                 let reachability = plan.isTargetReachable ? "" : " · best effort"
-                return "Auto: \(resolution), \(fps), video \(MetadataFormatter.bitrateText(plan.videoBitrateKbps * 1000))\(audioLine)\(reachability)"
+                return "Auto: \(resolution), \(fps), video \(MetadataFormatter.bitrateText(plan.videoBitrateKbps * 1000))\(audioLine)\(reachability)\(singlePassVideoTargetSuffix)"
             }
 
             let duration = input.duration ?? 1
@@ -460,7 +472,7 @@ final class OutputConfigViewModel {
             let audioLine = (selectedFormat.category == .video && input.audioCodec != nil)
                 ? " · audio \(effectiveAudioKbpsString(for: targetSizeBytes))"
                 : ""
-            return "Estimated video bitrate: \(MetadataFormatter.bitrateText(video * 1000))\(audioLine)"
+            return "Estimated video bitrate: \(MetadataFormatter.bitrateText(video * 1000))\(audioLine)\(singlePassVideoTargetSuffix)"
         case .audio:
             if isAudioTargetSizeAtMax, canRemuxCurrentAudioOutput {
                 return "Stream copy (remux) at 100% target when codec/container are compatible"
@@ -527,6 +539,7 @@ final class OutputConfigViewModel {
             cropRegion: normalizedCropRegion,
             imageQuality: selectedFormat == .webpImage ? webpQuality : nil,
             videoQuality: usesVideoQualityFallback ? targetFraction : nil,
+            usesSinglePassVideoTargetEncode: shouldShowSinglePassVideoTargetToggle && usesSinglePassVideoTargetEncode,
             frameTimeForExtraction: 0,
             preferredAudioBitrateKbps: preferredAudioKbpsForExport(),
             operationMode: mode,
@@ -758,6 +771,10 @@ final class OutputConfigViewModel {
         )
     }
 
+    private var singlePassVideoTargetSuffix: String {
+        usesSinglePassVideoTargetEncode ? " · single pass, size may vary" : ""
+    }
+
     private func videoAudioBitrateKbps(for targetBytes: Int64) -> Int {
         guard input.audioCodec != nil else { return 0 }
         let suggested = BitrateCalculator.suggestedAudioBitrate(
@@ -940,8 +957,10 @@ final class OutputConfigViewModel {
         return duration.isFinite && duration > 0
     }
 
-    private func scaledDimensions(maxLongEdge: CGFloat, source: CGSize) -> CGSize {
-        let scale = min(1, maxLongEdge / max(source.width, source.height))
+    private func scaledDimensions(presetShortEdge: CGFloat, source: CGSize) -> CGSize {
+        let shortEdge = min(source.width, source.height)
+        guard shortEdge > 0 else { return source }
+        let scale = min(1, presetShortEdge / shortEdge)
         return CGSize(
             width: (source.width * scale).rounded(),
             height: (source.height * scale).rounded()

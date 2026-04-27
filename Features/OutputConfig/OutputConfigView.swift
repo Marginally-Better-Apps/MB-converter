@@ -264,7 +264,19 @@ struct OutputConfigForm: View {
     }
 
     private var targetSizeSection: some View {
-        section(viewModel.targetControlTitle) {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(viewModel.targetControlTitle)
+                    .font(.title3.bold())
+                    .foregroundStyle(Theme.text)
+
+                Spacer()
+
+                if viewModel.shouldShowSinglePassVideoTargetToggle {
+                    singlePassVideoTargetToggle
+                }
+            }
+
             VStack(alignment: .leading, spacing: 12) {
                 TargetSizeSlider(
                     sourceSizeBytes: viewModel.targetSizeSliderReferenceBytes,
@@ -278,6 +290,32 @@ struct OutputConfigForm: View {
                 )
             }
         }
+    }
+
+    private var singlePassVideoTargetToggle: some View {
+        Button {
+            Haptics.impact(.light)
+            viewModel.usesSinglePassVideoTargetEncode.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: viewModel.usesSinglePassVideoTargetEncode ? "checkmark.square.fill" : "square")
+                    .font(.subheadline.weight(.semibold))
+                Text("Fast")
+                    .font(.footnote.weight(.semibold))
+            }
+            .foregroundStyle(viewModel.usesSinglePassVideoTargetEncode ? Theme.background : Theme.primary)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 34)
+            .background(
+                viewModel.usesSinglePassVideoTargetEncode
+                ? Theme.primary
+                : Theme.primary.opacity(0.12)
+            )
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Use single-pass target encode")
+        .accessibilityValue(viewModel.usesSinglePassVideoTargetEncode ? "On" : "Off")
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

@@ -295,6 +295,17 @@ struct ImportService {
         return outputURL
     }
 
+    func validatedMediaFile(at url: URL) async throws -> MediaFile {
+        let media = try await MediaInspector.inspect(url: url)
+        if let issue = CodecCapability.decodeIssue(for: media) {
+            throw ImportError.codecNotDecodable(
+                codecLabel: issue.codecLabel,
+                reason: issue.reason
+            )
+        }
+        return media
+    }
+
     private static func declaredContentLength(from response: HTTPURLResponse) -> Int64? {
         if response.expectedContentLength > 0 {
             return response.expectedContentLength

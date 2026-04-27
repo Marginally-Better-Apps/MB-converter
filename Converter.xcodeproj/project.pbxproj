@@ -39,6 +39,8 @@
 		B4F5F5C856D46D7B3DEBCB9B /* Features/Home/HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D145BFF386BD076D949E58 /* Features/Home/HomeView.swift */; };
 		CAD5323895BC1027B5370F43 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = 3AB25EE446E6B66FA9E3FFA0 /* FFmpeg-Kit */; };
 		DE1D5AA4E706AFCB713806FE /* FFmpeg-Kit in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 3AB25EE446E6B66FA9E3FFA0 /* FFmpeg-Kit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		C0DEC0DE0000000000000002 /* Core/Compatibility/FFmpegRuntimeInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000001 /* Core/Compatibility/FFmpegRuntimeInfo.swift */; };
+		C0DEC0DE0000000000000004 /* Core/Compatibility/CodecCapability.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000003 /* Core/Compatibility/CodecCapability.swift */; };
 		DA560FB595FB5C30E3D44FE4 /* Core/Compatibility/FormatMatrix.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95450C8885454FA4793790A7 /* Core/Compatibility/FormatMatrix.swift */; };
 		F0F29380B5FB09A3711664DC /* Features/Home/HomeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C9E5183B1886143DFEDA4EC /* Features/Home/HomeViewModel.swift */; };
 		F72A72D0B3D15D7CD31AE9E9 /* Core/Inspection/MediaInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF79A1CCADDBFD36C2E82AC4 /* Core/Inspection/MediaInspector.swift */; };
@@ -98,6 +100,8 @@
 		84FDB4160E922ECC46E415F7 /* Features/Processing/ProcessingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Processing/ProcessingViewModel.swift; sourceTree = "<group>"; };
 		8E1278B01E06AE0E3DD4A48D /* Core/Models/MediaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Models/MediaModels.swift; sourceTree = "<group>"; };
 		95450C8885454FA4793790A7 /* Core/Compatibility/FormatMatrix.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Compatibility/FormatMatrix.swift; sourceTree = "<group>"; };
+		C0DEC0DE0000000000000001 /* Core/Compatibility/FFmpegRuntimeInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Compatibility/FFmpegRuntimeInfo.swift; sourceTree = "<group>"; };
+		C0DEC0DE0000000000000003 /* Core/Compatibility/CodecCapability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Compatibility/CodecCapability.swift; sourceTree = "<group>"; };
 		9788A1872451B15183194D45 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		99B5DFA9479A88028414B08E /* DesignSystem/Components/MetadataCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/Components/MetadataCard.swift; sourceTree = "<group>"; };
 		9C9E5183B1886143DFEDA4EC /* Features/Home/HomeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Home/HomeViewModel.swift; sourceTree = "<group>"; };
@@ -148,6 +152,8 @@
 				E20000000000000000000001 /* DesignSystem/Haptics.swift */,
 				8E1278B01E06AE0E3DD4A48D /* Core/Models/MediaModels.swift */,
 				95450C8885454FA4793790A7 /* Core/Compatibility/FormatMatrix.swift */,
+				C0DEC0DE0000000000000001 /* Core/Compatibility/FFmpegRuntimeInfo.swift */,
+				C0DEC0DE0000000000000003 /* Core/Compatibility/CodecCapability.swift */,
 				CEE16536AB1BEEF272A314A6 /* Core/Conversion/ConversionCore.swift */,
 				1B5815CB64C6A94C7D3F9FA7 /* Core/Conversion/ImageConverter.swift */,
 				DF79A1CCADDBFD36C2E82AC4 /* Core/Inspection/MediaInspector.swift */,
@@ -342,6 +348,8 @@
 				E20000000000000000000002 /* DesignSystem/Haptics.swift in Sources */,
 				0DB035BD952470DD6B9F27A9 /* Core/Models/MediaModels.swift in Sources */,
 				DA560FB595FB5C30E3D44FE4 /* Core/Compatibility/FormatMatrix.swift in Sources */,
+				C0DEC0DE0000000000000002 /* Core/Compatibility/FFmpegRuntimeInfo.swift in Sources */,
+				C0DEC0DE0000000000000004 /* Core/Compatibility/CodecCapability.swift in Sources */,
 				9BF9D50A2C9918CA59F07F79 /* Core/Conversion/ConversionCore.swift in Sources */,
 				4BF3A50D9B32DDFE52917C7F /* Core/Conversion/ImageConverter.swift in Sources */,
 				F72A72D0B3D15D7CD31AE9E9 /* Core/Inspection/MediaInspector.swift in Sources */,

@@ -37,13 +37,22 @@ final class VideoConverter: Converter {
         progress: @escaping @Sendable (Double) -> Void,
         encodingStats: (@Sendable (FFmpegEncodingDisplayStats) -> Void)?
     ) async throws -> ConversionResult {
-        guard config.outputFormat != .webm else {
-            throw ConversionError.unsupportedConversion
+        guard let videoCodec = Self.videoCodec(for: config.outputFormat) else {
+            throw ConversionError.codecUnavailable(
+                reason: CodecCapability.unsupportedReason(for: config.outputFormat) ?? "The selected video encoder is unavailable."
+            )
         }
 
         let duration = input.duration.flatMap { $0 > 0 ? $0 : nil }
+        let canStreamCopy = Self.shouldRemux(input: input, config: config)
 
-        if Self.shouldRemux(input: input, config: config) {
+        if let issue = CodecCapability.decodeIssue(videoCodec: input.videoCodec), !canStreamCopy {
+            throw ConversionError.codecUnavailable(
+                reason: "\(issue.codecLabel) video cannot be decoded by the current FFmpeg runtime. \(issue.reason)"
+            )
+        }
+
+        if canStreamCopy {
             do {
                 return try await remuxVideo(
                     input: input,
@@ -129,9 +138,10 @@ final class VideoConverter: Converter {
             )
         }
 
-        let videoCodec = Self.videoCodec(for: config.outputFormat)
         let hevcTag = config.outputFormat.ffmpegHEVCContainerTagArg
-        let audioCodec = config.outputFormat == .webm ? "libopus" : "aac"
+        let audioCodec = config.outputFormat == .webm
+            ? (CodecCapability.encoderName(for: .opus) ?? "opus")
+            : (CodecCapability.encoderName(for: .m4a) ?? "aac")
         let audioArguments = hasAudio ? " -c:a \(audioCodec) -b:a \(audioBitrate)k" : " -an"
         let filters = Self.videoFilters(input: input, config: commandConfig)
         let fps = Self.fpsArgument(input: input, config: commandConfig)
@@ -146,6 +156,7 @@ final class VideoConverter: Converter {
         let pass2Meta = FFmpegMetadataOptions.outputFlags(config.metadata)
         let pass1 = "-y -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k -pass 1 -passlogfile \(logPath) -an\(config.outputFormat.ffmpegFirstPassMuxerArg) \(pass1DiscardPath)"
         let pass2 = "-y -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k -pass 2 -passlogfile \(logPath)\(audioArguments)\(outputMuxer)\(fastStart)\(pass2Meta) \(outputPath)"
+        let singlePass = "-y -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k\(audioArguments)\(outputMuxer)\(fastStart)\(pass2Meta) \(outputPath)"
         let pass1Estimate = FFmpegPassProgressEstimate()
         let pass1Stats: @Sendable (FFmpegEncodingDisplayStats) -> Void = { stats in
             pass1Estimate.record(stats)
@@ -168,6 +179,22 @@ final class VideoConverter: Converter {
 
         do {
             progress(0)
+            if config.usesSinglePassVideoTargetEncode {
+                try await runner.run(
+                    singlePass,
+                    duration: duration,
+                    progress: progress,
+                    onLogLine: pass2Log,
+                    onEncodingStats: pass2Stats
+                )
+                progress(1)
+                return try await result(
+                    for: outputURL,
+                    format: config.outputFormat,
+                    audioEncodeKbps: hasAudio ? audioBitrate : nil
+                )
+            }
+
             try await runner.run(
                 pass1,
                 duration: durationForPass1,
@@ -334,12 +361,8 @@ final class VideoConverter: Converter {
         return error is CancellationError
     }
 
-    private static func videoCodec(for format: OutputFormat) -> String {
-        switch format {
-        case .mp4_hevc: "hevc_videotoolbox"
-        case .webm: "libvpx-vp9"
-        default: "h264_videotoolbox"
-        }
+    private static func videoCodec(for format: OutputFormat) -> String? {
+        CodecCapability.encoderName(for: format)
     }
 
     private static func videoFilters(input: MediaFile, config: ConversionConfig) -> String {

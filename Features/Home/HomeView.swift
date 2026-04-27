@@ -629,37 +629,76 @@ private enum ThemeSelection: String, CaseIterable, Identifiable {
 // MARK: - Capability ticker
 
 private struct HomeCapability: Identifiable {
-    let id = UUID()
+    var id: String { title }
     let title: String
     let symbol: String
 
-    static let items: [HomeCapability] = [
-        // Keep this list aligned with import support in FormatMatrix.detectCategory/categoryByExtension.
-        .init(title: "JPEG", symbol: "photo"),
-        .init(title: "PNG", symbol: "photo.fill"),
-        .init(title: "HEIC", symbol: "camera.aperture"),
-        .init(title: "WEBP", symbol: "wand.and.stars"),
-        .init(title: "AVIF", symbol: "wand.and.rays"),
-        .init(title: "TIFF", symbol: "doc.richtext"),
-        .init(title: "GIF", symbol: "photo.on.rectangle.angled"),
-        .init(title: "MP4", symbol: "film"),
-        .init(title: "MOV", symbol: "video"),
-        .init(title: "WEBM", symbol: "play.rectangle"),
-        .init(title: "MKV", symbol: "play.tv"),
-        .init(title: "TS", symbol: "tv"),
-        .init(title: "MTS", symbol: "tv.inset.filled"),
-        .init(title: "M2TS", symbol: "tv.music.note"),
-        .init(title: "3GP", symbol: "rectangle.compress.vertical"),
-        .init(title: "HEVC", symbol: "film.stack"),
-        .init(title: "MP3", symbol: "music.note"),
-        .init(title: "M4A", symbol: "waveform"),
-        .init(title: "WAV", symbol: "hifispeaker"),
-        .init(title: "AAC", symbol: "dot.radiowaves.left.and.right"),
-        .init(title: "FLAC", symbol: "music.quarternote.3"),
-        .init(title: "OGG", symbol: "circle.grid.2x2"),
-        .init(title: "OPUS", symbol: "waveform.path"),
-        .init(title: "ALAC", symbol: "music.mic")
+    init(title: String, symbol: String) {
+        self.title = title
+        self.symbol = symbol
+    }
+
+    static var items: [HomeCapability] {
+        let exposed = Set(exposedOutputFormats.filter { CodecCapability.canEncode($0) })
+        return displayOrder
+            .filter { exposed.contains($0) }
+            .compactMap(HomeCapability.init(format:))
+    }
+
+    /// Export-only and registry-driven, so the strip matches formats the current build can produce.
+    private static var exposedOutputFormats: [OutputFormat] {
+        [
+            .video,
+            .audio,
+            .image,
+            .animatedImage
+        ].flatMap { FormatMatrix.allowedOutputs(for: $0) }
+    }
+
+    private static let displayOrder: [OutputFormat] = [
+        .jpg, .png, .heic, .webpImage, .tiff, .gif,
+        .mp4_h264, .mov, .webm, .mp4_hevc,
+        .mp3, .m4a, .wav, .aac, .flac, .ogg, .opus
     ]
+
+    private init?(format: OutputFormat) {
+        switch format {
+        case .jpg:
+            self.init(title: "JPEG", symbol: "photo")
+        case .png:
+            self.init(title: "PNG", symbol: "photo.fill")
+        case .heic:
+            self.init(title: "HEIC", symbol: "camera.aperture")
+        case .webpImage:
+            self.init(title: "WEBP", symbol: "wand.and.stars")
+        case .tiff:
+            self.init(title: "TIFF", symbol: "doc.richtext")
+        case .gif:
+            self.init(title: "GIF", symbol: "photo.on.rectangle.angled")
+        case .mp4_h264:
+            self.init(title: "MP4", symbol: "film")
+        case .mp4_hevc:
+            self.init(title: "HEVC", symbol: "film.stack")
+        case .mov:
+            self.init(title: "MOV", symbol: "video")
+        case .webm:
+            self.init(title: "WEBM", symbol: "play.rectangle")
+        case .mp3:
+            self.init(title: "MP3", symbol: "music.note")
+        case .m4a:
+            self.init(title: "M4A", symbol: "waveform")
+        case .wav:
+            self.init(title: "WAV", symbol: "hifispeaker")
+        case .aac:
+            self.init(title: "AAC", symbol: "dot.radiowaves.left.and.right")
+        case .flac:
+            self.init(title: "FLAC", symbol: "music.quarternote.3")
+        case .ogg:
+            self.init(title: "OGG", symbol: "circle.grid.2x2")
+        case .opus:
+            self.init(title: "OPUS", symbol: "waveform.path")
+        }
+    }
 }
 
 private struct CapabilityTicker: View {

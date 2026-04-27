@@ -456,6 +456,7 @@ struct ConversionConfig: Hashable {
     var cropRegion: CropRegion?             // nil = full frame
     var imageQuality: Double? = nil         // 0...1 single-pass quality for still-image encoders that use quality mode
     var videoQuality: Double? = nil         // 0...1 quality fallback for video when duration/target sizing is unavailable
+    var usesSinglePassVideoTargetEncode: Bool
     var frameTimeForExtraction: Double?     // seconds; for video → image conversions
     var preferredAudioBitrateKbps: Int?     // override default for video output's audio track
     var operationMode: OutputOperationMode
@@ -471,6 +472,7 @@ struct ConversionConfig: Hashable {
         cropRegion: CropRegion? = nil,
         imageQuality: Double? = nil,
         videoQuality: Double? = nil,
+        usesSinglePassVideoTargetEncode: Bool = false,
         frameTimeForExtraction: Double? = nil,
         preferredAudioBitrateKbps: Int? = nil,
         operationMode: OutputOperationMode = .manual,
@@ -485,6 +487,7 @@ struct ConversionConfig: Hashable {
         self.cropRegion = cropRegion
         self.imageQuality = imageQuality
         self.videoQuality = videoQuality
+        self.usesSinglePassVideoTargetEncode = usesSinglePassVideoTargetEncode
         self.frameTimeForExtraction = frameTimeForExtraction
         self.preferredAudioBitrateKbps = preferredAudioBitrateKbps
         self.operationMode = operationMode

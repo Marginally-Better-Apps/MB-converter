@@ -38,7 +38,7 @@ struct TargetSizeSlider: View {
 
                 Spacer(minLength: 0)
 
-                Text(minimumLabel ?? "Target: \(MetadataFormatter.bytes(minimumSizeBytes))")
+                Text(minimumLabel ?? "Min: \(MetadataFormatter.bytes(minimumSizeBytes))")
                     .font(.caption)
                     .foregroundStyle(Theme.textMuted)
                     .multilineTextAlignment(.trailing)

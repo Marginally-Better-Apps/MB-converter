@@ -35,8 +35,10 @@ final class AnimatedImageConverter: Converter {
         progress: @escaping @Sendable (Double) -> Void,
         encodingStats: (@Sendable (FFmpegEncodingDisplayStats) -> Void)?
     ) async throws -> ConversionResult {
-        guard config.outputFormat != .webm else {
-            throw ConversionError.unsupportedConversion
+        guard let codec = Self.videoCodec(for: config.outputFormat) else {
+            throw ConversionError.codecUnavailable(
+                reason: CodecCapability.unsupportedReason(for: config.outputFormat) ?? "The selected video encoder is unavailable."
+            )
         }
 
         guard let duration = input.duration, duration > 0 else {
@@ -75,7 +77,6 @@ final class AnimatedImageConverter: Converter {
                 minimumVideoBitrateKbps: minimumVideoBitrate
             )
         }
-        let codec = Self.videoCodec(for: config.outputFormat)
         let hevcTag = config.outputFormat.ffmpegHEVCContainerTagArg
         let pixelFormat = config.outputFormat == .webm ? "" : " -pix_fmt yuv420p"
         let filters = Self.videoFilters(config: commandConfig)
@@ -90,6 +91,7 @@ final class AnimatedImageConverter: Converter {
         let pass2Meta = FFmpegMetadataOptions.outputFlags(config.metadata)
         let pass1 = "-y -i \(inputPath)\(filters)\(fps) -c:v \(codec)\(hevcTag) -b:v \(videoKbps)k -pass 1 -passlogfile \(logPath)\(pixelFormat) -an\(config.outputFormat.ffmpegFirstPassMuxerArg) \(pass1DiscardPath)"
         let pass2 = "-y -i \(inputPath)\(filters)\(fps) -c:v \(codec)\(hevcTag) -b:v \(videoKbps)k -pass 2 -passlogfile \(logPath)\(pixelFormat) -an\(outputMuxer)\(pass2Meta) \(outputPath)"
+        let singlePass = "-y -i \(inputPath)\(filters)\(fps) -c:v \(codec)\(hevcTag) -b:v \(videoKbps)k\(pixelFormat) -an\(outputMuxer)\(pass2Meta) \(outputPath)"
         let onLog: (@Sendable (String) -> Void)? = {
             guard let encodingStats else { return nil }
             return { @Sendable line in
@@ -101,6 +103,29 @@ final class AnimatedImageConverter: Converter {
 
         do {
             progress(0)
+            if config.usesSinglePassVideoTargetEncode {
+                try await runner.run(
+                    singlePass,
+                    duration: duration,
+                    progress: progress,
+                    onLogLine: onLog,
+                    onEncodingStats: encodingStats
+                )
+                progress(1)
+                let media = try await MediaInspector.inspect(url: outputURL)
+                return ConversionResult(
+                    url: outputURL,
+                    outputFormat: config.outputFormat,
+                    sizeOnDisk: media.sizeOnDisk,
+                    dimensions: media.dimensions,
+                    duration: media.duration,
+                    fps: media.fps,
+                    bitrate: media.bitrate,
+                    videoCodec: media.videoCodec,
+                    audioCodec: media.audioCodec
+                )
+            }
+
             try await runner.run(
                 pass1,
                 duration: duration,
@@ -184,12 +209,8 @@ final class AnimatedImageConverter: Converter {
         }
     }
 
-    private static func videoCodec(for format: OutputFormat) -> String {
-        switch format {
-        case .mp4_hevc: "hevc_videotoolbox"
-        case .webm: "libvpx-vp9"
-        default: "h264_videotoolbox"
-        }
+    private static func videoCodec(for format: OutputFormat) -> String? {
+        CodecCapability.encoderName(for: format)
     }
 
     private static func videoFilters(config: ConversionConfig) -> String {

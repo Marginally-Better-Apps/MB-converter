@@ -1,82 +1,55 @@
 # MB Converter
 
-Native **iOS / iPadOS** app to convert and compress video, audio, and images. Built with **SwiftUI**, **FFmpegKit** (LGPL), and native image pipelines (ImageIO / Core Image).
+**Convert and compress** photos, video, and audio on your iPhone and iPad—one simple flow from choosing a format to picking where your file comes from.
 
-| | |
-|---|---|
-| Platforms | iOS 17+, iPadOS 17+ |
-| UI | SwiftUI, system typography, light haptics |
-| Media | FFmpegKit for video/audio/animated workflows; ImageIO for still images |
-| State | `@Observable` view models |
+**App Icon**
 
-## Features
+<img src="Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="8%" />
 
-- Import from **Photos**, **Files**, or the **clipboard** (images)
-- Inspect metadata, pick output format, resolution, frame rate, and target size where applicable
-- **Video / audio / animated** conversion via FFmpeg command-line flows wrapped in Swift
-- **Still images** via `ImageConverter` (including target-size passes)
-- Conversion **history** and share/save using the system share sheet (output stays in temp until the user saves)
+**Main Screen Preview**
 
-## Requirements
+<table>
+  <tr>
+    <td align="center">
+      <strong>Light</strong><br />
+      <img src="docs/light_mainpage.png" alt="MB Converter light main screen" width="180" />
+    </td>
+    <td align="center">
+      <strong>Dark</strong><br />
+      <img src="docs/dark_mainpage.png" alt="MB Converter dark main screen" width="180" />
+    </td>
+  </tr>
+</table>
 
-- Xcode 15+ (iOS 17 SDK)
-- Swift 5.9+
+## Supported formats
 
-## Build
+| Files | Codecs we can read |
+|-------|--------------------|
+| Video: MP4, MOV, M4V, MKV, WebM, AVI, FLV, F4V, TS, MTS, M2TS, 3GP, MPEG/MPG, M2V, MXF, OGV, VOB, ASF, WMV, WTV, SWF, HEVC, MJPEG | H.264, HEVC, VP8, VP9, MPEG-2, MPEG-4, MJPEG, Theora |
+| Audio: MP3, M4A, WAV, AAC, FLAC, OGG, Opus, ALAC | AAC, MP3, FLAC, ALAC, Vorbis, Opus, PCM |
+| Photos: JPEG, PNG, HEIC, WebP, AVIF, TIFF | handled by iOS |
+| Animated: GIF | — |
 
-1. Clone the repository.
-2. Open `Converter.xcodeproj` in Xcode.
-3. Select the **Converter** scheme and a simulator or device, then **Run**.
+### What you can save out
 
-Command line (use a simulator that exists on your machine):
+| Output | Codec used |
+|--------|------------|
+| MP4 (H.264) | H.264 |
+| MP4 (HEVC) | HEVC |
+| MOV | H.264 |
+| M4A | AAC |
+| AAC | AAC |
+| WAV | PCM 16-bit |
+| JPEG | — |
+| PNG | — |
+| HEIC | — |
+| WebP (still image) | — |
+| TIFF | — |
 
-```sh
-xcodebuild -scheme Converter -destination 'platform=iOS Simulator,name=iPhone 17' -quiet build
-```
+## For developers
 
-### Swift packages
-
-Resolved via Swift Package Manager (see the project’s **Package Dependencies**):
-
-| Package | Role |
-|---------|------|
-| [ffmpeg-kit-spm / `ffmpeg-kit-ios-https`](https://github.com/arthenica/ffmpeg-kit) | LGPL FFmpeg bindings — **use the LGPL variant** for App Store distribution (not the GPL build). |
-| [libwebp-Xcode](https://github.com/SDWebImage/libwebp-Xcode) | WebP support where used by the pipeline. |
-
-If you ship a binary, include notices required by **LGPL** (and any other licenses of linked libraries) in your app’s legal / credits screen; this repo’s **MIT license applies to the app source here**, not to FFmpeg itself.
-
-## Repository layout
-
-```
-├── App/                 App entry point
-├── Assets.xcassets      App icon and assets
-├── Core/
-│   ├── Compatibility/   Format matrix (allowed conversions)
-│   ├── Conversion/      Converters, FFmpeg runner, routing
-│   ├── Inspection/      Metadata / probe helpers
-│   ├── IO/              Import, temp storage, history
-│   └── Models/          Shared types
-├── DesignSystem/        Theme and reusable UI pieces
-├── Features/            Screens (Home, detail, config, processing, result, history)
-└── Converter.xcodeproj
-```
-
+Building from source or curious about how it’s put together? See the **[Developer documentation](docs/DEVELOPMENT.md)**.
 
 ## License
 
-This project’s **source code** is released under the [MIT License](LICENSE).
-
-Third-party libraries (FFmpeg via FFmpegKit, libwebp, Apple frameworks) remain under their respective licenses.
-
-## Color theme (reference)
-
-```
-            Light       Dark
-text        #050b0f     #f0f6fa
-background  #eff6fb     #0B1622
-primary     #003a5c     #a3ddff
-secondary   #7fc7f0     #0f5680
-accent      #3cb2f6     #081d2a
-```
-
-In dark mode, primary actions use `Theme.primary` (see `DesignSystem/Theme.swift`).
+The app’s source code is under the [MIT License](LICENSE). The libraries it relies on keep their own licenses — see the developer doc for the full list.
