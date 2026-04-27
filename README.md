@@ -1,6 +1,6 @@
 # MB Converter
 
-**Convert and compress** photos, video, and audio on your iPhone and iPad—one simple flow from choosing a format to picking where your file comes from.
+**Convert and compress** photos, video, and audio on your iPhone and iPad, one simple flow from choosing a format to picking where your file comes from. MB Converter is completely free and open source.
 
 ## Get the beta
 
