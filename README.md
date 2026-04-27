@@ -2,6 +2,15 @@
 
 **Convert and compress** photos, video, and audio on your iPhone and iPad—one simple flow from choosing a format to picking where your file comes from.
 
+## Get the beta
+
+<p>
+  <a href="https://testflight.apple.com/join/FEA9U9HB">
+    <img alt="Join on TestFlight" src="https://img.shields.io/badge/TestFlight-Join%20Beta-0A84FF?style=for-the-badge&logo=apple&logoColor=white" />
+  </a>
+</p>
+<p><strong>⚠️ CURRENTLY IN REVIEW</strong></p>
+
 **App Icon**
 
 <img src="Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="8%" />
