@@ -25,6 +25,7 @@
 		880B01DE9BE17001410750EA /* Features/OutputConfig/OutputConfigViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A707E838F4D86D3C932787F3 /* Features/OutputConfig/OutputConfigViewModel.swift */; };
 		929519272291433E58E08DAC /* DesignSystem/Components/MetadataCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99B5DFA9479A88028414B08E /* DesignSystem/Components/MetadataCard.swift */; };
 		93FCE4738CDC9F2ED128C031 /* App/ConverterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B63929DD0C6EDA4E6B74F0E /* App/ConverterApp.swift */; };
+		E30000000000000000000001 /* App/AppColorMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30000000000000000000000 /* App/AppColorMode.swift */; };
 		95F893ABF8DE2704294E63B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9788A1872451B15183194D45 /* Assets.xcassets */; };
 		96BE8436821BA69295FDBF50 /* DesignSystem/Components/TargetSizeSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17949D7ED22F4550A4443107 /* DesignSystem/Components/TargetSizeSlider.swift */; };
 		9BF9D50A2C9918CA59F07F79 /* Core/Conversion/ConversionCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEE16536AB1BEEF272A314A6 /* Core/Conversion/ConversionCore.swift */; };
@@ -87,6 +88,7 @@
 		5141EFFF35ACD6C51F274E4D /* Converter.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Converter.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		58E010773AB057D470B783A9 /* Core/Conversion/VideoConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/VideoConverter.swift; sourceTree = "<group>"; };
 		5B63929DD0C6EDA4E6B74F0E /* App/ConverterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ConverterApp.swift; sourceTree = "<group>"; };
+		E30000000000000000000000 /* App/AppColorMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppColorMode.swift; sourceTree = "<group>"; };
 		E10000000000000000000003 /* ConverterTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConverterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7996D8ED5E115F25BAD34224 /* Core/Conversion/AnimatedImageConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/AnimatedImageConverter.swift; sourceTree = "<group>"; };
 		7F8559C440514ECFD6C7E34E /* Core/Conversion/FFmpegCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/FFmpegCommandRunner.swift; sourceTree = "<group>"; };
@@ -141,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				5B63929DD0C6EDA4E6B74F0E /* App/ConverterApp.swift */,
+				E30000000000000000000000 /* App/AppColorMode.swift */,
 				D038AD9308CAA6F50A8DAB33 /* DesignSystem/Theme.swift */,
 				E20000000000000000000001 /* DesignSystem/Haptics.swift */,
 				8E1278B01E06AE0E3DD4A48D /* Core/Models/MediaModels.swift */,
@@ -334,6 +337,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				93FCE4738CDC9F2ED128C031 /* App/ConverterApp.swift in Sources */,
+				E30000000000000000000001 /* App/AppColorMode.swift in Sources */,
 				76EF36980B835BBA131FC699 /* DesignSystem/Theme.swift in Sources */,
 				E20000000000000000000002 /* DesignSystem/Haptics.swift in Sources */,
 				0DB035BD952470DD6B9F27A9 /* Core/Models/MediaModels.swift in Sources */,

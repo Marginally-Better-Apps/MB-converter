@@ -32,19 +32,19 @@ struct ConverterRootView: View {
         Group {
             if horizontalSizeClass == .regular {
                 NavigationSplitView {
-                    HomeView(path: $path, preferredColorScheme: preferredColorSchemeBinding, constrainedWidth: false)
+                    HomeView(path: $path, constrainedWidth: false)
                         .navigationTitle("Import")
                 } detail: {
                     detailNavigation
                 }
             } else {
                 NavigationStack(path: $path) {
-                    HomeView(path: $path, preferredColorScheme: preferredColorSchemeBinding)
+                    HomeView(path: $path)
                         .navigationDestination(for: AppRoute.self, destination: destination)
                 }
             }
         }
-        .preferredColorScheme(preferredColorScheme)
+        .preferredColorScheme(AppColorMode(rawValue: appColorModeRawValue)?.colorScheme)
     }
 
     private var detailNavigation: some View {
@@ -80,47 +80,6 @@ struct ConverterRootView: View {
         }
     }
 
-    private var preferredColorScheme: ColorScheme? {
-        get { AppColorMode(rawValue: appColorModeRawValue)?.colorScheme }
-        nonmutating set {
-            appColorModeRawValue = AppColorMode(colorScheme: newValue).rawValue
-        }
-    }
-
-    private var preferredColorSchemeBinding: Binding<ColorScheme?> {
-        Binding(
-            get: { preferredColorScheme },
-            set: { preferredColorScheme = $0 }
-        )
-    }
 }
 
 #Preview { ConverterRootView() }
-
-private enum AppColorMode: String {
-    case system
-    case light
-    case dark
-
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system:
-            nil
-        case .light:
-            .light
-        case .dark:
-            .dark
-        }
-    }
-
-    init(colorScheme: ColorScheme?) {
-        switch colorScheme {
-        case .light:
-            self = .light
-        case .dark:
-            self = .dark
-        default:
-            self = .system
-        }
-    }
-}

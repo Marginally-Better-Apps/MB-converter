@@ -5,9 +5,9 @@ import UniformTypeIdentifiers
 
 struct HomeView: View {
     @Binding var path: [AppRoute]
-    @Binding var preferredColorScheme: ColorScheme?
     var constrainedWidth = true
 
+    @AppStorage("appColorMode") private var appColorModeRawValue = AppColorMode.system.rawValue
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = HomeViewModel()
@@ -16,6 +16,7 @@ struct HomeView: View {
     @State private var isLinkImportPresented = false
     @State private var linkURLText = ""
     @State private var isSettingsPresented = false
+    @State private var themeSelection: ThemeSelection = .light
     @State private var isConfirmDisableSavedHistoryPresented = false
     @State private var pasteboardRefreshTimer = Timer.publish(every: 0.6, on: .main, in: .common).autoconnect()
     @AppStorage(ConversionHistoryUserDefaults.isEnabledKey) private var conversionHistoryEnabled = false
@@ -492,7 +493,7 @@ struct HomeView: View {
         NavigationStack {
             Form {
                 Section("Appearance") {
-                    Picker("Theme", selection: themeSelectionBinding) {
+                    Picker("Theme", selection: $themeSelection) {
                         ForEach(ThemeSelection.allCases) { option in
                             Text(option.title).tag(option)
                         }
@@ -530,6 +531,7 @@ struct HomeView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(themeSelection.colorScheme)
             .alert("Switch to session-only history?", isPresented: $isConfirmDisableSavedHistoryPresented) {
                 Button("Cancel", role: .cancel) {}
                 Button("Switch", role: .destructive) {
@@ -544,28 +546,31 @@ struct HomeView: View {
                     + "Afterward, History only keeps items from this session until you quit and reopen the app."
                 )
             }
+            .onAppear {
+                themeSelection = resolvedThemeSelection
+            }
+            .onChange(of: themeSelection) { _, selection in
+                let newValue = AppColorMode(colorScheme: selection.colorScheme).rawValue
+                if appColorModeRawValue != newValue {
+                    Haptics.selection()
+                    appColorModeRawValue = newValue
+                }
+            }
+            .onChange(of: appColorModeRawValue) { _, _ in
+                themeSelection = resolvedThemeSelection
+            }
         }
     }
 
-    private var themeSelectionBinding: Binding<ThemeSelection> {
-        Binding(
-            get: {
-                switch preferredColorScheme {
-                case .light:
-                    .light
-                case .dark:
-                    .dark
-                default:
-                    colorScheme == .dark ? .dark : .light
-                }
-            },
-            set: { selection in
-                if preferredColorScheme != selection.colorScheme {
-                    Haptics.selection()
-                }
-                preferredColorScheme = selection.colorScheme
-            }
-        )
+    private var resolvedThemeSelection: ThemeSelection {
+        switch AppColorMode(rawValue: appColorModeRawValue) {
+        case .light?:
+            .light
+        case .dark?:
+            .dark
+        default:
+            colorScheme == .dark ? .dark : .light
+        }
     }
 
     private var conversionHistoryEnabledBinding: Binding<Bool> {
@@ -728,6 +733,6 @@ private struct CapabilityRowWidthPreferenceKey: PreferenceKey {
 
 #Preview {
     NavigationStack {
-        HomeView(path: .constant([]), preferredColorScheme: .constant(nil))
+        HomeView(path: .constant([]))
     }
 }
