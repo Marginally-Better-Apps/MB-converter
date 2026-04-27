@@ -62,3 +62,7 @@ Building from source or curious about how it’s put together? See the **[Develo
 ## License
 
 The app’s source code is under the [MIT License](LICENSE). The libraries it relies on keep their own licenses — see the developer doc for the full list.
+
+## More projects
+
+Check out our other projects at [marginally-better.app](https://marginally-better.app).
