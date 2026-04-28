@@ -69,8 +69,40 @@ External encoders such as `libvpx`, `libmp3lame`, `libvorbis`, and `libopus` are
 │   └── Models/          Shared types
 ├── DesignSystem/        Theme and reusable UI pieces
 ├── Features/            Screens (Home, detail, config, processing, result, history)
+├── web/                 Browser-only React + ffmpeg.wasm app
 └── Converter.xcodeproj
 ```
+
+## Web app
+
+The browser version lives in [`web/`](../web). It mirrors the native flow with a
+Vite + React + TypeScript UI and runs conversion locally with ffmpeg.wasm.
+
+```sh
+cd web
+npm install
+npm run dev
+npm run test
+npm run build
+```
+
+The web app copies `@ffmpeg/core`, `@ffmpeg/core-mt`, and the ffmpeg wrapper
+worker into `web/public/ffmpeg` during `postinstall` so the wasm files are
+served from the same origin. Vite dev and preview set these headers:
+
+```text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+Those headers allow `SharedArrayBuffer` and the multi-thread FFmpeg core. When
+cross-origin isolation is unavailable, the app falls back to the single-thread
+core. All file bytes remain in browser memory/Blob URLs; there is no server-side
+conversion API.
+
+The web FFmpeg core packages are GPL-2.0-or-later. If you distribute or host the
+web build, include the corresponding FFmpeg notices and source-license
+obligations for those packages.
 
 ## Demo asset
 

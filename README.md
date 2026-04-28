@@ -55,6 +55,18 @@
 | WebP (still image) | — |
 | TIFF | — |
 
+## Web app
+
+This repository also includes a browser-only web version in [`web/`](web/). It keeps the iOS color theme and conversion flow, but runs FFmpeg through WebAssembly in the browser instead of uploading media to a server.
+
+```sh
+cd web
+npm install
+npm run dev
+```
+
+The web build serves FFmpeg assets from the same origin and sets COOP/COEP headers for the multi-threaded wasm backend. Browser support, available memory, and the loaded FFmpeg core determine which large files/codecs can be processed.
+
 ## For developers
 
 Building from source or curious about how it’s put together? See the **[Developer documentation](docs/DEVELOPMENT.md)**.
