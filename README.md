@@ -67,6 +67,14 @@ npm run dev
 
 The web build serves FFmpeg assets from the same origin and sets COOP/COEP headers for the multi-threaded wasm backend. Browser support, available memory, and the loaded FFmpeg core determine which large files/codecs can be processed.
 
+### GitHub Pages
+
+The web app is deployable to GitHub Pages with the included workflow in
+`.github/workflows/deploy-web-pages.yml`. Pages hosts static files only and does
+not allow custom COOP/COEP response headers, so the deployed app uses the
+single-thread FFmpeg wasm fallback there. Local Vite dev/preview still uses the
+multi-thread core when the browser is cross-origin isolated.
+
 ## For developers
 
 Building from source or curious about how it’s put together? See the **[Developer documentation](docs/DEVELOPMENT.md)**.

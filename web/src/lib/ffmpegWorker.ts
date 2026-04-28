@@ -21,12 +21,14 @@ import {
 } from "./progress";
 import { outputFormatDetails } from "./models";
 
-const coreMtUrl = "/ffmpeg/core-mt/ffmpeg-core.js";
-const coreMtWasmUrl = "/ffmpeg/core-mt/ffmpeg-core.wasm";
-const coreMtWorkerUrl = "/ffmpeg/core-mt/ffmpeg-core.worker.js";
-const coreUrl = "/ffmpeg/core/ffmpeg-core.js";
-const coreWasmUrl = "/ffmpeg/core/ffmpeg-core.wasm";
-const classWorkerURL = "/ffmpeg/worker/worker.js";
+const assetUrl = (path: string) => new URL(`${import.meta.env.BASE_URL}${path}`, self.location.origin).href;
+
+const coreMtUrl = assetUrl("ffmpeg/core-mt/ffmpeg-core.js");
+const coreMtWasmUrl = assetUrl("ffmpeg/core-mt/ffmpeg-core.wasm");
+const coreMtWorkerUrl = assetUrl("ffmpeg/core-mt/ffmpeg-core.worker.js");
+const coreUrl = assetUrl("ffmpeg/core/ffmpeg-core.js");
+const coreWasmUrl = assetUrl("ffmpeg/core/ffmpeg-core.wasm");
+const classWorkerURL = assetUrl("ffmpeg/worker/worker.js");
 
 let ffmpeg: FFmpeg | null = null;
 let activeAbortController: AbortController | null = null;
