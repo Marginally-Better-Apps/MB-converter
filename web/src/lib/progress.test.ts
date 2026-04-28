@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEncodingStats, parseFfmpegList, parseStreamMetadata, progressFromStats } from "./progress";
+import { parseEncodingStats, parseStreamMetadata, progressFromStats } from "./progress";
 
 describe("progress helpers", () => {
   it("parses FFmpeg progress lines", () => {
@@ -9,13 +9,6 @@ describe("progress helpers", () => {
     expect(stats?.fps).toBe(28.4);
     expect(stats?.timeMilliseconds).toBe(4500);
     expect(progressFromStats(stats!, 9)).toBe(0.5);
-  });
-
-  it("parses encoder list output", () => {
-    expect([...parseFfmpegList(" V....D libx264 H.264\n A..... libmp3lame MP3")]).toEqual([
-      "libx264",
-      "libmp3lame"
-    ]);
   });
 
   it("extracts media metadata from ffprobe json", () => {

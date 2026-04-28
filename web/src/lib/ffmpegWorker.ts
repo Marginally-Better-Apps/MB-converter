@@ -218,7 +218,11 @@ async function convert(job: SerializableWorkerConversionJob) {
     }
     const output = await instance.readFile(outputPath);
     const bytes = toUint8Array(output);
-    const blob = new Blob([bytes], { type: mimeTypeForFormat(job.config.outputFormat) });
+    const outputBuffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(outputBuffer).set(bytes);
+    const blob = new Blob([outputBuffer], {
+      type: mimeTypeForFormat(job.config.outputFormat)
+    });
     const resultMetadata = await inspectResult(instance, outputPath);
     post({
       type: "converted",

@@ -3,8 +3,6 @@ import { encoderNameFor } from "./codecCapabilities";
 import { outputFormatDetails } from "./models";
 import type { ConversionConfig, MediaFile, OutputFormat } from "./models";
 
-export type { ConversionJob };
-
 export interface ConversionStep {
   label: string;
   progressStart: number;
@@ -176,6 +174,31 @@ function buildImagePlan(input: MediaFile, config: ConversionConfig): ConversionP
           ...qualityArgs,
           ...metadataArgs(config),
           ...muxerArgs(config.outputFormat),
+          outputPath
+        ]
+      }
+    ]
+  };
+}
+
+function buildGifPlan(input: MediaFile, config: ConversionConfig): ConversionPlan {
+  return {
+    cleanupPaths: [],
+    steps: [
+      {
+        label: input.category === "video" ? "Encoding GIF..." : "Converting GIF...",
+        progressStart: 0,
+        progressWeight: 1,
+        args: (inputPath, outputPath) => [
+          ...(input.category === "video" ? ["-ss", String(config.frameTimeForExtraction ?? 0)] : []),
+          "-i",
+          inputPath,
+          ...gifFilterArgs(input, config),
+          ...(input.category === "video" ? ["-frames:v", "1"] : []),
+          "-c:v",
+          "gif",
+          ...metadataArgs(config),
+          ...muxerArgs("gif"),
           outputPath
         ]
       }

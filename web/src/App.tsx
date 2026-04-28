@@ -311,14 +311,14 @@ function HomeScreen({
 function DetailScreen({
   media,
   capabilities,
-  lastResult,
+  lastRun,
   onBack,
   onConvert,
   onReuse
 }: {
   media: MediaFile;
   capabilities: CodecCapabilitySnapshot;
-  lastResult: ConversionResult | null;
+  lastRun: { mediaId: string; config: ConversionConfig; result: ConversionResult } | null;
   onBack: () => void;
   onConvert: (config: ConversionConfig) => void;
   onReuse: (result: ConversionResult, config: ConversionConfig) => void;
@@ -332,6 +332,7 @@ function DetailScreen({
   const [targetFraction, setTargetFraction] = useState(0.78);
   const [resolution, setResolution] = useState("original");
   const [fps, setFps] = useState("");
+  const [frameTime, setFrameTime] = useState("");
   const [singlePass, setSinglePass] = useState(false);
   const [audioKbps, setAudioKbps] = useState("");
   const [webpQuality, setWebpQuality] = useState(0.82);
@@ -371,7 +372,10 @@ function DetailScreen({
     };
   }, [audioKbps, crop, cropRegion, format, fps, frameTime, media.dimensions, media.sizeOnDisk, mode, resolution, singlePass, stripMetadata, targetFraction, webpQuality]);
 
-  const matchingCachedResult = lastResult?.outputFormat === config.outputFormat;
+  const matchingCachedResult =
+    lastRun?.mediaId === media.id &&
+    lastRun.result.outputFormat === config.outputFormat &&
+    JSON.stringify(lastRun.config) === JSON.stringify(config);
   const currentOutputName = outputFilename(media.originalFilename, format);
 
   return (
@@ -524,8 +528,8 @@ function DetailScreen({
           <p className="muted">Output: {currentOutputName}</p>
           <div className="split-row">
             <button className="button" onClick={() => onConvert(config)}>Convert</button>
-            {matchingCachedResult && lastResult && (
-              <button className="button secondary" onClick={() => onReuse(lastResult, config)}>Use cached result</button>
+            {matchingCachedResult && lastRun && (
+              <button className="button secondary" onClick={() => onReuse(lastRun.result, config)}>Use cached result</button>
             )}
           </div>
         </div>

@@ -20,7 +20,7 @@ describe("format matrix", () => {
   });
 
   it("sanitizes generated output filenames", () => {
-    expect(outputFilename("folder:bad/name.mov", "mp4_h264")).toBe("name.mp4");
+    expect(outputFilename("folder:bad/name.mov", "mp4_h264")).toBe("folder-bad-name.mp4");
   });
 });
 

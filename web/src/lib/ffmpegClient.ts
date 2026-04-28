@@ -1,7 +1,7 @@
 import type {
   ConversionConfig,
   ConversionResult,
-  EncodingDisplayStats,
+  EncodingStats,
   MediaFile
 } from "./models";
 import type {
@@ -12,9 +12,9 @@ import type {
 } from "./ffmpegMessages";
 
 type ClientEvent =
-  | { type: "progress"; progress: number; stats?: EncodingDisplayStats }
+  | { type: "progress"; progress: number; stats?: EncodingStats }
   | { type: "log"; message: string }
-  | { type: "stats"; stats: EncodingDisplayStats }
+  | { type: "stats"; stats: EncodingStats }
   | { type: "capabilities"; capabilities: SerializableCodecCapabilities }
   | { type: "inspected"; media: SerializableMediaFile }
   | { type: "converted"; result: Omit<ConversionResult, "objectUrl"> }

@@ -33,7 +33,7 @@ export async function createMediaFile(file: File): Promise<MediaFile> {
     };
   } catch {
     try {
-      const probed = await ffmpegClient.inspect(base);
+      const probed = (await ffmpegClient.inspectMedia(base)) as Partial<MediaFile>;
       return {
         ...base,
         ...probed
