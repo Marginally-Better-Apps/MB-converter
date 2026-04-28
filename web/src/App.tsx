@@ -82,9 +82,12 @@ export default function App() {
         <div className="app-header-inner">
           <button className="brand plain-button" onClick={navigateHome} aria-label="Go home">
             <span className="brand-mark">MB</span>
-            <span className="brand-title">MB Converter</span>
+            <span className="brand-copy">
+              <span className="brand-title">MB Converter</span>
+              <span className="brand-subtitle">Local media lab</span>
+            </span>
           </button>
-          <strong>{titleForRoute(route)}</strong>
+          <strong className="route-chip">{titleForRoute(route)}</strong>
           <div className="app-header-actions">
             <select
               className="select compact"
@@ -234,7 +237,7 @@ function HomeScreen({
 
   return (
     <main
-      className="screen screen-narrow stack-large"
+      className="screen home-screen"
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
@@ -242,23 +245,40 @@ function HomeScreen({
         if (file) void importFile(file);
       }}
     >
-      <section className="hero card card-pad">
-        <p className="eyebrow">Browser-only media conversion</p>
-        <h2>Convert and compress locally with FFmpeg WebAssembly.</h2>
-        <p className="muted">
-          Import from Files, drag and drop, paste from the clipboard, or use a direct link. Your media stays in this browser.
-        </p>
-      </section>
-
-      <section className="import-grid">
-        <button className="import-tile" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
-          <strong>Files</strong>
-          <span>Choose video, audio, image, or GIF</span>
-        </button>
-        <button className="import-tile" onClick={paste} disabled={isImporting}>
-          <strong>Paste</strong>
-          <span>Read media from clipboard</span>
-        </button>
+      <section className="home-hero">
+        <div className="hero-copy">
+          <p className="eyebrow">Browser-only media conversion</p>
+          <h1>Desktop-grade conversion, no upload queue.</h1>
+          <p className="hero-lede">
+            Drop media into a local FFmpeg workspace, tune the output, and save the result without sending files to a server.
+          </p>
+          <div className="hero-actions">
+            <button className="button primary large" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+              Choose files
+            </button>
+            <button className="button ghost large" onClick={paste} disabled={isImporting}>
+              Paste media
+            </button>
+          </div>
+        </div>
+        <div className="hero-console card">
+          <div className="console-topline">
+            <span className="signal-dot" />
+            <span>FFmpeg workspace</span>
+          </div>
+          <button className="drop-console plain-button" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+            <span className="drop-ring">
+              <span className="drop-core">MB</span>
+            </span>
+            <strong>Drop video, audio, images, or GIFs here</strong>
+            <span>Or click to browse from your desktop.</span>
+          </button>
+          <div className="console-metrics">
+            <span>Private</span>
+            <span>WASM</span>
+            <span>2 GB max</span>
+          </div>
+        </div>
       </section>
       <input
         ref={fileInputRef}
@@ -271,34 +291,47 @@ function HomeScreen({
         }}
       />
 
-      <section className="card card-pad stack">
-        <label className="form-row">
-          <span>Import from link</span>
-          <input className="input" value={link} onChange={(event) => setLink(event.target.value)} placeholder="https://example.com/video.webm" />
-        </label>
-        <button className="button" onClick={importFromLink} disabled={!link.trim() || isImporting}>
-          Download
-        </button>
-      </section>
-
-      <section className="card card-pad stack">
-        <div className="split-row">
-          <div>
-            <p className="eyebrow">FFmpeg backend</p>
-            <strong>{capabilities.runtimeLabel}</strong>
-            <p className="muted">{capabilities.loaded ? `${capabilities.encoders.size} encoders detected` : "Runtime loads on demand."}</p>
-          </div>
-          <button className="button secondary" onClick={() => ffmpegClient.load()}>
-            Probe FFmpeg
+      <section className="desktop-grid">
+        <div className="card card-pad link-panel">
+          <p className="eyebrow">Remote source</p>
+          <h2>Pull from a direct URL.</h2>
+          <label className="form-row">
+            <span>Media link</span>
+            <input className="input" value={link} onChange={(event) => setLink(event.target.value)} placeholder="https://example.com/video.webm" />
+          </label>
+          <button className="button" onClick={importFromLink} disabled={!link.trim() || isImporting}>
+            Download to workspace
           </button>
         </div>
-        <div className="pill-list">
-          {["mp4_h264", "webm", "mp3", "ogg", "opus", "webpImage"].map((format) => (
-            <span key={format} className="pill">
-              {outputFormatDetails[format as OutputFormat].displayName}
-              {canEncode(format as OutputFormat, capabilities) ? "" : " unavailable"}
-            </span>
-          ))}
+
+        <div className="card card-pad runtime-panel">
+          <div className="split-row">
+            <div>
+              <p className="eyebrow">FFmpeg backend</p>
+              <h2>{capabilities.runtimeLabel}</h2>
+              <p className="muted">{capabilities.loaded ? `${capabilities.encoders.size} encoders detected locally` : "Runtime loads on demand."}</p>
+            </div>
+            <button className="button secondary" onClick={() => ffmpegClient.load()}>
+              Probe FFmpeg
+            </button>
+          </div>
+          <div className="pill-list">
+            {["mp4_h264", "webm", "mp3", "ogg", "opus", "webpImage"].map((format) => (
+              <span key={format} className="pill">
+                {outputFormatDetails[format as OutputFormat].displayName}
+                {canEncode(format as OutputFormat, capabilities) ? "" : " unavailable"}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="card card-pad workflow-panel">
+          <p className="eyebrow">Flow</p>
+          <ol className="workflow-list">
+            <li><span>Import</span><strong>Drag, browse, paste, or link.</strong></li>
+            <li><span>Tune</span><strong>Pick codecs, size, crop, and metadata.</strong></li>
+            <li><span>Export</span><strong>Download from the browser sandbox.</strong></li>
+          </ol>
         </div>
       </section>
 
@@ -379,14 +412,14 @@ function DetailScreen({
   const currentOutputName = outputFilename(media.originalFilename, format);
 
   return (
-    <main className="screen stack-large">
+    <main className="screen stack-large workspace-screen">
       <button className="button ghost fit" onClick={onBack}>Back</button>
-      <section className="two-column">
-        <div className="card card-pad stack">
+      <section className="two-column workspace-grid">
+        <div className="card card-pad stack media-panel">
           <MediaPreview media={media} />
           <MetadataSummary media={media} />
         </div>
-        <div className="card card-pad stack">
+        <div className="card card-pad stack config-panel">
           <p className="eyebrow">Output</p>
           <label className="form-row">
             <span>Format</span>
@@ -573,7 +606,7 @@ function ProcessingScreen({
 
   return (
     <main className="screen screen-narrow stack-large">
-      <section className="card card-pad stack">
+      <section className="card card-pad stack processing-panel">
         <p className="eyebrow">Processing</p>
         <h2>{state.label}</h2>
         <div className="progress-track" style={{ "--progress": state.progress } as React.CSSProperties}>
@@ -621,13 +654,13 @@ function ResultScreen({
   };
 
   return (
-    <main className="screen stack-large">
+    <main className="screen stack-large workspace-screen">
       <button className="button ghost fit" onClick={onBack}>Back to config</button>
-      <section className="two-column">
-        <div className="card card-pad stack">
+      <section className="two-column workspace-grid">
+        <div className="card card-pad stack media-panel">
           <ResultPreview result={result} />
         </div>
-        <div className="card card-pad stack">
+        <div className="card card-pad stack config-panel">
           <p className="eyebrow">Result</p>
           <h2>{bytes(media.sizeOnDisk)} → {bytes(result.sizeOnDisk)}</h2>
           <label className="form-row">
@@ -648,7 +681,7 @@ function ResultScreen({
 
 function HistoryScreen({ entries, onBack, onClear }: { entries: HistoryEntry[]; onBack: () => void; onClear: () => void }) {
   return (
-    <main className="screen screen-narrow stack">
+    <main className="screen screen-narrow stack history-screen">
       <div className="split-row">
         <button className="button ghost" onClick={onBack}>Back</button>
         <button className="button danger" onClick={onClear} disabled={!entries.length}>Clear</button>
