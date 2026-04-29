@@ -9,7 +9,6 @@
     <img alt="Join on TestFlight" src="https://img.shields.io/badge/TestFlight-Join%20Beta-0A84FF?style=for-the-badge&logo=apple&logoColor=white" />
   </a>
 </p>
-<p><strong>⚠️ CURRENTLY IN REVIEW</strong></p>
 
 **App Icon**
 
