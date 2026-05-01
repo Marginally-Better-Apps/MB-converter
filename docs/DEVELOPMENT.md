@@ -69,8 +69,58 @@ External encoders such as `libvpx`, `libmp3lame`, `libvorbis`, and `libopus` are
 │   └── Models/          Shared types
 ├── DesignSystem/        Theme and reusable UI pieces
 ├── Features/            Screens (Home, detail, config, processing, result, history)
+├── web/                 Browser-only React + ffmpeg.wasm app
 └── Converter.xcodeproj
 ```
+
+## Web app
+
+The browser version lives in [`web/`](../web). It mirrors the native flow with a
+Vite + React + TypeScript UI and runs conversion locally with ffmpeg.wasm.
+
+```sh
+cd web
+npm install
+npm run dev
+npm run test
+npm run build
+```
+
+The web app copies `@ffmpeg/core`, `@ffmpeg/core-mt`, and the ffmpeg wrapper
+worker into `web/public/ffmpeg` during `postinstall` so the wasm files are
+served from the same origin. Vite dev and preview set these headers:
+
+```text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+Those headers allow `SharedArrayBuffer` and the multi-thread FFmpeg core. When
+cross-origin isolation is unavailable, the app falls back to the single-thread
+core. All file bytes remain in browser memory/Blob URLs; there is no server-side
+conversion API.
+
+### GitHub Pages
+
+The workflow in [`.github/workflows/deploy-web-pages.yml`](../.github/workflows/deploy-web-pages.yml)
+builds the static web app and publishes `web/dist` to GitHub Pages. The
+repository's Pages source must be set to **GitHub Actions** in the repository
+settings. The workflow uses `VITE_BASE_PATH` so Vite assets work from the
+repository subpath (for example `/MB-converter/`).
+
+GitHub Pages does not support custom COOP/COEP response headers for static
+sites, so the hosted Pages build uses the single-thread ffmpeg.wasm fallback.
+For the multi-thread core, host the same `web/dist` files behind a static host
+that can set:
+
+```text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+The web FFmpeg core packages are GPL-2.0-or-later. If you distribute or host the
+web build, include the corresponding FFmpeg notices and source-license
+obligations for those packages.
 
 ## Demo asset
 
