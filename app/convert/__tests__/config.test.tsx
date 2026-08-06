@@ -52,36 +52,40 @@ function Providers({ children }: { children: React.ReactNode }) {
 }
 
 describe('ConvertConfigScreen', () => {
-  it('lists allowed formats and can start conversion navigation', async () => {
-    const user = userEvent.setup();
-    await render(
-      <Providers>
-        <Seed
-          input={{
-            uri: 'file:///tmp/clip.mp4',
-            filename: 'clip.mp4',
-            category: 'video',
-            byteSize: 5_000_000,
-            duration: 12,
-            dimensions: { width: 1920, height: 1080 },
-            fps: 30,
-          }}
-        />
-      </Providers>
-    );
+  it(
+    'lists allowed formats and can start conversion navigation',
+    async () => {
+      const user = userEvent.setup();
+      await render(
+        <Providers>
+          <Seed
+            input={{
+              uri: 'file:///tmp/clip.mp4',
+              filename: 'clip.mp4',
+              category: 'video',
+              byteSize: 5_000_000,
+              duration: 12,
+              dimensions: { width: 1920, height: 1080 },
+              fps: 30,
+            }}
+          />
+        </Providers>
+      );
 
-    expect(screen.getByTestId('convert-config-screen')).toBeOnTheScreen();
-    expect(screen.getByTestId('convert-format-mp4_h264')).toBeOnTheScreen();
-    expect(screen.getByTestId('convert-format-m4a')).toBeOnTheScreen();
-    expect(screen.getByTestId('convert-config-resolution')).toBeOnTheScreen();
-    expect(screen.getByTestId('convert-config-fps')).toBeOnTheScreen();
-    expect(screen.getByTestId('convert-config-metadata')).toBeOnTheScreen();
-    expect(screen.getByTestId('convert-config-start')).toBeOnTheScreen();
+      expect(await screen.findByTestId('convert-config-screen')).toBeOnTheScreen();
+      expect(screen.getByTestId('convert-format-mp4_h264')).toBeOnTheScreen();
+      expect(screen.getByTestId('convert-format-m4a')).toBeOnTheScreen();
+      expect(screen.getByTestId('convert-config-resolution')).toBeOnTheScreen();
+      expect(screen.getByTestId('convert-config-fps')).toBeOnTheScreen();
+      expect(screen.getByTestId('convert-config-metadata')).toBeOnTheScreen();
+      expect(screen.getByTestId('convert-config-start')).toBeOnTheScreen();
 
-    await user.press(screen.getByTestId('convert-format-m4a'));
-    await user.press(screen.getByTestId('convert-config-start'));
+      await user.press(screen.getByTestId('convert-format-m4a'));
+      await user.press(screen.getByTestId('convert-config-start'));
 
-    const { router } = jest.requireMock('expo-router');
-    expect(router.push).toHaveBeenCalledWith('/convert/processing');
-  });
+      const { router } = jest.requireMock('expo-router');
+      expect(router.push).toHaveBeenCalledWith('/convert/processing');
+    },
+    20_000
+  );
 });

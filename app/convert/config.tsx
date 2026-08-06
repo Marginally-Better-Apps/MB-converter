@@ -60,17 +60,10 @@ export default function ConvertConfigScreen() {
   const activeFormat = selected ?? config?.outputFormat ?? outputs[0] ?? null;
 
   useEffect(() => {
-    if (!input || !mediaFile || !activeFormat) return;
-    if (config?.outputFormat === activeFormat) return;
-    setConfig(defaultConversionConfig(mediaFile, activeFormat));
-  }, [activeFormat, config?.outputFormat, input, mediaFile, setConfig]);
-
-  useEffect(() => {
-    if (mediaFile?.dimensions) {
-      setCustomWidth(String(Math.round(mediaFile.dimensions.width)));
-      setCustomHeight(String(Math.round(mediaFile.dimensions.height)));
-    }
-  }, [mediaFile?.dimensions?.width, mediaFile?.dimensions?.height]);
+    if (!mediaFile?.dimensions) return;
+    setCustomWidth(String(Math.round(mediaFile.dimensions.width)));
+    setCustomHeight(String(Math.round(mediaFile.dimensions.height)));
+  }, [mediaFile?.dimensions?.height, mediaFile?.dimensions?.width]);
 
   const resOptions = useMemo(
     () => (mediaFile ? resolutionOptions(mediaFile.dimensions) : []),
