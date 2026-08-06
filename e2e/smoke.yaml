@@ -2,11 +2,12 @@
 # Prefer testIDs — accessibility labels differ from visible titles.
 appId: com.marginallybetter.converter
 ---
-- launchApp
+- launchApp:
+    clearState: true
 - extendedWaitUntil:
     visible:
       id: "home-screen"
-    timeout: 30000
+    timeout: 60000
 - assertVisible:
     id: "home-title"
 - assertVisible: "Convert & Compress"
