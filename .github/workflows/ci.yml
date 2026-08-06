@@ -275,4 +275,9 @@ jobs:
 
           echo "Running Maestro flows:"
           printf '  %s\n' "${flows[@]}"
-          maestro --device "${{ steps.sim.outputs.udid }}" test "${flows[@]}"
+          # One flow per invocation so clearState + failures are isolated.
+          for flow in "${flows[@]}"; do
+            echo "::group::Maestro $flow"
+            maestro --device "${{ steps.sim.outputs.udid }}" test "$flow"
+            echo "::endgroup::"
+          done

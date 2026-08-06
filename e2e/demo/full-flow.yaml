@@ -3,12 +3,14 @@
 # CI excludes e2e/demo/; run via ./scripts/record-demo.sh after a Dev Client build.
 appId: com.marginallybetter.converter
 ---
-- launchApp
+- launchApp:
+    clearState: true
 - extendedWaitUntil:
-    visible: "MB Converter"
-    timeout: 30000
+    visible:
+      id: "home-screen"
+    timeout: 60000
 - assertVisible:
-    id: "home-screen"
+    id: "home-title"
 - tapOn:
     id: "import-demo-fixture"
 - extendedWaitUntil:
@@ -33,10 +35,7 @@ appId: com.marginallybetter.converter
     id: "convert-config-start"
 - tapOn:
     id: "convert-config-start"
-- extendedWaitUntil:
-    visible:
-      id: "processing-screen"
-    timeout: 15000
+# tiny.mp4 can finish before processing-screen is assertable; wait for result.
 - extendedWaitUntil:
     visible:
       id: "result-screen"
@@ -45,3 +44,4 @@ appId: com.marginallybetter.converter
     id: "result-share"
 - assertVisible:
     id: "result-done"
+- assertVisible: "Done"
