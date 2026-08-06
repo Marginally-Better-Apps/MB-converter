@@ -1,18 +1,27 @@
 # Home import surface smoke (pickers need Simulator permission fixtures for full automation).
+# Prefer testIDs — accessibility labels differ from visible titles.
 appId: com.marginallybetter.converter
 ---
 - launchApp
 - extendedWaitUntil:
-    visible: "MB Converter"
+    visible:
+      id: "home-screen"
     timeout: 30000
 - assertVisible:
     id: "home-screen"
-- assertVisible: "Photo Album"
-- assertVisible: "Files"
-- assertVisible: "From link"
-- assertVisible: "Paste from clipboard"
-- tapOn: "From link"
+- assertVisible:
+    id: "import-photos"
+- assertVisible:
+    id: "import-files"
+- assertVisible:
+    id: "import-link"
+- assertVisible:
+    id: "import-paste"
+- tapOn:
+    id: "import-link"
 - assertVisible: "Import from link"
-- assertVisible: "Download"
+- assertVisible:
+    id: "link-download"
 - tapOn: "Cancel"
-- assertVisible: "MB Converter"
+- assertVisible:
+    id: "home-title"
