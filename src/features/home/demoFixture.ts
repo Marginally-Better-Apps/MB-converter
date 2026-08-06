@@ -6,7 +6,8 @@ import type { ImportedMedia } from '@/src/core/io/ImportService';
 /**
  * Copies the bundled tiny.mp4 fixture into cache so Maestro / Simulator demos
  * can reach import-detail → convert/config without photo-library permissions.
- * Full encode success still needs a real media file (tiny.mp4 is a path smoke stub).
+ * tiny.mp4 is a small real H.264/AAC MP4 (ISO BMFF with ftyp) suitable for path
+ * smoke and light encode demos.
  */
 export async function loadDemoFixtureMedia(): Promise<ImportedMedia> {
   const asset = Asset.fromModule(require('../../../fixtures/media/tiny.mp4'));

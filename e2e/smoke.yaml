@@ -1,13 +1,18 @@
 # CI smoke: launch the Simulator Dev/Release build and assert Home.
-# Home must keep the visible title "MB Converter".
+# Prefer testIDs — accessibility labels differ from visible titles.
 appId: com.marginallybetter.converter
 ---
 - launchApp
 - extendedWaitUntil:
-    visible: "MB Converter"
+    visible:
+      id: "home-screen"
     timeout: 30000
-- assertVisible: "MB Converter"
+- assertVisible:
+    id: "home-title"
 - assertVisible: "Convert & Compress"
-- assertVisible: "Photo Album"
-- assertVisible: "Files"
-- assertVisible: "From link"
+- assertVisible:
+    id: "import-photos"
+- assertVisible:
+    id: "import-files"
+- assertVisible:
+    id: "import-link"
