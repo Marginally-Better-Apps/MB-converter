@@ -1,15 +1,58 @@
 # macOS
 .DS_Store
+*.pem
 
-# Xcode user data
-*.xcuserstate
-*.xcuserdata/
+# dependencies
+node_modules/
 
-# Xcode build artifacts
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.derivedData/
 DerivedData/
 build/
 
-# Swift Package Manager
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# local env files
+.env
+.env*.local
+.envrc
+.direnv
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# Xcode user data / Swift legacy
+*.xcuserstate
+*.xcuserdata/
+*.xcresult
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM.zip
+.swiftpm/configuration/registries.json
 .build/
 Packages/
 Package.pins
@@ -28,16 +71,3 @@ fastlane/test_output/
 
 # cursor
 .cursor/
-
-# Xcode / tooling
-*.xcresult
-*.xcscmblueprint
-*.hmap
-*.ipa
-*.dSYM.zip
-.swiftpm/configuration/registries.json
-
-# Misc
-.direnv
-.env
-.envrc

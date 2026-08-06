@@ -1,0 +1,5 @@
+# Placeholder Maestro flow — replace with real import/convert paths in later epics.
+appId: com.marginallybetter.converter
+---
+- launchApp
+- assertVisible: "MB Converter"

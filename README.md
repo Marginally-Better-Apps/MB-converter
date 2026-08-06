@@ -1,6 +1,6 @@
 # MB Converter
 
-**Convert and compress** photos, video, and audio on your iPhone and iPad, one simple flow from choosing a format to picking where your file comes from. MB Converter is completely free and open source.
+**Convert and compress** photos, video, and audio on your iPhone and iPad. This repository is being rebuilt as an **iOS-only Expo / React Native** app on the `react-native-port` branch. The previous SwiftUI app lives in [`legacy/swift/`](legacy/swift/) for reference.
 
 ## Get the beta
 
@@ -12,55 +12,43 @@
 
 **App Icon**
 
-<img src="Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="8%" />
+<img src="legacy/swift/Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="8%" />
 
-**Main Screen Preview**
+**Main Screen Preview** (legacy Swift UI)
 
 <table>
   <tr>
     <td align="center">
       <strong>Light</strong><br />
-      <img src="docs/light_mainpage.png" alt="MB Converter light main screen" width="180" />
+      <img src="legacy/swift/docs/light_mainpage.png" alt="MB Converter light main screen" width="180" />
     </td>
     <td align="center">
       <strong>Dark</strong><br />
-      <img src="docs/dark_mainpage.png" alt="MB Converter dark main screen" width="180" />
+      <img src="legacy/swift/docs/dark_mainpage.png" alt="MB Converter dark main screen" width="180" />
     </td>
   </tr>
 </table>
 
-## Supported formats
+## Develop (Expo)
 
-| Files | Codecs we can read |
-|-------|--------------------|
-| Video: MP4, MOV, M4V, MKV, WebM, AVI, FLV, F4V, TS, MTS, M2TS, 3GP, MPEG/MPG, M2V, MXF, OGV, VOB, ASF, WMV, WTV, SWF, HEVC, MJPEG | H.264, HEVC, VP8, VP9, MPEG-2, MPEG-4, MJPEG, Theora |
-| Audio: MP3, M4A, WAV, AAC, FLAC, OGG, Opus, ALAC | AAC, MP3, FLAC, ALAC, Vorbis, Opus, PCM |
-| Photos: JPEG, PNG, HEIC, WebP, AVIF, TIFF | handled by iOS |
-| Animated: GIF | — |
+Requires Node 20+, Xcode 15+, iOS 17+ Simulator.
 
-### What you can save out
+```sh
+npm install
+npm test
+npm start
+npm run ios
+```
 
-| Output | Codec used |
-|--------|------------|
-| MP4 (H.264) | H.264 |
-| MP4 (HEVC) | HEVC |
-| MOV | H.264 |
-| M4A | AAC |
-| AAC | AAC |
-| WAV | PCM 16-bit |
-| JPEG | — |
-| PNG | — |
-| HEIC | — |
-| WebP (still image) | — |
-| TIFF | — |
+**Custom Dev Client required for conversion.** Expo Go cannot load the native FFmpeg module. Once native modules land, use `npx expo run:ios` (or an EAS development build), not Expo Go.
 
-## For developers
+Bundle ID: `com.marginallybetter.converter` · Display name: **MB Converter**
 
-Building from source or curious about how it’s put together? See the **[Developer documentation](docs/DEVELOPMENT.md)**.
+Agent / port notes: see [`AGENTS.md`](AGENTS.md). Legacy Swift developer docs: [`legacy/swift/docs/DEVELOPMENT.md`](legacy/swift/docs/DEVELOPMENT.md).
 
 ## License
 
-The app’s source code is under the [MIT License](LICENSE). The libraries it relies on keep their own licenses — see the developer doc for the full list.
+The app’s source code is under the [MIT License](LICENSE). Third-party libraries (FFmpeg, etc.) keep their own licenses.
 
 ## More projects
 
