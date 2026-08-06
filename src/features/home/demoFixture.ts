@@ -22,10 +22,7 @@ export async function loadDemoFixtureMedia(): Promise<ImportedMedia> {
   }
   const dest = new File(dir, 'demo-sample.mp4');
   const source = new File(localUri);
-  if (dest.exists) {
-    dest.delete();
-  }
-  source.copy(dest);
+  await source.copy(dest, { overwrite: true });
 
   return {
     uri: dest.uri,
