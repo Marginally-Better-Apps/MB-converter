@@ -51,6 +51,17 @@ npm run ios        # opens iOS Simulator (Expo Go until custom client exists)
 npx expo run:ios   # preferred once native modules / Dev Client are in place
 ```
 
+## CI (GitHub Actions)
+
+Workflows on `react-native-port` (push/PR) and `workflow_dispatch`. Markdown/LICENSE-only changes are skipped via `paths-ignore`.
+
+| Workflow | Jobs | Runner | Notes |
+|----------|------|--------|-------|
+| `.github/workflows/ci.yml` | `unit`, `e2e` | Ubuntu / macOS-15 | Unit: `npm ci` + `npm test` only. E2e: `expo prebuild -p ios`, Simulator Release build, Maestro on `e2e/` **excluding** `e2e/demo/`. |
+| `.github/workflows/ipa-unsigned.yml` | `unsigned-ipa` | macOS-15 | Clean iOS prebuild, unsigned `xcodebuild archive`, artifact `MB-Converter-unsigned.ipa`. |
+
+Optimizations: unit never waits on macOS; npm cache via `setup-node`; CocoaPods + DerivedData caches on macOS jobs; no Android builds.
+
 ### Testing Library
 
 This project uses `@testing-library/react-native` v14 (`await render(...)`). Prefer package docs under `node_modules/@testing-library/react-native/docs/` (start with `guides/llm-guidelines.md`) over stale training data.

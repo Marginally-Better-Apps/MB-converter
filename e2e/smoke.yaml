@@ -1,5 +1,9 @@
-# Placeholder Maestro flow — replace with real import/convert paths in later epics.
+# CI smoke: launch the Simulator Dev/Release build and assert the home title.
+# Matches the Expo template home screen (app/(tabs)/index.tsx).
 appId: com.marginallybetter.converter
 ---
 - launchApp
+- extendedWaitUntil:
+    visible: "MB Converter"
+    timeout: 30000
 - assertVisible: "MB Converter"
