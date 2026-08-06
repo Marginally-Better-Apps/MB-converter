@@ -1,0 +1,120 @@
+# Builds an unsigned iOS IPA (no signing) for smoke/archive checks.
+# iOS-only Expo prebuild → xcodebuild archive with CODE_SIGNING_ALLOWED=NO → artifact.
+name: Unsigned IPA
+
+on:
+  push:
+    branches: [react-native-port]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  pull_request:
+    branches: [react-native-port]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  workflow_dispatch:
+
+concurrency:
+  group: ipa-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPO_NO_TELEMETRY: 1
+  CI: true
+
+jobs:
+  unsigned-ipa:
+    name: Archive unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_16.2.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.2.app
+          elif [ -d /Applications/Xcode_16.1.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app
+          fi
+          xcodebuild -version
+          echo "XCODE_VERSION=$(xcodebuild -version | awk 'NR==1{print $2}')" >> "$GITHUB_ENV"
+
+      - name: Prebuild iOS (clean, skip pod install for cache)
+        run: npx expo prebuild -p ios --clean --no-install
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: cocoapods-ipa-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('package-lock.json', 'app.json', 'ios/Podfile') }}
+          restore-keys: |
+            cocoapods-ipa-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+            cocoapods-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+            cocoapods-${{ runner.os }}-
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: pod install --deployment 2>/dev/null || pod install
+
+      - name: Resolve Xcode workspace and scheme
+        id: xcode
+        run: |
+          WORKSPACE=$(ls -d ios/*.xcworkspace | head -1)
+          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" -json | python3 -c "import json,sys; print(json.load(sys.stdin)['workspace']['schemes'][0])")
+          echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Using workspace=$WORKSPACE scheme=$SCHEME"
+
+      - name: Archive (unsigned)
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild archive \
+            -workspace "${{ steps.xcode.outputs.workspace }}" \
+            -scheme "${{ steps.xcode.outputs.scheme }}" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/MBConverter.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP=$(find build/MBConverter.xcarchive/Products/Applications -name '*.app' -maxdepth 1 | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app found in archive Products/Applications"
+            ls -laR build/MBConverter.xcarchive/Products || true
+            exit 1
+          fi
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP" Payload/
+          # IPA is a zip with a Payload/ root (unsigned — not installable on device without resigning).
+          rm -f MB-Converter-unsigned.ipa
+          zip -qry MB-Converter-unsigned.ipa Payload
+          ls -lh MB-Converter-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MB-Converter-unsigned
+          path: MB-Converter-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
