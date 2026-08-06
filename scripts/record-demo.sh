@@ -45,9 +45,9 @@ trap cleanup EXIT
 # Give simctl a moment to start capturing before Maestro interacts.
 sleep 1
 
+# appId lives in the Maestro YAML; do not pass --app-id (unsupported on some CLI versions).
 maestro test \
   --device "$DEVICE" \
-  --app-id "$APP_ID" \
   "$FLOW"
 
 # Stop recording cleanly.
