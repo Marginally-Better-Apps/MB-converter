@@ -5,12 +5,14 @@
   "private": true,
   "scripts": {
     "start": "expo start",
-    "ios": "expo start --ios",
-    "android": "expo start --android",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
     "web": "expo start --web",
     "test": "jest",
     "test:watch": "jest --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "download:ffmpeg": "./scripts/download-ffmpeg-frameworks.sh",
+    "prebuild:ios": "npm run download:ffmpeg && npx expo prebuild -p ios"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -24,6 +26,7 @@
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.1",
     "expo-web-browser": "~57.0.2",
+    "ffmpeg-module": "file:./modules/ffmpeg-module",
     "nativewind": "^4.2.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",

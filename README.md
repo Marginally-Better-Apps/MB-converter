@@ -35,12 +35,14 @@ Requires Node 20+, Xcode 15+, iOS 17+ Simulator.
 
 ```sh
 npm install
+./scripts/download-ffmpeg-frameworks.sh   # once; vendors FFmpegKit min.v5.1.2.6 xcframeworks
 npm test
-npm start
-npm run ios
+npx expo run:ios                          # Dev Client (required for FFmpeg)
 ```
 
-**Custom Dev Client required for conversion.** Expo Go cannot load the native FFmpeg module. Once native modules land, use `npx expo run:ios` (or an EAS development build), not Expo Go.
+**Custom Dev Client required for conversion.** Expo Go cannot load the native FFmpeg module. Use `npx expo run:ios` (or an EAS development build), not Expo Go.
+
+FFmpeg binaries are downloaded (not committed). See [`AGENTS.md`](AGENTS.md) and [`CREDITS.md`](CREDITS.md) (LGPL).
 
 Bundle ID: `com.marginallybetter.converter` · Display name: **MB Converter**
 
@@ -48,7 +50,7 @@ Agent / port notes: see [`AGENTS.md`](AGENTS.md). Legacy Swift developer docs: [
 
 ## License
 
-The app’s source code is under the [MIT License](LICENSE). Third-party libraries (FFmpeg, etc.) keep their own licenses.
+The app’s source code is under the [MIT License](LICENSE). FFmpeg / FFmpegKit retain LGPL (and related) terms — see [`CREDITS.md`](CREDITS.md).
 
 ## More projects
 

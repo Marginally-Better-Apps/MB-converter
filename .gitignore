@@ -44,6 +44,10 @@ yarn-error.*
 /ios
 /android
 
+# Vendored FFmpegKit xcframeworks (download via scripts/download-ffmpeg-frameworks.sh)
+modules/*/ios/Frameworks/*.xcframework
+.cache/ffmpeg-kit-spm/
+
 # Xcode user data / Swift legacy
 *.xcuserstate
 *.xcuserdata/

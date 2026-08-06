@@ -21,6 +21,7 @@ iOS-only Expo / React Native rebuild of MB Converter. Plan: https://planista.shl
 - Jest + Testing Library (unit/component)
 - Maestro on iOS Simulator (e2e + final demo)
 - State: React state + Context first; Zustand only if needed
+- Local Expo Module `ffmpeg-module` (iOS) wrapping FFmpegKit / FFprobeKit
 
 ## Critical constraints
 
@@ -30,25 +31,61 @@ iOS-only Expo / React Native rebuild of MB Converter. Plan: https://planista.shl
 4. **TDD** — domain and critical UI: failing tests first, then implement, `npm test` green before merge to `react-native-port`.
 5. **No browser demo** — final acceptance video is headed iOS Simulator + Maestro + `simctl recordVideo` via `./scripts/record-demo.sh`.
 
+## FFmpeg frameworks (Epic 1)
+
+Vendored binaries match the Swift app: **tylerjonesio/ffmpeg-kit-spm `min.v5.1.2.6`**.
+
+xcframeworks are **not** committed (too large). Download before prebuild / `pod install`:
+
+```sh
+./scripts/download-ffmpeg-frameworks.sh
+# or
+npm run download:ffmpeg
+```
+
+- SHA256 pins live in `scripts/download-ffmpeg-frameworks.sh` (from upstream `Package.swift`).
+- Extracted to `modules/ffmpeg-module/ios/Frameworks/*.xcframework` (gitignored).
+- Zips cached under `.cache/ffmpeg-kit-spm/` (gitignored).
+- Expo config plugin `ffmpeg-module` runs the download during `expo prebuild`.
+- Podspec also downloads if frameworks are missing when CocoaPods evaluates the pod.
+- **CI must run the download script** (or rely on the config plugin / podspec) before building iOS.
+
+Linked system frameworks/libs: VideoToolbox, AudioToolbox, AVFoundation, z, bz2, iconv, lzma.
+
+LGPL note: see [`CREDITS.md`](CREDITS.md).
+
+### TypeScript command builders
+
+Domain logic under `src/core/` (ported from `legacy/swift/Core/Conversion/*` + Compatibility):
+
+- `src/core/ffmpeg/*` — quote, metadata flags, video/audio/animated command builders
+- `src/core/compatibility/CodecCapability.ts`, `FormatMatrix.ts`
+- Golden-string unit tests in `src/core/__tests__/`
+
+JS API (`ffmpeg-module`): `execute`, `cancel`, `probe`, `getRuntimeInfo`, events `onProgress` / `onLog`.
+
 ## Layout
 
 ```
 app/                 Expo Router screens
 components/          Shared UI
 constants/           Theme tokens, colors
+src/core/            Conversion domain (TS) + FFmpeg command builders
+modules/ffmpeg-module/  Expo Module (iOS FFmpegKit wrapper + config plugin)
+fixtures/media/      Tiny media placeholders
 legacy/swift/        Previous SwiftUI app (reference)
 e2e/                 Maestro flows (CI); e2e/demo/ for final recording only
-scripts/             Demo recording helpers
+scripts/             Demo recording + FFmpeg framework download
 ```
 
 ## Commands
 
 ```sh
 npm install
+./scripts/download-ffmpeg-frameworks.sh   # required once before native iOS build
 npm test
 npm start          # Metro; use Dev Client for native modules
-npm run ios        # opens iOS Simulator (Expo Go until custom client exists)
-npx expo run:ios   # preferred once native modules / Dev Client are in place
+npx expo run:ios   # prebuild + Dev Client (runs FFmpeg download via config plugin)
 ```
 
 ## CI (GitHub Actions)
@@ -57,10 +94,10 @@ Workflows on `react-native-port` (push/PR) and `workflow_dispatch`. Markdown/LIC
 
 | Workflow | Jobs | Runner | Notes |
 |----------|------|--------|-------|
-| `.github/workflows/ci.yml` | `unit`, `e2e` | Ubuntu / macOS-15 | Unit: `npm ci` + `npm test` only. E2e: `expo prebuild -p ios`, Simulator Release build, Maestro on `e2e/` **excluding** `e2e/demo/`. |
-| `.github/workflows/ipa-unsigned.yml` | `unsigned-ipa` | macOS-15 | Clean iOS prebuild, unsigned `xcodebuild archive`, artifact `MB-Converter-unsigned.ipa`. |
+| `.github/workflows/ci.yml` | `unit`, `e2e` | Ubuntu / macOS-15 | Unit: `npm ci` + `npm test` only. E2e: download FFmpeg frameworks, `expo prebuild -p ios`, Simulator Release build, Maestro on `e2e/` **excluding** `e2e/demo/`. |
+| `.github/workflows/ipa-unsigned.yml` | `unsigned-ipa` | macOS-15 | Download frameworks, clean iOS prebuild, unsigned `xcodebuild archive`, artifact `MB-Converter-unsigned.ipa`. |
 
-Optimizations: unit never waits on macOS; npm cache via `setup-node`; CocoaPods + DerivedData caches on macOS jobs; no Android builds.
+Optimizations: unit never waits on macOS; npm cache via `setup-node`; CocoaPods + DerivedData + FFmpeg zip caches on macOS jobs; no Android builds.
 
 ### Testing Library
 

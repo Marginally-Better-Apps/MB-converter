@@ -46,7 +46,8 @@
             "deploymentTarget": "17.0"
           }
         }
-      ]
+      ],
+      "ffmpeg-module"
     ],
     "experiments": {
       "typedRoutes": true

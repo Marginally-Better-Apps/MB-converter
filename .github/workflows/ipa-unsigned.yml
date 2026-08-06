@@ -51,6 +51,15 @@ jobs:
           xcodebuild -version
           echo "XCODE_VERSION=$(xcodebuild -version | awk 'NR==1{print $2}')" >> "$GITHUB_ENV"
 
+      - name: Cache FFmpegKit xcframework zips
+        uses: actions/cache@v4
+        with:
+          path: .cache/ffmpeg-kit-spm
+          key: ffmpeg-kit-spm-min.v5.1.2.6-${{ hashFiles('scripts/download-ffmpeg-frameworks.sh') }}
+
+      - name: Download FFmpeg frameworks
+        run: ./scripts/download-ffmpeg-frameworks.sh
+
       - name: Prebuild iOS (clean, skip pod install for cache)
         run: npx expo prebuild -p ios --clean --no-install
 
@@ -60,7 +69,7 @@ jobs:
           path: |
             ios/Pods
             ~/Library/Caches/CocoaPods
-          key: cocoapods-ipa-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('package-lock.json', 'app.json', 'ios/Podfile') }}
+          key: cocoapods-ipa-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('package-lock.json', 'app.json', 'ios/Podfile', 'modules/ffmpeg-module/ios/FFmpegModule.podspec') }}
           restore-keys: |
             cocoapods-ipa-${{ runner.os }}-${{ env.XCODE_VERSION }}-
             cocoapods-${{ runner.os }}-${{ env.XCODE_VERSION }}-
