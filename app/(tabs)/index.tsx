@@ -8,6 +8,7 @@ import {
   Pressable,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ImportActionButton } from '@/components/home/ImportActionButton';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { contentMaxWidth } from '@/src/core/layout/contentWidth';
 import type { ImportedMedia } from '@/src/core/io/ImportService';
 import { remoteDownloadDisplayFraction } from '@/src/core/io/remoteImportHelpers';
 import { loadDemoFixtureMedia } from '@/src/features/home/demoFixture';
@@ -34,6 +36,8 @@ function navigateToImportDetail(media: ImportedMedia) {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const columnMaxWidth = contentMaxWidth(windowWidth);
   const scheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
   const {
@@ -116,9 +120,13 @@ export default function HomeScreen() {
         <View className="absolute -left-16 top-56 h-56 w-56 rounded-full bg-mb-secondary-light/40 dark:bg-mb-secondary-dark/50" />
       </View>
 
-      <View className="mx-auto w-full max-w-md flex-1 px-6">
+      <View
+        className="mx-auto w-full flex-1 px-6"
+        style={{ maxWidth: columnMaxWidth }}
+      >
         <View className="mb-6 flex-row items-center justify-between">
           <Pressable
+            testID="home-open-settings"
             accessibilityRole="button"
             accessibilityLabel="Open settings"
             onPress={() => router.push('/modal')}
@@ -133,6 +141,7 @@ export default function HomeScreen() {
             MB Converter
           </Text>
           <Pressable
+            testID="home-open-history"
             accessibilityRole="button"
             accessibilityLabel="Conversion history"
             onPress={() => router.push('/history')}
@@ -254,7 +263,10 @@ export default function HomeScreen() {
         onRequestClose={() => setLinkModalVisible(false)}
       >
         <View className="flex-1 items-center justify-center bg-black/40 px-6">
-          <View className="w-full max-w-md rounded-2xl bg-mb-surface-light p-5 dark:bg-mb-surface-dark">
+          <View
+            className="w-full rounded-2xl bg-mb-surface-light p-5 dark:bg-mb-surface-dark"
+            style={{ maxWidth: columnMaxWidth }}
+          >
             <Text className="mb-2 text-lg font-semibold text-mb-text-light dark:text-mb-text-dark">
               Import from link
             </Text>

@@ -98,6 +98,7 @@ function RootLayoutNav() {
               <Stack.Screen name="convert/result" options={{ title: 'Result', presentation: 'card' }} />
               <Stack.Screen name="history" options={{ title: 'History', presentation: 'card' }} />
               <Stack.Screen name="modal" options={{ title: 'Settings', presentation: 'modal' }} />
+              <Stack.Screen name="credits" options={{ title: 'Credits', presentation: 'card' }} />
             </Stack>
           </ConversionProvider>
         </HistoryProvider>

@@ -96,6 +96,13 @@ npx expo run:ios
 - UI: deepened `convert/config` (format, resolution, fps, target size, remux hint, metadata), real `history` screen, Settings modal toggles.
 - Conversion success records into history (session-only when toggle off; persisted when on).
 
+## Polish (Epic 5) — done
+
+- Settings → Credits screen with FFmpeg LGPL summary (`src/core/credits/`, links to ffmpeg.org / CREDITS.md).
+- `e2e/demo/full-flow.yaml` drives encode through result (tiny.mp4); CI still excludes `e2e/demo/`.
+- README cutover-ready (Dev Client, Xcode 26.4+, tests/CI). Light iPad content max-width via `src/core/layout/contentWidth.ts`.
+- **Next:** demo video + one PR `react-native-port` → `main`.
+
 ## Layout
 
 ```
@@ -138,6 +145,10 @@ This project uses `@testing-library/react-native` v14 (`await render(...)`). Pre
 
 ## Epic order
 
-0 Foundation → 1 FFmpegModule → 2 Import/Home → 3 Conversion → 4 Config/History → 5 Polish + final demo + one PR
+0 Foundation → 1 FFmpegModule → 2 Import/Home → 3 Conversion → 4 Config/History → **5 Polish (done on `react-native-port`)**
+
+**Next:** headed Simulator demo via `./scripts/record-demo.sh` + **one cutover PR** `react-native-port` → `main` (orchestrator; do not open per-epic demos).
+
+Epic 5 polish shipped: in-app LGPL/credits, demo `full-flow.yaml` encode path, README cutover-ready, a11y/testID pass on convert flow, light iPad content width.
 
 Read Expo docs for the pinned SDK before changing native config: https://docs.expo.dev/versions/v57.0.0/

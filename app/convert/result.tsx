@@ -2,9 +2,10 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Alert, Pressable, Text, useWindowDimensions, View } from 'react-native';
 
 import { displayName, fileExtension } from '@/src/core/ffmpeg/outputFormatArgs';
+import { contentMaxWidth } from '@/src/core/layout/contentWidth';
 import { useConversion } from '@/src/features/conversion/ConversionContext';
 
 function formatBytes(bytes: number): string {
@@ -20,25 +21,32 @@ function toFileUri(path: string): string {
 export default function ResultScreen() {
   const { input, result, resetResult } = useConversion();
   const [busy, setBusy] = useState(false);
+  const { width: windowWidth } = useWindowDimensions();
+  const columnMaxWidth = contentMaxWidth(windowWidth);
 
   if (!result) {
     return (
       <View
         testID="result-screen"
+        accessibilityLabel="Conversion result"
         className="flex-1 items-center justify-center bg-mb-background-light px-6 dark:bg-mb-background-dark"
       >
-        <Text className="mb-4 text-center text-mb-textMuted-light dark:text-mb-textMuted-dark">
-          No conversion result yet.
-        </Text>
-        <Pressable
-          testID="result-go-home"
-          onPress={() => router.replace('/')}
-          className="rounded-2xl bg-mb-primary-light px-4 py-3 dark:bg-mb-primary-dark"
-        >
-          <Text className="font-semibold text-mb-background-light dark:text-mb-background-dark">
-            Go to Home
+        <View className="w-full items-center" style={{ maxWidth: columnMaxWidth }}>
+          <Text className="mb-4 text-center text-mb-textMuted-light dark:text-mb-textMuted-dark">
+            No conversion result yet.
           </Text>
-        </Pressable>
+          <Pressable
+            testID="result-go-home"
+            accessibilityRole="button"
+            accessibilityLabel="Go to Home"
+            onPress={() => router.replace('/')}
+            className="rounded-2xl bg-mb-primary-light px-4 py-3 dark:bg-mb-primary-dark"
+          >
+            <Text className="font-semibold text-mb-background-light dark:text-mb-background-dark">
+              Go to Home
+            </Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -95,72 +103,84 @@ export default function ResultScreen() {
   return (
     <View
       testID="result-screen"
+      accessibilityLabel="Conversion result"
       className="flex-1 bg-mb-background-light px-6 pt-6 dark:bg-mb-background-dark"
     >
-      <Text className="mb-2 text-2xl font-bold text-mb-text-light dark:text-mb-text-dark">
-        Done
-      </Text>
-      <Text className="mb-6 text-sm text-mb-textMuted-light dark:text-mb-textMuted-dark">
-        Your file is ready to share or save.
-      </Text>
-
-      <View className="mb-8 rounded-2xl border border-mb-accent-light/30 bg-mb-surface-light p-4 dark:border-mb-accent-dark/50 dark:bg-mb-surface-dark">
+      <View className="w-full flex-1" style={{ maxWidth: columnMaxWidth, alignSelf: 'center' }}>
         <Text
-          testID="result-filename"
-          className="text-base font-semibold text-mb-text-light dark:text-mb-text-dark"
+          accessibilityRole="header"
+          className="mb-2 text-2xl font-bold text-mb-text-light dark:text-mb-text-dark"
         >
-          {outputName}
-        </Text>
-        <Text
-          testID="result-format"
-          className="mt-2 text-sm text-mb-textMuted-light dark:text-mb-textMuted-dark"
-        >
-          Format: {displayName(result.outputFormat)}
-        </Text>
-        <Text
-          testID="result-size"
-          className="mt-1 text-sm text-mb-textMuted-light dark:text-mb-textMuted-dark"
-        >
-          Size: {formatBytes(result.sizeOnDisk)}
-        </Text>
-        {result.dimensions ? (
-          <Text className="mt-1 text-sm text-mb-textMuted-light dark:text-mb-textMuted-dark">
-            Dimensions: {Math.round(result.dimensions.width)}×{Math.round(result.dimensions.height)}
-          </Text>
-        ) : null}
-      </View>
-
-      <Pressable
-        testID="result-share"
-        disabled={busy}
-        onPress={() => void onShare()}
-        className="mb-3 items-center rounded-2xl bg-mb-primary-light px-4 py-3.5 dark:bg-mb-primary-dark"
-      >
-        <Text className="text-base font-semibold text-mb-background-light dark:text-mb-background-dark">
-          Share
-        </Text>
-      </Pressable>
-
-      <Pressable
-        testID="result-save"
-        disabled={busy}
-        onPress={() => void onSave()}
-        className="mb-3 items-center rounded-2xl border border-mb-accent-light/40 px-4 py-3.5 dark:border-mb-accent-dark/50"
-      >
-        <Text className="text-base font-semibold text-mb-text-light dark:text-mb-text-dark">
-          Save to Photos
-        </Text>
-      </Pressable>
-
-      <Pressable
-        testID="result-done"
-        onPress={onDone}
-        className="items-center px-4 py-3"
-      >
-        <Text className="text-base font-semibold text-mb-primary-light dark:text-mb-primary-dark">
           Done
         </Text>
-      </Pressable>
+        <Text className="mb-6 text-sm text-mb-textMuted-light dark:text-mb-textMuted-dark">
+          Your file is ready to share or save.
+        </Text>
+
+        <View className="mb-8 rounded-2xl border border-mb-accent-light/30 bg-mb-surface-light p-4 dark:border-mb-accent-dark/50 dark:bg-mb-surface-dark">
+          <Text
+            testID="result-filename"
+            className="text-base font-semibold text-mb-text-light dark:text-mb-text-dark"
+          >
+            {outputName}
+          </Text>
+          <Text
+            testID="result-format"
+            className="mt-2 text-sm text-mb-textMuted-light dark:text-mb-textMuted-dark"
+          >
+            Format: {displayName(result.outputFormat)}
+          </Text>
+          <Text
+            testID="result-size"
+            className="mt-1 text-sm text-mb-textMuted-light dark:text-mb-textMuted-dark"
+          >
+            Size: {formatBytes(result.sizeOnDisk)}
+          </Text>
+          {result.dimensions ? (
+            <Text className="mt-1 text-sm text-mb-textMuted-light dark:text-mb-textMuted-dark">
+              Dimensions: {Math.round(result.dimensions.width)}×{Math.round(result.dimensions.height)}
+            </Text>
+          ) : null}
+        </View>
+
+        <Pressable
+          testID="result-share"
+          accessibilityRole="button"
+          accessibilityLabel="Share converted file"
+          disabled={busy}
+          onPress={() => void onShare()}
+          className="mb-3 items-center rounded-2xl bg-mb-primary-light px-4 py-3.5 dark:bg-mb-primary-dark"
+        >
+          <Text className="text-base font-semibold text-mb-background-light dark:text-mb-background-dark">
+            Share
+          </Text>
+        </Pressable>
+
+        <Pressable
+          testID="result-save"
+          accessibilityRole="button"
+          accessibilityLabel="Save converted file to Photos"
+          disabled={busy}
+          onPress={() => void onSave()}
+          className="mb-3 items-center rounded-2xl border border-mb-accent-light/40 px-4 py-3.5 dark:border-mb-accent-dark/50"
+        >
+          <Text className="text-base font-semibold text-mb-text-light dark:text-mb-text-dark">
+            Save to Photos
+          </Text>
+        </Pressable>
+
+        <Pressable
+          testID="result-done"
+          accessibilityRole="button"
+          accessibilityLabel="Done, return to Home"
+          onPress={onDone}
+          className="items-center px-4 py-3"
+        >
+          <Text className="text-base font-semibold text-mb-primary-light dark:text-mb-primary-dark">
+            Done
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }

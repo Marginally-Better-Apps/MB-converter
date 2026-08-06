@@ -1,9 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 
 import { allowedOutputs, defaultOutput } from '@/src/core/compatibility/FormatMatrix';
 import { displayName } from '@/src/core/ffmpeg/outputFormatArgs';
+import { contentMaxWidth } from '@/src/core/layout/contentWidth';
 import type { MediaCategory } from '@/src/core/models/types';
 import { useConversion } from '@/src/features/conversion/ConversionContext';
 
@@ -38,6 +39,8 @@ export default function ImportDetailScreen() {
     duration?: string;
   }>();
   const { setSessionInput, setConfig } = useConversion();
+  const { width: windowWidth } = useWindowDimensions();
+  const columnMaxWidth = contentMaxWidth(windowWidth);
 
   const filename = params.filename ?? 'Unknown file';
   const category = isMediaCategory(params.category) ? params.category : null;
@@ -75,10 +78,15 @@ export default function ImportDetailScreen() {
   return (
     <ScrollView
       testID="import-detail-screen"
+      accessibilityLabel="Import details"
       className="flex-1 bg-mb-background-light dark:bg-mb-background-dark"
-      contentContainerClassName="px-6 pb-10 pt-6"
+      contentContainerClassName="items-center px-6 pb-10 pt-6"
     >
-      <Text className="mb-2 text-2xl font-bold text-mb-text-light dark:text-mb-text-dark">
+      <View className="w-full" style={{ maxWidth: columnMaxWidth }}>
+      <Text
+        accessibilityRole="header"
+        className="mb-2 text-2xl font-bold text-mb-text-light dark:text-mb-text-dark"
+      >
         Ready to convert
       </Text>
       <Text className="mb-6 text-sm text-mb-textMuted-light dark:text-mb-textMuted-dark">
@@ -141,6 +149,7 @@ export default function ImportDetailScreen() {
           Continue
         </Text>
       </Pressable>
+      </View>
     </ScrollView>
   );
 }

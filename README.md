@@ -1,6 +1,8 @@
 # MB Converter
 
-**Convert and compress** photos, video, and audio on your iPhone and iPad. This repository is being rebuilt as an **iOS-only Expo / React Native** app on the `react-native-port` branch. The previous SwiftUI app lives in [`legacy/swift/`](legacy/swift/) for reference.
+**Convert and compress** photos, video, and audio on your iPhone and iPad.
+
+This repository’s **shipping app is Expo / React Native** (iOS / iPadOS 17+). The previous SwiftUI app remains under [`legacy/swift/`](legacy/swift/) as a domain and FFmpeg behavior reference until cutover sign-off.
 
 ## Get the beta
 
@@ -14,7 +16,7 @@
 
 <img src="legacy/swift/Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="8%" />
 
-**Main Screen Preview** (legacy Swift UI)
+**Main Screen Preview** (legacy Swift screenshots — Expo UI is similar; refresh when convenient)
 
 <table>
   <tr>
@@ -31,22 +33,33 @@
 
 ## Develop (Expo)
 
-Requires Node 20+, Xcode 15+, iOS 17+ Simulator.
+Requires **Node 20+**, **Xcode 26.4+** (Expo SDK 57 / Swift 6.3), and an **iOS 17+** Simulator.
+
+**Custom Dev Client required.** FFmpeg and ImageIO encode modules do **not** run in Expo Go. Always use `npx expo run:ios` or an EAS development build.
 
 ```sh
 npm install
 ./scripts/download-ffmpeg-frameworks.sh   # once; vendors FFmpegKit min.v5.1.2.6 xcframeworks
-npm test
-npx expo run:ios                          # Dev Client (required for FFmpeg)
+npm test                                   # Jest unit + component tests
+npx expo run:ios                           # prebuild + Dev Client (download also runs via config plugin)
+npm start                                  # Metro only — pair with an installed Dev Client
 ```
 
-**Custom Dev Client required for conversion.** Expo Go cannot load the native FFmpeg module. Use `npx expo run:ios` (or an EAS development build), not Expo Go.
+### Tests & CI
 
-FFmpeg binaries are downloaded (not committed). See [`AGENTS.md`](AGENTS.md) and [`CREDITS.md`](CREDITS.md) (LGPL).
+| Command / workflow | What it covers |
+|--------------------|----------------|
+| `npm test` | Unit + component tests (also the GitHub Actions `unit` job) |
+| Maestro `e2e/*.yaml` | Simulator smoke / navigation (CI `e2e` job; **excludes** `e2e/demo/`) |
+| `./scripts/record-demo.sh e2e/demo/full-flow.yaml …` | Headed final demo (full encode path; not in CI) |
+| `.github/workflows/ci.yml` | `unit` on Ubuntu + `e2e` on macOS-26 / Xcode 26.4+ |
+| `.github/workflows/ipa-unsigned.yml` | Unsigned IPA artifact |
+
+FFmpeg binaries are downloaded (not committed). See [`AGENTS.md`](AGENTS.md) and [`CREDITS.md`](CREDITS.md) (LGPL). In-app notice: Settings → **Credits & LGPL notice**.
 
 Bundle ID: `com.marginallybetter.converter` · Display name: **MB Converter**
 
-Agent / port notes: see [`AGENTS.md`](AGENTS.md). Legacy Swift developer docs: [`legacy/swift/docs/DEVELOPMENT.md`](legacy/swift/docs/DEVELOPMENT.md).
+Agent / port notes: [`AGENTS.md`](AGENTS.md). Legacy Swift developer docs: [`legacy/swift/docs/DEVELOPMENT.md`](legacy/swift/docs/DEVELOPMENT.md).
 
 ## License
 

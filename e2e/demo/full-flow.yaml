@@ -1,6 +1,6 @@
-# Demo-ready conversion navigation skeleton.
-# Uses the bundled sample fixture to reach convert/config without photo permissions.
-# Full encode to result still needs a real media file (replace fixture or import Photos).
+# Full conversion demo for headed Simulator recording.
+# Uses bundled fixtures/media/tiny.mp4 (real tiny H.264/AAC MP4) — no photo permissions.
+# CI excludes e2e/demo/; run via ./scripts/record-demo.sh after a Dev Client build.
 appId: com.marginallybetter.converter
 ---
 - launchApp
@@ -31,8 +31,17 @@ appId: com.marginallybetter.converter
     id: "convert-target-medium"
 - assertVisible:
     id: "convert-config-start"
-# Stop before Convert — tiny.mp4 is a path stub, not a valid encode source.
-# When a real fixture is bundled, continue with:
-# - tapOn: { id: "convert-config-start" }
-# - assertVisible: { id: "processing-screen" }
-# - extendedWaitUntil: { visible: { id: "result-screen" }, timeout: 120000 }
+- tapOn:
+    id: "convert-config-start"
+- extendedWaitUntil:
+    visible:
+      id: "processing-screen"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "result-screen"
+    timeout: 180000
+- assertVisible:
+    id: "result-share"
+- assertVisible:
+    id: "result-done"
