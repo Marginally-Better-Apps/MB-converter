@@ -1,6 +1,8 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Switch, Text, TextInput, useWindowDimensions, View } from 'react-native';
+
+import { contentMaxWidth } from '@/src/core/layout/contentWidth';
 
 import { allowedOutputs } from '@/src/core/compatibility/FormatMatrix';
 import {
@@ -43,6 +45,8 @@ const TARGET_PRESETS = [
 
 export default function ConvertConfigScreen() {
   const { input, mediaFile, config, setConfig } = useConversion();
+  const { width: windowWidth } = useWindowDimensions();
+  const columnMaxWidth = contentMaxWidth(windowWidth);
   const [selected, setSelected] = useState<OutputFormat | null>(config?.outputFormat ?? null);
   const [resolutionId, setResolutionId] = useState('original');
   const [customWidth, setCustomWidth] = useState('');
@@ -188,6 +192,8 @@ export default function ConvertConfigScreen() {
         </Text>
         <Pressable
           testID="convert-config-go-home"
+          accessibilityRole="button"
+          accessibilityLabel="Go to Home"
           onPress={() => router.replace('/')}
           className="rounded-2xl bg-mb-primary-light px-4 py-3 dark:bg-mb-primary-dark"
         >
@@ -202,10 +208,15 @@ export default function ConvertConfigScreen() {
   return (
     <ScrollView
       testID="convert-config-screen"
+      accessibilityLabel="Conversion settings"
       className="flex-1 bg-mb-background-light dark:bg-mb-background-dark"
-      contentContainerClassName="px-6 pb-10 pt-6"
+      contentContainerClassName="items-center px-6 pb-10 pt-6"
     >
-      <Text className="mb-1 text-2xl font-bold text-mb-text-light dark:text-mb-text-dark">
+      <View className="w-full" style={{ maxWidth: columnMaxWidth }}>
+      <Text
+        accessibilityRole="header"
+        className="mb-1 text-2xl font-bold text-mb-text-light dark:text-mb-text-dark"
+      >
         Output
       </Text>
       <Text
@@ -226,6 +237,7 @@ export default function ConvertConfigScreen() {
               key={format}
               testID={`convert-format-${format}`}
               accessibilityRole="button"
+              accessibilityLabel={`Output format ${displayName(format)}`}
               accessibilityState={{ selected: isActive }}
               onPress={() => applyFormat(format)}
               className={`rounded-2xl border px-4 py-3.5 ${
@@ -254,6 +266,9 @@ export default function ConvertConfigScreen() {
                 <Pressable
                   key={option.id}
                   testID={`convert-resolution-${option.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Resolution ${option.label}`}
+                  accessibilityState={{ selected: active }}
                   onPress={() => setResolutionId(option.id)}
                   className={`rounded-full px-3 py-2 ${
                     active
@@ -322,6 +337,9 @@ export default function ConvertConfigScreen() {
                 <Pressable
                   key={option.id}
                   testID={`convert-fps-${option.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Frame rate ${option.label}`}
+                  accessibilityState={{ selected: active }}
                   onPress={() => setSelectedFps(option.value)}
                   className={`rounded-full px-3 py-2 ${
                     active
@@ -361,6 +379,8 @@ export default function ConvertConfigScreen() {
               <Pressable
                 key={preset.label}
                 testID={`convert-target-${preset.label.replace(/\s+/g, '-').toLowerCase()}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Target size ${preset.label}`}
                 onPress={() => applyTargetFraction(preset.fraction)}
                 className="rounded-full bg-mb-secondary-light/50 px-3 py-2 dark:bg-mb-secondary-dark/50"
               >
@@ -399,6 +419,7 @@ export default function ConvertConfigScreen() {
             </Text>
             <Switch
               testID="convert-metadata-strip-all"
+              accessibilityLabel="Remove all metadata"
               value={stripAllMetadata}
               onValueChange={setStripAllMetadata}
             />
@@ -468,6 +489,7 @@ export default function ConvertConfigScreen() {
           Convert
         </Text>
       </Pressable>
+      </View>
     </ScrollView>
   );
 }
