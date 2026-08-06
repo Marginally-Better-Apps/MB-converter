@@ -11,6 +11,7 @@ import type { ConversionResult } from '@/src/core/conversion/ConversionService';
 import { isConversionError } from '@/src/core/conversion/ConversionError';
 import type { ConversionConfig, MediaCategory, MediaFile, OutputFormat } from '@/src/core/models/types';
 import { createConversionService } from '@/src/features/conversion/createConversionService';
+import { useHistory } from '@/src/features/history/HistoryContext';
 
 export type ConversionSessionInput = {
   uri: string;
@@ -19,6 +20,7 @@ export type ConversionSessionInput = {
   byteSize: number;
   duration?: number;
   dimensions?: { width: number; height: number };
+  fps?: number;
   videoCodec?: string;
   audioCodec?: string;
   containerFormat?: string;
@@ -51,6 +53,7 @@ function toMediaFile(input: ConversionSessionInput): MediaFile {
     sizeOnDisk: input.byteSize,
     duration: input.duration,
     dimensions: input.dimensions,
+    fps: input.fps,
     videoCodec: input.videoCodec,
     audioCodec: input.audioCodec,
     containerFormat: input.containerFormat ?? guessContainer(input.filename),
@@ -69,6 +72,7 @@ function messageForError(error: unknown): string {
 }
 
 export function ConversionProvider({ children }: { children: React.ReactNode }) {
+  const { recordSuccess } = useHistory();
   const serviceRef = useRef<ReturnType<typeof createConversionService> | null>(null);
   const [input, setInput] = useState<ConversionSessionInput | null>(null);
   const [config, setConfigState] = useState<ConversionConfig | null>(null);
@@ -118,6 +122,16 @@ export function ConversionProvider({ children }: { children: React.ReactNode }) 
       });
       setResult(converted);
       setProgress(1);
+      try {
+        await recordSuccess({
+          inputFilename: input.filename,
+          inputCategory: input.category,
+          config,
+          result: converted,
+        });
+      } catch {
+        // History persistence is best-effort; conversion still succeeded.
+      }
       return converted;
     } catch (error) {
       if (isConversionError(error) && error.code === 'cancelled') {
@@ -129,7 +143,7 @@ export function ConversionProvider({ children }: { children: React.ReactNode }) 
     } finally {
       setIsConverting(false);
     }
-  }, [config, input]);
+  }, [config, input, recordSuccess]);
 
   const cancelConversion = useCallback(async () => {
     await getService().cancel();
