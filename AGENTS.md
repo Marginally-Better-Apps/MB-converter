@@ -8,10 +8,11 @@ iOS-only Expo / React Native rebuild of MB Converter. Plan: https://planista.shl
 |--------|------|
 | `main` | Shipping Swift app today; receive **one** final cutover PR |
 | `react-native-port` | Integration branch (fake-main for the port) |
-| `epic-*` | Feature branches; merge **locally** into `react-native-port` |
+| `epic-*` / `fix-*` | Feature or CI fix branches |
 
-- Do **not** open per-epic GitHub PRs or record per-epic demos.
-- At the end of the port: one PR `react-native-port` → `main`, one Simulator demo video on Planista.
+- Epic work may open GitHub PRs **into `react-native-port`** to verify CI; merge when green.
+- Final cutover is one PR `react-native-port` → `main` (CI also runs on `main` PRs/pushes), plus one Simulator demo video on Planista.
+- Do **not** record per-epic demos.
 
 ## Stack (pinned at scaffold)
 
@@ -71,7 +72,7 @@ JS API (`ffmpeg-module`): `execute`, `cancel`, `probe`, `getRuntimeInfo`, events
 - State: `ImportProvider` / `useImport` in `src/features/home/ImportContext.tsx`.
 - Native permissions (Custom Dev Client): photo library via `expo-image-picker` plugin + `NSPhotoLibraryUsageDescription` in `app.json`. Rebuild Dev Client after changing plugins/Info.plist.
 - Clipboard paste uses `expo-clipboard` image/URL APIs (best-effort vs Swift pasteboard UTIs).
-- Home **Try sample file** copies `fixtures/media/tiny.mp4` into cache for Maestro navigation (not a valid encode source).
+- Home **Try sample file** copies `fixtures/media/tiny.mp4` (small real H.264 MP4) into cache for Maestro navigation / light encode demos.
 
 ## Conversion (Epic 3)
 
@@ -97,7 +98,7 @@ constants/           Theme tokens, colors
 src/core/            Conversion domain (TS) + FFmpeg command builders
 modules/ffmpeg-module/       Expo Module (iOS FFmpegKit wrapper + config plugin)
 modules/image-encode-module/ Expo Module (iOS ImageIO encode + no-op plugin)
-fixtures/media/      Tiny media placeholders
+fixtures/media/      Tiny real media fixtures (e.g. H.264 MP4)
 legacy/swift/        Previous SwiftUI app (reference)
 e2e/                 Maestro flows (CI); e2e/demo/ for final recording only
 scripts/             Demo recording + FFmpeg framework download
@@ -115,14 +116,14 @@ npx expo run:ios   # prebuild + Dev Client (runs FFmpeg download via config plug
 
 ## CI (GitHub Actions)
 
-Workflows on `react-native-port` (push/PR) and `workflow_dispatch`. Markdown/LICENSE-only changes are skipped via `paths-ignore`.
+Workflows on `react-native-port` and `main` (push/PR) plus `workflow_dispatch`. Markdown/LICENSE-only changes are skipped via `paths-ignore`.
 
 | Workflow | Jobs | Runner | Notes |
 |----------|------|--------|-------|
-| `.github/workflows/ci.yml` | `unit`, `e2e` | Ubuntu / macOS-15 | Unit: `npm ci` + `npm test` only. E2e: download FFmpeg frameworks, `expo prebuild -p ios`, Simulator Release build, Maestro on `e2e/` **excluding** `e2e/demo/`. |
-| `.github/workflows/ipa-unsigned.yml` | `unsigned-ipa` | macOS-15 | Download frameworks, clean iOS prebuild, unsigned `xcodebuild archive`, artifact `MB-Converter-unsigned.ipa`. |
+| `.github/workflows/ci.yml` | `unit`, `e2e` | Ubuntu / macOS-15 | Unit: `npm ci` + `npm test` only. E2e: pick Xcode with Swift 6.2+ (26.x → 16.4 → 16.3), download FFmpeg frameworks, `expo prebuild -p ios`, arm64 Simulator Release build, Maestro on `e2e/` **excluding** `e2e/demo/`. |
+| `.github/workflows/ipa-unsigned.yml` | `unsigned-ipa` | macOS-15 | Same Xcode selection; download frameworks, clean iOS prebuild, unsigned `xcodebuild archive`, artifact `MB-Converter-unsigned.ipa`. |
 
-Optimizations: unit never waits on macOS; npm cache via `setup-node`; CocoaPods + DerivedData + FFmpeg zip caches on macOS jobs; no Android builds. Image encode module needs no extra CI download step.
+Optimizations: unit never waits on macOS; npm cache via `setup-node`; CocoaPods + DerivedData + FFmpeg zip caches on macOS jobs; no Android builds. Image encode module needs no extra CI download step. Expo SDK 57 needs Swift tools 6.2+ — do not pin Xcode 16.2.
 
 ### Testing Library
 

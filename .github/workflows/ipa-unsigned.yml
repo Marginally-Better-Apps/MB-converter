@@ -4,12 +4,12 @@ name: Unsigned IPA
 
 on:
   push:
-    branches: [react-native-port]
+    branches: [react-native-port, main]
     paths-ignore:
       - '**.md'
       - 'LICENSE'
   pull_request:
-    branches: [react-native-port]
+    branches: [react-native-port, main]
     paths-ignore:
       - '**.md'
       - 'LICENSE'
@@ -43,12 +43,39 @@ jobs:
 
       - name: Select Xcode
         run: |
-          if [ -d /Applications/Xcode_16.2.app ]; then
-            sudo xcode-select -s /Applications/Xcode_16.2.app
-          elif [ -d /Applications/Xcode_16.1.app ]; then
-            sudo xcode-select -s /Applications/Xcode_16.1.app
+          # Expo SDK 57 / ExpoModulesCore need Swift tools 6.2+ (not Xcode 16.2 / Swift 6.0).
+          # Prefer Xcode 26.x, then 16.4, then 16.3 on macos-15 (probe installed apps).
+          set -euo pipefail
+          echo "Available Xcode apps:"
+          ls -1d /Applications/Xcode*.app 2>/dev/null || true
+
+          pick=""
+          shopt -s nullglob
+          for pattern in \
+            '/Applications/Xcode_26*.app' \
+            '/Applications/Xcode_16.4*.app' \
+            '/Applications/Xcode_16.3*.app'
+          do
+            matches=( $pattern )
+            if [ ${#matches[@]} -eq 0 ]; then
+              continue
+            fi
+            IFS=$'\n' sorted=($(printf '%s\n' "${matches[@]}" | sort -V -r))
+            unset IFS
+            pick="${sorted[0]}"
+            break
+          done
+          shopt -u nullglob
+
+          if [ -n "$pick" ]; then
+            echo "Selecting $pick"
+            sudo xcode-select -s "$pick"
+          else
+            echo "::warning::No Xcode 26/16.4/16.3 found; using active xcode-select"
           fi
+
           xcodebuild -version
+          xcrun swift --version || true
           echo "XCODE_VERSION=$(xcodebuild -version | awk 'NR==1{print $2}')" >> "$GITHUB_ENV"
 
       - name: Cache FFmpegKit xcframework zips
