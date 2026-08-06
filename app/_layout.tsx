@@ -9,7 +9,9 @@ import 'react-native-reanimated';
 import { theme } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { ConversionProvider } from '@/src/features/conversion/ConversionContext';
+import { HistoryProvider } from '@/src/features/history/HistoryContext';
 import { ImportProvider } from '@/src/features/home/ImportContext';
+import { SettingsProvider } from '@/src/features/settings/SettingsContext';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -70,7 +72,11 @@ export default function RootLayout() {
     return null;
   }
 
-  return <RootLayoutNav />;
+  return (
+    <SettingsProvider>
+      <RootLayoutNav />
+    </SettingsProvider>
+  );
 }
 
 function RootLayoutNav() {
@@ -79,20 +85,22 @@ function RootLayoutNav() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? darkNavigationTheme : lightNavigationTheme}>
       <ImportProvider>
-        <ConversionProvider>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="import-detail" options={{ title: 'Import', presentation: 'card' }} />
-            <Stack.Screen name="convert/config" options={{ title: 'Convert', presentation: 'card' }} />
-            <Stack.Screen
-              name="convert/processing"
-              options={{ title: 'Processing', presentation: 'card', headerBackVisible: false }}
-            />
-            <Stack.Screen name="convert/result" options={{ title: 'Result', presentation: 'card' }} />
-            <Stack.Screen name="history" options={{ title: 'History', presentation: 'card' }} />
-            <Stack.Screen name="modal" options={{ title: 'Settings', presentation: 'modal' }} />
-          </Stack>
-        </ConversionProvider>
+        <HistoryProvider>
+          <ConversionProvider>
+            <Stack>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="import-detail" options={{ title: 'Import', presentation: 'card' }} />
+              <Stack.Screen name="convert/config" options={{ title: 'Convert', presentation: 'card' }} />
+              <Stack.Screen
+                name="convert/processing"
+                options={{ title: 'Processing', presentation: 'card', headerBackVisible: false }}
+              />
+              <Stack.Screen name="convert/result" options={{ title: 'Result', presentation: 'card' }} />
+              <Stack.Screen name="history" options={{ title: 'History', presentation: 'card' }} />
+              <Stack.Screen name="modal" options={{ title: 'Settings', presentation: 'modal' }} />
+            </Stack>
+          </ConversionProvider>
+        </HistoryProvider>
       </ImportProvider>
     </ThemeProvider>
   );

@@ -89,6 +89,13 @@ npm run download:ffmpeg
 npx expo run:ios
 ```
 
+## Config / History (Epic 4)
+
+- Domain: `src/core/config/` (output defaults/validation, metadata edit helpers), `src/core/history/` (AsyncStorage history store), `src/core/settings/` (color mode).
+- State: `SettingsProvider` (system/light/dark via Appearance + NativeWind), `HistoryProvider` (enable/disable, record, clear).
+- UI: deepened `convert/config` (format, resolution, fps, target size, remux hint, metadata), real `history` screen, Settings modal toggles.
+- Conversion success records into history (session-only when toggle off; persisted when on).
+
 ## Layout
 
 ```
