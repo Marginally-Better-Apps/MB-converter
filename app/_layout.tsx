@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 
 import { theme } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
+import { ConversionProvider } from '@/src/features/conversion/ConversionContext';
 import { ImportProvider } from '@/src/features/home/ImportContext';
 
 export {
@@ -78,12 +79,20 @@ function RootLayoutNav() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? darkNavigationTheme : lightNavigationTheme}>
       <ImportProvider>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="import-detail" options={{ title: 'Import', presentation: 'card' }} />
-          <Stack.Screen name="history" options={{ title: 'History', presentation: 'card' }} />
-          <Stack.Screen name="modal" options={{ title: 'Settings', presentation: 'modal' }} />
-        </Stack>
+        <ConversionProvider>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="import-detail" options={{ title: 'Import', presentation: 'card' }} />
+            <Stack.Screen name="convert/config" options={{ title: 'Convert', presentation: 'card' }} />
+            <Stack.Screen
+              name="convert/processing"
+              options={{ title: 'Processing', presentation: 'card', headerBackVisible: false }}
+            />
+            <Stack.Screen name="convert/result" options={{ title: 'Result', presentation: 'card' }} />
+            <Stack.Screen name="history" options={{ title: 'History', presentation: 'card' }} />
+            <Stack.Screen name="modal" options={{ title: 'Settings', presentation: 'modal' }} />
+          </Stack>
+        </ConversionProvider>
       </ImportProvider>
     </ThemeProvider>
   );

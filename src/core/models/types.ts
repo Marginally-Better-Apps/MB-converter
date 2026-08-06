@@ -68,6 +68,8 @@ export type ConversionConfig = {
   targetSizeBytes?: number;
   cropRegion?: CropRegion;
   videoQuality?: number;
+  /** 0…1 single-pass quality for still-image encoders (e.g. WebP). */
+  imageQuality?: number;
   usesSinglePassVideoTargetEncode?: boolean;
   frameTimeForExtraction?: number;
   preferredAudioBitrateKbps?: number;

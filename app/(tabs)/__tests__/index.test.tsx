@@ -28,9 +28,27 @@ jest.mock('expo-document-picker', () => ({
 }));
 
 jest.mock('expo-file-system', () => ({
-  Directory: class Directory {},
-  File: class File {},
+  Directory: class Directory {
+    exists = true;
+    create() {}
+  },
+  File: class File {
+    exists = false;
+    size = 40;
+    uri = 'file:///cache/imports/demo-sample.mp4';
+    delete() {}
+    copy() {}
+  },
   Paths: { cache: 'file:///cache/' },
+}));
+
+jest.mock('@/src/features/home/demoFixture', () => ({
+  loadDemoFixtureMedia: jest.fn(async () => ({
+    uri: 'file:///cache/imports/demo-sample.mp4',
+    filename: 'demo-sample.mp4',
+    category: 'video',
+    byteSize: 40,
+  })),
 }));
 
 describe('HomeScreen', () => {

@@ -21,7 +21,7 @@ iOS-only Expo / React Native rebuild of MB Converter. Plan: https://planista.shl
 - Jest + Testing Library (unit/component)
 - Maestro on iOS Simulator (e2e + final demo)
 - State: React state + Context first; Zustand only if needed
-- Local Expo Module `ffmpeg-module` (iOS) wrapping FFmpegKit / FFprobeKit
+- Local Expo Modules: `ffmpeg-module` (FFmpegKit) + `image-encode-module` (ImageIO still-image encode)
 
 ## Critical constraints
 
@@ -67,10 +67,26 @@ JS API (`ffmpeg-module`): `execute`, `cancel`, `probe`, `getRuntimeInfo`, events
 ## Import / Home (Epic 2)
 
 - Domain: `src/core/io/` (`ImportService`, `ImportStorage`, size cap 150 MB, remote helpers).
-- UI: Expo Router home (`app/(tabs)/index.tsx`) + import detail stub (`app/import-detail.tsx`).
+- UI: Expo Router home (`app/(tabs)/index.tsx`) + import detail (`app/import-detail.tsx`).
 - State: `ImportProvider` / `useImport` in `src/features/home/ImportContext.tsx`.
 - Native permissions (Custom Dev Client): photo library via `expo-image-picker` plugin + `NSPhotoLibraryUsageDescription` in `app.json`. Rebuild Dev Client after changing plugins/Info.plist.
 - Clipboard paste uses `expo-clipboard` image/URL APIs (best-effort vs Swift pasteboard UTIs).
+- Home **Try sample file** copies `fixtures/media/tiny.mp4` into cache for Maestro navigation (not a valid encode source).
+
+## Conversion (Epic 3)
+
+- Domain: `src/core/conversion/` — router, bitrate planner, remux helpers, image quality binary-search, progress fraction, `ConversionService` (mocked FFmpeg/ImageEncode in unit tests).
+- Native: `modules/image-encode-module` — ImageIO encode for JPEG/PNG/HEIC/TIFF; WebP best-effort via system UTType (no libwebp download; CI unchanged).
+- UI flow: import-detail → `convert/config` → `convert/processing` → `convert/result` (share via `expo-sharing`, save via `expo-media-library`).
+- State: `ConversionProvider` in `src/features/conversion/ConversionContext.tsx`.
+- Maestro: `e2e/convert-nav.yaml` (CI); `e2e/demo/full-flow.yaml` skeleton for final recording.
+
+Rebuild Dev Client after adding `image-encode-module` / media-library plugins:
+
+```sh
+npm run download:ffmpeg
+npx expo run:ios
+```
 
 ## Layout
 
@@ -79,7 +95,8 @@ app/                 Expo Router screens
 components/          Shared UI
 constants/           Theme tokens, colors
 src/core/            Conversion domain (TS) + FFmpeg command builders
-modules/ffmpeg-module/  Expo Module (iOS FFmpegKit wrapper + config plugin)
+modules/ffmpeg-module/       Expo Module (iOS FFmpegKit wrapper + config plugin)
+modules/image-encode-module/ Expo Module (iOS ImageIO encode + no-op plugin)
 fixtures/media/      Tiny media placeholders
 legacy/swift/        Previous SwiftUI app (reference)
 e2e/                 Maestro flows (CI); e2e/demo/ for final recording only
@@ -105,7 +122,7 @@ Workflows on `react-native-port` (push/PR) and `workflow_dispatch`. Markdown/LIC
 | `.github/workflows/ci.yml` | `unit`, `e2e` | Ubuntu / macOS-15 | Unit: `npm ci` + `npm test` only. E2e: download FFmpeg frameworks, `expo prebuild -p ios`, Simulator Release build, Maestro on `e2e/` **excluding** `e2e/demo/`. |
 | `.github/workflows/ipa-unsigned.yml` | `unsigned-ipa` | macOS-15 | Download frameworks, clean iOS prebuild, unsigned `xcodebuild archive`, artifact `MB-Converter-unsigned.ipa`. |
 
-Optimizations: unit never waits on macOS; npm cache via `setup-node`; CocoaPods + DerivedData + FFmpeg zip caches on macOS jobs; no Android builds.
+Optimizations: unit never waits on macOS; npm cache via `setup-node`; CocoaPods + DerivedData + FFmpeg zip caches on macOS jobs; no Android builds. Image encode module needs no extra CI download step.
 
 ### Testing Library
 

@@ -7,7 +7,9 @@
     "icon": "./assets/images/icon.png",
     "scheme": "mbconverter",
     "userInterfaceStyle": "automatic",
-    "platforms": ["ios"],
+    "platforms": [
+      "ios"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.marginallybetter.converter",
@@ -55,7 +57,17 @@
           }
         }
       ],
-      "ffmpeg-module"
+      "ffmpeg-module",
+      "image-encode-module",
+      "expo-sharing",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "MB Converter needs photo library access to import photos and videos for conversion.",
+          "savePhotosPermission": "MB Converter may save converted media to your photo library when you choose to export.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

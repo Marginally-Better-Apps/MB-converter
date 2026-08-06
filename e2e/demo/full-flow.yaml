@@ -1,0 +1,38 @@
+# Demo-ready conversion navigation skeleton.
+# Uses the bundled sample fixture to reach convert/config without photo permissions.
+# Full encode to result still needs a real media file (replace fixture or import Photos).
+appId: com.marginallybetter.converter
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "MB Converter"
+    timeout: 30000
+- assertVisible:
+    id: "home-screen"
+- tapOn:
+    id: "import-demo-fixture"
+- extendedWaitUntil:
+    visible:
+      id: "import-detail-screen"
+    timeout: 15000
+- assertVisible: "Ready to convert"
+- assertVisible:
+    id: "import-detail-outputs"
+- tapOn:
+    id: "import-detail-continue"
+- extendedWaitUntil:
+    visible:
+      id: "convert-config-screen"
+    timeout: 15000
+- assertVisible: "Output"
+- assertVisible:
+    id: "convert-format-mp4_h264"
+- tapOn:
+    id: "convert-target-medium"
+- assertVisible:
+    id: "convert-config-start"
+# Stop before Convert — tiny.mp4 is a path stub, not a valid encode source.
+# When a real fixture is bundled, continue with:
+# - tapOn: { id: "convert-config-start" }
+# - assertVisible: { id: "processing-screen" }
+# - extendedWaitUntil: { visible: { id: "result-screen" }, timeout: 120000 }

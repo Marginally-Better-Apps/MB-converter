@@ -17,6 +17,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import type { ImportedMedia } from '@/src/core/io/ImportService';
 import { remoteDownloadDisplayFraction } from '@/src/core/io/remoteImportHelpers';
+import { loadDemoFixtureMedia } from '@/src/features/home/demoFixture';
 import { useImport } from '@/src/features/home/ImportContext';
 
 function navigateToImportDetail(media: ImportedMedia) {
@@ -87,6 +88,18 @@ export default function HomeScreen() {
     const media = await importRemoteLink(text);
     if (media) navigateToImportDetail(media);
   }, [importRemoteLink, linkText]);
+
+  const onDemoFixture = useCallback(async () => {
+    try {
+      const media = await loadDemoFixtureMedia();
+      navigateToImportDetail(media);
+    } catch (error) {
+      Alert.alert(
+        'Demo fixture unavailable',
+        error instanceof Error ? error.message : 'Could not load the sample file.'
+      );
+    }
+  }, []);
 
   const progressFraction = remoteDownloadProgress
     ? remoteDownloadDisplayFraction(remoteDownloadProgress)
@@ -185,6 +198,19 @@ export default function HomeScreen() {
             />
           </View>
         </View>
+
+        <Pressable
+          testID="import-demo-fixture"
+          accessibilityRole="button"
+          accessibilityLabel="Try sample file"
+          disabled={isImporting}
+          onPress={() => void onDemoFixture()}
+          className="mt-5 items-center py-2"
+        >
+          <Text className="text-sm font-semibold text-mb-primary-light dark:text-mb-primary-dark">
+            Try sample file
+          </Text>
+        </Pressable>
 
         {isImporting ? (
           <View

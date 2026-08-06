@@ -1,0 +1,29 @@
+# Navigates Home → sample fixture → import detail → convert config (no real encode).
+appId: com.marginallybetter.converter
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "MB Converter"
+    timeout: 30000
+- assertVisible:
+    id: "home-screen"
+- tapOn:
+    id: "import-demo-fixture"
+- extendedWaitUntil:
+    visible:
+      id: "import-detail-screen"
+    timeout: 15000
+- assertVisible:
+    id: "import-detail-format"
+- assertVisible:
+    id: "import-detail-outputs"
+- tapOn:
+    id: "import-detail-continue"
+- extendedWaitUntil:
+    visible:
+      id: "convert-config-screen"
+    timeout: 15000
+- assertVisible:
+    id: "convert-config-formats"
+- assertVisible:
+    id: "convert-config-start"
