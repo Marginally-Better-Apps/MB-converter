@@ -12,7 +12,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.marginallybetter.converter",
       "infoPlist": {
-        "CFBundleDisplayName": "MB Converter"
+        "CFBundleDisplayName": "MB Converter",
+        "NSPhotoLibraryUsageDescription": "MB Converter needs photo library access to import photos and videos for conversion.",
+        "NSPhotoLibraryAddUsageDescription": "MB Converter may save converted media to your photo library when you choose to export."
       }
     },
     "android": {
@@ -37,6 +39,12 @@
           "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
           "backgroundColor": "#eff6fb"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MB Converter needs photo library access to import photos and videos for conversion."
         }
       ],
       [

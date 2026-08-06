@@ -1,35 +1,44 @@
 import { StatusBar } from 'expo-status-bar';
-import { Platform, StyleSheet } from 'react-native';
+import { Linking, Platform, Pressable, Text, View } from 'react-native';
 
-import EditScreenInfo from '@/components/EditScreenInfo';
-import { Text, View } from '@/components/Themed';
-
+/** Lightweight settings stub (full settings land in Epic 4). */
 export default function ModalScreen() {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Modal</Text>
-      <View style={styles.separator} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
-      <EditScreenInfo path="app/modal.tsx" />
+    <View
+      testID="settings-screen"
+      className="flex-1 bg-mb-background-light px-6 pt-8 dark:bg-mb-background-dark"
+    >
+      <Text className="mb-2 text-2xl font-bold text-mb-text-light dark:text-mb-text-dark">
+        Settings
+      </Text>
+      <Text className="mb-6 text-sm text-mb-textMuted-light dark:text-mb-textMuted-dark">
+        Theme and history preferences arrive in Epic 4.
+      </Text>
 
-      {/* Use a light status bar on iOS to account for the black space above the modal */}
+      <View className="rounded-2xl border border-mb-accent-light/30 bg-mb-surface-light p-4 dark:border-mb-accent-dark/50 dark:bg-mb-surface-dark">
+        <View className="mb-3 flex-row justify-between">
+          <Text className="text-mb-text-light dark:text-mb-text-dark">Name</Text>
+          <Text className="text-mb-textMuted-light dark:text-mb-textMuted-dark">
+            Marginally Better Converter
+          </Text>
+        </View>
+        <View className="mb-3 flex-row justify-between">
+          <Text className="text-mb-text-light dark:text-mb-text-dark">Version</Text>
+          <Text className="text-mb-textMuted-light dark:text-mb-textMuted-dark">1.0</Text>
+        </View>
+        <Pressable
+          accessibilityRole="link"
+          onPress={() => {
+            void Linking.openURL('https://github.com/Marginally-Better-Apps/MB-converter');
+          }}
+        >
+          <Text className="font-semibold text-mb-primary-light dark:text-mb-primary-dark">
+            GitHub
+          </Text>
+        </Pressable>
+      </View>
+
       <StatusBar style={Platform.OS === 'ios' ? 'light' : 'auto'} />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  separator: {
-    marginVertical: 30,
-    height: 1,
-    width: '80%',
-  },
-});

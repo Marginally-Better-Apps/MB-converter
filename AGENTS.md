@@ -64,6 +64,14 @@ Domain logic under `src/core/` (ported from `legacy/swift/Core/Conversion/*` + C
 
 JS API (`ffmpeg-module`): `execute`, `cancel`, `probe`, `getRuntimeInfo`, events `onProgress` / `onLog`.
 
+## Import / Home (Epic 2)
+
+- Domain: `src/core/io/` (`ImportService`, `ImportStorage`, size cap 150 MB, remote helpers).
+- UI: Expo Router home (`app/(tabs)/index.tsx`) + import detail stub (`app/import-detail.tsx`).
+- State: `ImportProvider` / `useImport` in `src/features/home/ImportContext.tsx`.
+- Native permissions (Custom Dev Client): photo library via `expo-image-picker` plugin + `NSPhotoLibraryUsageDescription` in `app.json`. Rebuild Dev Client after changing plugins/Info.plist.
+- Clipboard paste uses `expo-clipboard` image/URL APIs (best-effort vs Swift pasteboard UTIs).
+
 ## Layout
 
 ```

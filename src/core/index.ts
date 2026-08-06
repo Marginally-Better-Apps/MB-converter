@@ -7,3 +7,4 @@ export * from '@/src/core/ffmpeg/outputFormatArgs';
 export * from '@/src/core/ffmpeg/videoCommandBuilder';
 export * from '@/src/core/ffmpeg/audioCommandBuilder';
 export * from '@/src/core/ffmpeg/animatedImageCommandBuilder';
+export * from '@/src/core/io';

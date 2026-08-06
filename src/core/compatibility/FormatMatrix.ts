@@ -71,9 +71,82 @@ export function detectCategory(pathOrFilename: string): MediaCategory | null {
   if (videoExt.has(ext)) return 'video';
   if (audioExt.has(ext)) return 'audio';
   if (ext === 'gif') return 'animatedImage';
-  if (ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'heic' || ext === 'webp' || ext === 'tif' || ext === 'tiff' || ext === 'avif') {
+  if (
+    ext === 'jpg' ||
+    ext === 'jpeg' ||
+    ext === 'png' ||
+    ext === 'heic' ||
+    ext === 'heif' ||
+    ext === 'webp' ||
+    ext === 'tif' ||
+    ext === 'tiff' ||
+    ext === 'avif' ||
+    ext === 'bmp'
+  ) {
     return 'image';
   }
+  return null;
+}
+
+/** MIME → preferred filename extension (mirrors Swift ImportService.mimeToExtension). */
+export const mimeToExtension: Record<string, string> = {
+  'video/mp4': 'mp4',
+  'video/x-m4v': 'm4v',
+  'video/quicktime': 'mov',
+  'video/webm': 'webm',
+  'video/x-matroska': 'mkv',
+  'video/ogg': 'ogv',
+  'video/3gpp': '3gp',
+  'video/mpeg': 'mpeg',
+  'video/x-msvideo': 'avi',
+  'video/x-flv': 'flv',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/aac': 'aac',
+  'audio/flac': 'flac',
+  'audio/ogg': 'ogg',
+  'audio/opus': 'opus',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'image/heif': 'heic',
+  'image/tiff': 'tiff',
+  'image/avif': 'avif',
+};
+
+/** UTI-like identifiers that appear on iOS pasteboards / pickers. */
+const utiToExtension: Record<string, string> = {
+  'public.mpeg-4': 'mp4',
+  'public.mpeg-4-audio': 'm4a',
+  'com.apple.m4a-audio': 'm4a',
+  'public.movie': 'mov',
+  'com.apple.quicktime-movie': 'mov',
+  'public.jpeg': 'jpg',
+  'public.png': 'png',
+  'com.compuserve.gif': 'gif',
+  'public.heic': 'heic',
+  'public.heif': 'heic',
+};
+
+function normalizeMimeOrUti(raw: string): string {
+  return raw.split(';')[0]?.trim().toLowerCase() ?? '';
+}
+
+export function extensionForMime(mimeOrUti: string): string | null {
+  const key = normalizeMimeOrUti(mimeOrUti);
+  if (!key) return null;
+  return mimeToExtension[key] ?? utiToExtension[key] ?? null;
+}
+
+export function detectCategoryFromMime(mimeOrUti: string): MediaCategory | null {
+  const ext = extensionForMime(mimeOrUti);
+  if (ext) return detectCategory(`file.${ext}`);
   return null;
 }
 

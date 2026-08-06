@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 
 import { theme } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
+import { ImportProvider } from '@/src/features/home/ImportContext';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -76,10 +77,14 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? darkNavigationTheme : lightNavigationTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-      </Stack>
+      <ImportProvider>
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="import-detail" options={{ title: 'Import', presentation: 'card' }} />
+          <Stack.Screen name="history" options={{ title: 'History', presentation: 'card' }} />
+          <Stack.Screen name="modal" options={{ title: 'Settings', presentation: 'modal' }} />
+        </Stack>
+      </ImportProvider>
     </ThemeProvider>
   );
 }

@@ -1,5 +1,5 @@
-# CI smoke: launch the Simulator Dev/Release build and assert the home title.
-# Matches the Expo template home screen (app/(tabs)/index.tsx).
+# CI smoke: launch the Simulator Dev/Release build and assert Home.
+# Home must keep the visible title "MB Converter".
 appId: com.marginallybetter.converter
 ---
 - launchApp
@@ -7,3 +7,7 @@ appId: com.marginallybetter.converter
     visible: "MB Converter"
     timeout: 30000
 - assertVisible: "MB Converter"
+- assertVisible: "Convert & Compress"
+- assertVisible: "Photo Album"
+- assertVisible: "Files"
+- assertVisible: "From link"

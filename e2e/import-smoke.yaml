@@ -1,0 +1,18 @@
+# Home import surface smoke (pickers need Simulator permission fixtures for full automation).
+appId: com.marginallybetter.converter
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "MB Converter"
+    timeout: 30000
+- assertVisible:
+    id: "home-screen"
+- assertVisible: "Photo Album"
+- assertVisible: "Files"
+- assertVisible: "From link"
+- assertVisible: "Paste from clipboard"
+- tapOn: "From link"
+- assertVisible: "Import from link"
+- assertVisible: "Download"
+- tapOn: "Cancel"
+- assertVisible: "MB Converter"
