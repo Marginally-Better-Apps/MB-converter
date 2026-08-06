@@ -120,10 +120,10 @@ Workflows on `react-native-port` and `main` (push/PR) plus `workflow_dispatch`. 
 
 | Workflow | Jobs | Runner | Notes |
 |----------|------|--------|-------|
-| `.github/workflows/ci.yml` | `unit`, `e2e` | Ubuntu / macOS-15 | Unit: `npm ci` + `npm test` only. E2e: pick Xcode with Swift 6.2+ (26.x → 16.4 → 16.3), download FFmpeg frameworks, `expo prebuild -p ios`, arm64 Simulator Release build, Maestro on `e2e/` **excluding** `e2e/demo/`. |
-| `.github/workflows/ipa-unsigned.yml` | `unsigned-ipa` | macOS-15 | Same Xcode selection; download frameworks, clean iOS prebuild, unsigned `xcodebuild archive`, artifact `MB-Converter-unsigned.ipa`. |
+| `.github/workflows/ci.yml` | `unit`, `e2e` | Ubuntu / macOS-26 | Unit: `npm ci` + `npm test` only. E2e: pick Xcode 26.4+ (SDK 57 / Swift 6.3), download FFmpeg frameworks, `expo prebuild -p ios`, arm64 Simulator Release (`MBConverter` scheme), Maestro on `e2e/` **excluding** `e2e/demo/`. |
+| `.github/workflows/ipa-unsigned.yml` | `unsigned-ipa` | macOS-26 | Same Xcode + scheme selection; download frameworks, clean iOS prebuild, unsigned `xcodebuild archive`, artifact `MB-Converter-unsigned.ipa`. |
 
-Optimizations: unit never waits on macOS; npm cache via `setup-node`; CocoaPods + DerivedData + FFmpeg zip caches on macOS jobs; no Android builds. Image encode module needs no extra CI download step. Expo SDK 57 needs Swift tools 6.2+ — do not pin Xcode 16.2.
+Optimizations: unit never waits on macOS; npm cache via `setup-node`; CocoaPods + DerivedData + FFmpeg zip caches on macOS jobs; no Android builds. Image encode module needs no extra CI download step. Expo SDK 57 needs **Xcode 26.4+** (not 16.2 / not macos-15’s 26.3).
 
 ### Testing Library
 

@@ -26,7 +26,8 @@ env:
 jobs:
   unsigned-ipa:
     name: Archive unsigned IPA
-    runs-on: macos-15
+    # Expo SDK 57 / expo-modules-jsi need Xcode 26.4+ (Swift 6.3); macos-15 tops out at 26.3.
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -43,8 +44,8 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Expo SDK 57 / ExpoModulesCore need Swift tools 6.2+ (not Xcode 16.2 / Swift 6.0).
-          # Prefer Xcode 26.x, then 16.4, then 16.3 on macos-15 (probe installed apps).
+          # Expo SDK 57 needs Xcode 26.4+ (Swift 6.3). Prefer 26.4+, then newest 26.x,
+          # then 16.4 / 16.3 as last-resort fallbacks (probe installed apps).
           set -euo pipefail
           echo "Available Xcode apps:"
           ls -1d /Applications/Xcode*.app 2>/dev/null || true
@@ -52,6 +53,9 @@ jobs:
           pick=""
           shopt -s nullglob
           for pattern in \
+            '/Applications/Xcode_26.4*.app' \
+            '/Applications/Xcode_26.5*.app' \
+            '/Applications/Xcode_26.6*.app' \
             '/Applications/Xcode_26*.app' \
             '/Applications/Xcode_16.4*.app' \
             '/Applications/Xcode_16.3*.app'
@@ -71,7 +75,7 @@ jobs:
             echo "Selecting $pick"
             sudo xcode-select -s "$pick"
           else
-            echo "::warning::No Xcode 26/16.4/16.3 found; using active xcode-select"
+            echo "::warning::No preferred Xcode found; using active xcode-select"
           fi
 
           xcodebuild -version
@@ -109,8 +113,35 @@ jobs:
       - name: Resolve Xcode workspace and scheme
         id: xcode
         run: |
+          set -euo pipefail
           WORKSPACE=$(ls -d ios/*.xcworkspace | head -1)
-          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" -json | python3 -c "import json,sys; print(json.load(sys.stdin)['workspace']['schemes'][0])")
+          # Prefer the app scheme matching ios/*.xcodeproj — schemes[0] is often EXConstants.
+          SCHEME=$(
+            WORKSPACE="$WORKSPACE" python3 - <<'PY'
+          import glob, json, os, subprocess
+          workspace = os.environ["WORKSPACE"]
+          schemes = json.loads(
+              subprocess.check_output(
+                  ["xcodebuild", "-list", "-workspace", workspace, "-json"], text=True
+              )
+          )["workspace"]["schemes"]
+          for proj in sorted(glob.glob("ios/*.xcodeproj")):
+              name = os.path.splitext(os.path.basename(proj))[0]
+              if name in schemes:
+                  print(name)
+                  raise SystemExit(0)
+          ws = os.path.splitext(os.path.basename(workspace))[0]
+          if ws in schemes:
+              print(ws)
+              raise SystemExit(0)
+          skip = ("EXConstants", "Pods-", "React", "hermes")
+          for s in schemes:
+              if not s.startswith(skip):
+                  print(s)
+                  raise SystemExit(0)
+          print(schemes[0])
+          PY
+          )
           echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
           echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
           echo "Using workspace=$WORKSPACE scheme=$SCHEME"
