@@ -1,0 +1,24 @@
+{
+  "name": "ffmpeg-module",
+  "version": "0.1.0",
+  "description": "Expo Module wrapping FFmpegKit / FFprobeKit for MB Converter (iOS)",
+  "main": "index.ts",
+  "types": "index.ts",
+  "license": "LGPL-3.0-or-later",
+  "homepage": "https://github.com/shloklabs/MB-converter",
+  "author": "MB Converter",
+  "keywords": ["expo", "ffmpeg", "react-native", "ios"],
+  "files": [
+    "ios",
+    "src",
+    "index.ts",
+    "expo-module.config.json",
+    "app.plugin.js",
+    "plugin"
+  ],
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

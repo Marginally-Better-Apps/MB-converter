@@ -1,0 +1,19 @@
+# CI smoke: launch the Simulator Dev/Release build and assert Home.
+# Prefer testIDs — accessibility labels differ from visible titles.
+appId: com.marginallybetter.converter
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 60000
+- assertVisible:
+    id: "home-title"
+- assertVisible: "Convert & Compress"
+- assertVisible:
+    id: "import-photos"
+- assertVisible:
+    id: "import-files"
+- assertVisible:
+    id: "import-link"

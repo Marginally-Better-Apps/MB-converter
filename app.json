@@ -1,0 +1,76 @@
+{
+  "expo": {
+    "name": "MB Converter",
+    "slug": "mb-converter",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/images/icon.png",
+    "scheme": "mbconverter",
+    "userInterfaceStyle": "automatic",
+    "platforms": [
+      "ios"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.marginallybetter.converter",
+      "infoPlist": {
+        "CFBundleDisplayName": "MB Converter",
+        "NSPhotoLibraryUsageDescription": "MB Converter needs photo library access to import photos and videos for conversion.",
+        "NSPhotoLibraryAddUsageDescription": "MB Converter may save converted media to your photo library when you choose to export."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#eff6fb",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#eff6fb"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MB Converter needs photo library access to import photos and videos for conversion."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "17.0"
+          }
+        }
+      ],
+      "ffmpeg-module",
+      "image-encode-module",
+      "expo-sharing",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "MB Converter needs photo library access to import photos and videos for conversion.",
+          "savePhotosPermission": "MB Converter may save converted media to your photo library when you choose to export.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

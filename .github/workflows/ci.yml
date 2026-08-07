@@ -1,0 +1,306 @@
+# CI: fast Jest unit tests on Ubuntu + iOS Simulator Maestro e2e on macOS.
+# Unit never waits on Xcode. iOS-only (no Android). Caches npm, CocoaPods, and DerivedData.
+name: CI
+
+on:
+  push:
+    branches: [react-native-port, main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  pull_request:
+    branches: [react-native-port, main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPO_NO_TELEMETRY: 1
+  CI: true
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test -- --ci --coverage=false
+
+  e2e:
+    name: iOS Maestro e2e
+    # Expo SDK 57 / expo-modules-jsi need Xcode 26.4+ (Swift 6.3); macos-15 tops out at 26.3.
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      MAESTRO_CLI_NO_ANALYTICS: 1
+      # XCTest driver cold-start on macos-26 can exceed 2 minutes under load.
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: '300000'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Java (Maestro)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Select Xcode
+        run: |
+          # Expo SDK 57 needs Xcode 26.4+ (Swift 6.3). Prefer 26.4+, then newest 26.x,
+          # then 16.4 / 16.3 as last-resort fallbacks (probe installed apps).
+          set -euo pipefail
+          echo "Available Xcode apps:"
+          ls -1d /Applications/Xcode*.app 2>/dev/null || true
+
+          pick=""
+          shopt -s nullglob
+          for pattern in \
+            '/Applications/Xcode_26.4*.app' \
+            '/Applications/Xcode_26.5*.app' \
+            '/Applications/Xcode_26.6*.app' \
+            '/Applications/Xcode_26*.app' \
+            '/Applications/Xcode_16.4*.app' \
+            '/Applications/Xcode_16.3*.app'
+          do
+            matches=( $pattern )
+            if [ ${#matches[@]} -eq 0 ]; then
+              continue
+            fi
+            # Newest version-ish name first (26.4.1 > 26.4 > 26.3 > …).
+            IFS=$'\n' sorted=($(printf '%s\n' "${matches[@]}" | sort -V -r))
+            unset IFS
+            pick="${sorted[0]}"
+            break
+          done
+          shopt -u nullglob
+
+          if [ -n "$pick" ]; then
+            echo "Selecting $pick"
+            sudo xcode-select -s "$pick"
+          else
+            echo "::warning::No preferred Xcode found; using active xcode-select"
+          fi
+
+          xcodebuild -version
+          xcrun swift --version || true
+          echo "XCODE_VERSION=$(xcodebuild -version | awk 'NR==1{print $2}')" >> "$GITHUB_ENV"
+
+      - name: Cache FFmpegKit xcframework zips
+        uses: actions/cache@v4
+        with:
+          path: .cache/ffmpeg-kit-spm
+          key: ffmpeg-kit-spm-min.v5.1.2.6-${{ hashFiles('scripts/download-ffmpeg-frameworks.sh') }}
+
+      - name: Download FFmpeg frameworks
+        run: ./scripts/download-ffmpeg-frameworks.sh
+
+      - name: Prebuild iOS (skip pod install for cache)
+        run: npx expo prebuild -p ios --no-install
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: cocoapods-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('package-lock.json', 'app.json', 'ios/Podfile', 'modules/ffmpeg-module/ios/FFmpegModule.podspec') }}
+          restore-keys: |
+            cocoapods-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+            cocoapods-${{ runner.os }}-
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ios/build
+          key: deriveddata-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('package-lock.json', 'app.json', 'ios/Podfile') }}-${{ hashFiles('app/**', 'components/**', 'constants/**', 'assets/**', 'modules/**', 'src/**') }}
+          restore-keys: |
+            deriveddata-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('package-lock.json', 'app.json', 'ios/Podfile') }}-
+            deriveddata-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: |
+          gem install cocoapods --no-document || true
+          pod install --deployment 2>/dev/null || pod install
+
+      - name: Resolve Xcode workspace and scheme
+        id: xcode
+        run: |
+          set -euo pipefail
+          WORKSPACE=$(ls -d ios/*.xcworkspace | head -1)
+          # Prefer the app scheme matching ios/*.xcodeproj — schemes[0] is often EXConstants.
+          SCHEME=$(
+            WORKSPACE="$WORKSPACE" python3 - <<'PY'
+          import glob, json, os, subprocess
+          workspace = os.environ["WORKSPACE"]
+          schemes = json.loads(
+              subprocess.check_output(
+                  ["xcodebuild", "-list", "-workspace", workspace, "-json"], text=True
+              )
+          )["workspace"]["schemes"]
+          for proj in sorted(glob.glob("ios/*.xcodeproj")):
+              name = os.path.splitext(os.path.basename(proj))[0]
+              if name in schemes:
+                  print(name)
+                  raise SystemExit(0)
+          ws = os.path.splitext(os.path.basename(workspace))[0]
+          if ws in schemes:
+              print(ws)
+              raise SystemExit(0)
+          skip = ("EXConstants", "Pods-", "React", "hermes")
+          for s in schemes:
+              if not s.startswith(skip):
+                  print(s)
+                  raise SystemExit(0)
+          print(schemes[0])
+          PY
+          )
+          echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Using workspace=$WORKSPACE scheme=$SCHEME"
+
+      - name: Build Simulator Release app
+        run: |
+          set -euo pipefail
+          # Apple Silicon: arm64-only sim build (faster). Keep destination generic —
+          # "arch=arm64" in -destination is rejected by some schemes/Xcode versions.
+          ARCH_FLAGS=(ONLY_ACTIVE_ARCH=YES)
+          if [ "$(uname -m)" = "arm64" ]; then
+            ARCH_FLAGS+=(ARCHS=arm64 EXCLUDED_ARCHS=x86_64)
+          fi
+          xcodebuild \
+            -workspace "${{ steps.xcode.outputs.workspace }}" \
+            -scheme "${{ steps.xcode.outputs.scheme }}" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            "${ARCH_FLAGS[@]}" \
+            build
+
+      - name: Locate built .app
+        id: app
+        run: |
+          APP_PATH=$(find ios/build/Build/Products -path '*iphonesimulator*.app' -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No iphonesimulator .app found under ios/build"
+            find ios/build/Build/Products -maxdepth 3 -type d || true
+            exit 1
+          fi
+          echo "path=$APP_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found app at $APP_PATH"
+
+      - name: Install Maestro CLI
+        run: |
+          curl -fsSL 'https://get.maestro.mobile.dev' | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Boot iOS Simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          UDID=$(python3 - <<'PY'
+          import json, subprocess, sys
+          data = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "devices", "available", "-j"], text=True
+              )
+          )
+          preferred = ("iPhone 17", "iPhone 16", "iPhone 15", "iPhone 14")
+          candidates = []
+          for runtime, devices in data.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for d in devices:
+                  if d.get("isAvailable") and "iPhone" in d.get("name", ""):
+                      candidates.append(d)
+          if not candidates:
+              sys.exit("No available iPhone simulator")
+          by_name = {d["name"]: d for d in candidates}
+          chosen = next((by_name[n] for n in preferred if n in by_name), candidates[0])
+          print(chosen["udid"])
+          PY
+          )
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+          open -a Simulator --args -CurrentDeviceUDID "$UDID"
+          # Give SpringBoard / XCTest a moment before Maestro attaches.
+          sleep 5
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Install app on Simulator
+        run: |
+          set -euo pipefail
+          xcrun simctl install "${{ steps.sim.outputs.udid }}" "${{ steps.app.outputs.path }}"
+          # Warm launch so the first Maestro session is less likely to hit driver timeouts.
+          xcrun simctl launch "${{ steps.sim.outputs.udid }}" com.marginallybetter.converter || true
+          sleep 8
+          xcrun simctl terminate "${{ steps.sim.outputs.udid }}" com.marginallybetter.converter || true
+
+      - name: Run Maestro flows (exclude e2e/demo)
+        run: |
+          set -euo pipefail
+          flows=()
+          while IFS= read -r f; do
+            flows+=("$f")
+          done < <(find e2e \( -name '*.yaml' -o -name '*.yml' \) ! -path '*/demo/*' | sort)
+
+          if [ ${#flows[@]} -eq 0 ]; then
+            echo "::notice::No Maestro flows under e2e/ (excluding demo); nothing to run"
+            exit 0
+          fi
+
+          echo "Running Maestro flows:"
+          printf '  %s\n' "${flows[@]}"
+
+          run_flow() {
+            local flow="$1"
+            local attempt
+            for attempt in 1 2 3; do
+              echo "::group::Maestro $flow (attempt $attempt)"
+              if maestro --device "${{ steps.sim.outputs.udid }}" test "$flow"; then
+                echo "::endgroup::"
+                return 0
+              fi
+              echo "::endgroup::"
+              echo "::warning::Maestro failed for $flow on attempt $attempt"
+              sleep $((attempt * 5))
+            done
+            return 1
+          }
+
+          # One flow per invocation so clearState + failures are isolated.
+          for flow in "${flows[@]}"; do
+            run_flow "$flow"
+          done

@@ -1,6 +1,8 @@
 # MB Converter
 
-**Convert and compress** photos, video, and audio on your iPhone and iPad, one simple flow from choosing a format to picking where your file comes from. MB Converter is completely free and open source.
+**Convert and compress** photos, video, and audio on your iPhone and iPad.
+
+This repository’s **shipping app is Expo / React Native** (iOS / iPadOS 17+). The previous SwiftUI app remains under [`legacy/swift/`](legacy/swift/) as a domain and FFmpeg behavior reference until cutover sign-off.
 
 ## Get the beta
 
@@ -12,55 +14,56 @@
 
 **App Icon**
 
-<img src="Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="8%" />
+<img src="legacy/swift/Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="8%" />
 
-**Main Screen Preview**
+**Main Screen Preview** (legacy Swift screenshots — Expo UI is similar; refresh when convenient)
 
 <table>
   <tr>
     <td align="center">
       <strong>Light</strong><br />
-      <img src="docs/light_mainpage.png" alt="MB Converter light main screen" width="180" />
+      <img src="legacy/swift/docs/light_mainpage.png" alt="MB Converter light main screen" width="180" />
     </td>
     <td align="center">
       <strong>Dark</strong><br />
-      <img src="docs/dark_mainpage.png" alt="MB Converter dark main screen" width="180" />
+      <img src="legacy/swift/docs/dark_mainpage.png" alt="MB Converter dark main screen" width="180" />
     </td>
   </tr>
 </table>
 
-## Supported formats
+## Develop (Expo)
 
-| Files | Codecs we can read |
-|-------|--------------------|
-| Video: MP4, MOV, M4V, MKV, WebM, AVI, FLV, F4V, TS, MTS, M2TS, 3GP, MPEG/MPG, M2V, MXF, OGV, VOB, ASF, WMV, WTV, SWF, HEVC, MJPEG | H.264, HEVC, VP8, VP9, MPEG-2, MPEG-4, MJPEG, Theora |
-| Audio: MP3, M4A, WAV, AAC, FLAC, OGG, Opus, ALAC | AAC, MP3, FLAC, ALAC, Vorbis, Opus, PCM |
-| Photos: JPEG, PNG, HEIC, WebP, AVIF, TIFF | handled by iOS |
-| Animated: GIF | — |
+Requires **Node 20+**, **Xcode 26.4+** (Expo SDK 57 / Swift 6.3), and an **iOS 17+** Simulator.
 
-### What you can save out
+**Custom Dev Client required.** FFmpeg and ImageIO encode modules do **not** run in Expo Go. Always use `npx expo run:ios` or an EAS development build.
 
-| Output | Codec used |
-|--------|------------|
-| MP4 (H.264) | H.264 |
-| MP4 (HEVC) | HEVC |
-| MOV | H.264 |
-| M4A | AAC |
-| AAC | AAC |
-| WAV | PCM 16-bit |
-| JPEG | — |
-| PNG | — |
-| HEIC | — |
-| WebP (still image) | — |
-| TIFF | — |
+```sh
+npm install
+./scripts/download-ffmpeg-frameworks.sh   # once; vendors FFmpegKit min.v5.1.2.6 xcframeworks
+npm test                                   # Jest unit + component tests
+npx expo run:ios                           # prebuild + Dev Client (download also runs via config plugin)
+npm start                                  # Metro only — pair with an installed Dev Client
+```
 
-## For developers
+### Tests & CI
 
-Building from source or curious about how it’s put together? See the **[Developer documentation](docs/DEVELOPMENT.md)**.
+| Command / workflow | What it covers |
+|--------------------|----------------|
+| `npm test` | Unit + component tests (also the GitHub Actions `unit` job) |
+| Maestro `e2e/*.yaml` | Simulator smoke / navigation (CI `e2e` job; **excludes** `e2e/demo/`) |
+| `./scripts/record-demo.sh e2e/demo/full-flow.yaml …` | Headed final demo (full encode path; not in CI) |
+| `.github/workflows/ci.yml` | `unit` on Ubuntu + `e2e` on macOS-26 / Xcode 26.4+ |
+| `.github/workflows/ipa-unsigned.yml` | Unsigned IPA artifact |
+
+FFmpeg binaries are downloaded (not committed). See [`AGENTS.md`](AGENTS.md) and [`CREDITS.md`](CREDITS.md) (LGPL). In-app notice: Settings → **Credits & LGPL notice**.
+
+Bundle ID: `com.marginallybetter.converter` · Display name: **MB Converter**
+
+Agent / port notes: [`AGENTS.md`](AGENTS.md). Legacy Swift developer docs: [`legacy/swift/docs/DEVELOPMENT.md`](legacy/swift/docs/DEVELOPMENT.md).
 
 ## License
 
-The app’s source code is under the [MIT License](LICENSE). The libraries it relies on keep their own licenses — see the developer doc for the full list.
+The app’s source code is under the [MIT License](LICENSE). FFmpeg / FFmpegKit retain LGPL (and related) terms — see [`CREDITS.md`](CREDITS.md).
 
 ## More projects
 

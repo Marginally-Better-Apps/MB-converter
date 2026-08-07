@@ -1,0 +1,23 @@
+{
+  "name": "image-encode-module",
+  "version": "0.1.0",
+  "description": "Expo Module for still-image encode via ImageIO (iOS) for MB Converter",
+  "main": "index.ts",
+  "types": "index.ts",
+  "license": "MIT",
+  "homepage": "https://github.com/shloklabs/MB-converter",
+  "author": "MB Converter",
+  "keywords": ["expo", "image", "react-native", "ios", "imageio"],
+  "files": [
+    "ios",
+    "src",
+    "index.ts",
+    "expo-module.config.json",
+    "app.plugin.js"
+  ],
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

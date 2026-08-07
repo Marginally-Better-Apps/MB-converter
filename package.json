@@ -1,0 +1,73 @@
+{
+  "name": "mb-converter",
+  "main": "expo-router/entry",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "web": "expo start --web",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "typecheck": "tsc --noEmit",
+    "download:ffmpeg": "./scripts/download-ffmpeg-frameworks.sh",
+    "prebuild:ios": "npm run download:ffmpeg && npx expo prebuild -p ios"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~57.0.10",
+    "expo-build-properties": "~57.0.8",
+    "expo-clipboard": "~57.0.1",
+    "expo-constants": "~57.0.9",
+    "expo-document-picker": "~57.0.1",
+    "expo-file-system": "~57.0.1",
+    "expo-font": "~57.0.1",
+    "expo-image-picker": "~57.0.7",
+    "expo-linking": "~57.0.5",
+    "expo-media-library": "~57.0.3",
+    "expo-router": "~57.0.10",
+    "expo-sharing": "~57.0.8",
+    "expo-splash-screen": "~57.0.5",
+    "expo-status-bar": "~57.0.1",
+    "expo-symbols": "~57.0.1",
+    "expo-web-browser": "~57.0.2",
+    "ffmpeg-module": "file:./modules/ffmpeg-module",
+    "image-encode-module": "file:./modules/image-encode-module",
+    "nativewind": "^4.2.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.2",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-web": "~0.21.0",
+    "react-native-worklets": "0.10.1"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "^14.0.1",
+    "@types/jest": "^30.0.0",
+    "@types/react": "~19.2.2",
+    "jest": "^29.7.0",
+    "jest-expo": "^57.0.3",
+    "prettier-plugin-tailwindcss": "^0.5.14",
+    "tailwindcss": "3.4.17",
+    "test-renderer": "^1.2.0",
+    "typescript": "~6.0.3"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "setupFilesAfterEnv": [
+      "<rootDir>/jest.setup.ts"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/legacy/",
+      "/e2e/"
+    ],
+    "transformIgnorePatterns": [
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|nativewind|react-native-css-interop|react-native-reanimated|react-native-worklets|react-native-safe-area-context|react-native-screens)"
+    ]
+  }
+}

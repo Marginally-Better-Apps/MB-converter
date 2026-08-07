@@ -1,0 +1,47 @@
+# Full conversion demo for headed Simulator recording.
+# Uses bundled fixtures/media/tiny.mp4 (real tiny H.264/AAC MP4) — no photo permissions.
+# CI excludes e2e/demo/; run via ./scripts/record-demo.sh after a Dev Client build.
+appId: com.marginallybetter.converter
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 60000
+- assertVisible:
+    id: "home-title"
+- tapOn:
+    id: "import-demo-fixture"
+- extendedWaitUntil:
+    visible:
+      id: "import-detail-screen"
+    timeout: 15000
+- assertVisible: "Ready to convert"
+- assertVisible:
+    id: "import-detail-outputs"
+- tapOn:
+    id: "import-detail-continue"
+- extendedWaitUntil:
+    visible:
+      id: "convert-config-screen"
+    timeout: 15000
+- assertVisible: "Output"
+- assertVisible:
+    id: "convert-format-mp4_h264"
+- tapOn:
+    id: "convert-target-medium"
+- assertVisible:
+    id: "convert-config-start"
+- tapOn:
+    id: "convert-config-start"
+# tiny.mp4 can finish before processing-screen is assertable; wait for result.
+- extendedWaitUntil:
+    visible:
+      id: "result-screen"
+    timeout: 180000
+- assertVisible:
+    id: "result-share"
+- assertVisible:
+    id: "result-done"
+- assertVisible: "Done"

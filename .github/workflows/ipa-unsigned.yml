@@ -1,0 +1,187 @@
+# Builds an unsigned iOS IPA (no signing) for smoke/archive checks.
+# iOS-only Expo prebuild → xcodebuild archive with CODE_SIGNING_ALLOWED=NO → artifact.
+name: Unsigned IPA
+
+on:
+  push:
+    branches: [react-native-port, main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  pull_request:
+    branches: [react-native-port, main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  workflow_dispatch:
+
+concurrency:
+  group: ipa-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPO_NO_TELEMETRY: 1
+  CI: true
+
+jobs:
+  unsigned-ipa:
+    name: Archive unsigned IPA
+    # Expo SDK 57 / expo-modules-jsi need Xcode 26.4+ (Swift 6.3); macos-15 tops out at 26.3.
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Select Xcode
+        run: |
+          # Expo SDK 57 needs Xcode 26.4+ (Swift 6.3). Prefer 26.4+, then newest 26.x,
+          # then 16.4 / 16.3 as last-resort fallbacks (probe installed apps).
+          set -euo pipefail
+          echo "Available Xcode apps:"
+          ls -1d /Applications/Xcode*.app 2>/dev/null || true
+
+          pick=""
+          shopt -s nullglob
+          for pattern in \
+            '/Applications/Xcode_26.4*.app' \
+            '/Applications/Xcode_26.5*.app' \
+            '/Applications/Xcode_26.6*.app' \
+            '/Applications/Xcode_26*.app' \
+            '/Applications/Xcode_16.4*.app' \
+            '/Applications/Xcode_16.3*.app'
+          do
+            matches=( $pattern )
+            if [ ${#matches[@]} -eq 0 ]; then
+              continue
+            fi
+            IFS=$'\n' sorted=($(printf '%s\n' "${matches[@]}" | sort -V -r))
+            unset IFS
+            pick="${sorted[0]}"
+            break
+          done
+          shopt -u nullglob
+
+          if [ -n "$pick" ]; then
+            echo "Selecting $pick"
+            sudo xcode-select -s "$pick"
+          else
+            echo "::warning::No preferred Xcode found; using active xcode-select"
+          fi
+
+          xcodebuild -version
+          xcrun swift --version || true
+          echo "XCODE_VERSION=$(xcodebuild -version | awk 'NR==1{print $2}')" >> "$GITHUB_ENV"
+
+      - name: Cache FFmpegKit xcframework zips
+        uses: actions/cache@v4
+        with:
+          path: .cache/ffmpeg-kit-spm
+          key: ffmpeg-kit-spm-min.v5.1.2.6-${{ hashFiles('scripts/download-ffmpeg-frameworks.sh') }}
+
+      - name: Download FFmpeg frameworks
+        run: ./scripts/download-ffmpeg-frameworks.sh
+
+      - name: Prebuild iOS (clean, skip pod install for cache)
+        run: npx expo prebuild -p ios --clean --no-install
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: cocoapods-ipa-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('package-lock.json', 'app.json', 'ios/Podfile', 'modules/ffmpeg-module/ios/FFmpegModule.podspec') }}
+          restore-keys: |
+            cocoapods-ipa-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+            cocoapods-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+            cocoapods-${{ runner.os }}-
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: pod install --deployment 2>/dev/null || pod install
+
+      - name: Resolve Xcode workspace and scheme
+        id: xcode
+        run: |
+          set -euo pipefail
+          WORKSPACE=$(ls -d ios/*.xcworkspace | head -1)
+          # Prefer the app scheme matching ios/*.xcodeproj — schemes[0] is often EXConstants.
+          SCHEME=$(
+            WORKSPACE="$WORKSPACE" python3 - <<'PY'
+          import glob, json, os, subprocess
+          workspace = os.environ["WORKSPACE"]
+          schemes = json.loads(
+              subprocess.check_output(
+                  ["xcodebuild", "-list", "-workspace", workspace, "-json"], text=True
+              )
+          )["workspace"]["schemes"]
+          for proj in sorted(glob.glob("ios/*.xcodeproj")):
+              name = os.path.splitext(os.path.basename(proj))[0]
+              if name in schemes:
+                  print(name)
+                  raise SystemExit(0)
+          ws = os.path.splitext(os.path.basename(workspace))[0]
+          if ws in schemes:
+              print(ws)
+              raise SystemExit(0)
+          skip = ("EXConstants", "Pods-", "React", "hermes")
+          for s in schemes:
+              if not s.startswith(skip):
+                  print(s)
+                  raise SystemExit(0)
+          print(schemes[0])
+          PY
+          )
+          echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Using workspace=$WORKSPACE scheme=$SCHEME"
+
+      - name: Archive (unsigned)
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild archive \
+            -workspace "${{ steps.xcode.outputs.workspace }}" \
+            -scheme "${{ steps.xcode.outputs.scheme }}" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/MBConverter.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP=$(find build/MBConverter.xcarchive/Products/Applications -name '*.app' -maxdepth 1 | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app found in archive Products/Applications"
+            ls -laR build/MBConverter.xcarchive/Products || true
+            exit 1
+          fi
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP" Payload/
+          # IPA is a zip with a Payload/ root (unsigned — not installable on device without resigning).
+          rm -f MB-Converter-unsigned.ipa
+          zip -qry MB-Converter-unsigned.ipa Payload
+          ls -lh MB-Converter-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MB-Converter-unsigned
+          path: MB-Converter-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
