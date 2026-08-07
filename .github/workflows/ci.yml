@@ -51,8 +51,8 @@ jobs:
     timeout-minutes: 60
     env:
       MAESTRO_CLI_NO_ANALYTICS: 1
-      # Give the Expo Dev Client / Metro-less Release app time to settle on CI simulators.
-      MAESTRO_DRIVER_STARTUP_TIMEOUT: '120000'
+      # XCTest driver cold-start on macos-26 can exceed 2 minutes under load.
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: '300000'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -237,7 +237,7 @@ jobs:
                   ["xcrun", "simctl", "list", "devices", "available", "-j"], text=True
               )
           )
-          preferred = ("iPhone 16", "iPhone 15", "iPhone 14")
+          preferred = ("iPhone 17", "iPhone 16", "iPhone 15", "iPhone 14")
           candidates = []
           for runtime, devices in data.get("devices", {}).items():
               if "iOS" not in runtime:
@@ -255,10 +255,18 @@ jobs:
           xcrun simctl boot "$UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$UDID" -b
           open -a Simulator --args -CurrentDeviceUDID "$UDID"
+          # Give SpringBoard / XCTest a moment before Maestro attaches.
+          sleep 5
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Install app on Simulator
-        run: xcrun simctl install "${{ steps.sim.outputs.udid }}" "${{ steps.app.outputs.path }}"
+        run: |
+          set -euo pipefail
+          xcrun simctl install "${{ steps.sim.outputs.udid }}" "${{ steps.app.outputs.path }}"
+          # Warm launch so the first Maestro session is less likely to hit driver timeouts.
+          xcrun simctl launch "${{ steps.sim.outputs.udid }}" com.marginallybetter.converter || true
+          sleep 8
+          xcrun simctl terminate "${{ steps.sim.outputs.udid }}" com.marginallybetter.converter || true
 
       - name: Run Maestro flows (exclude e2e/demo)
         run: |
@@ -275,9 +283,24 @@ jobs:
 
           echo "Running Maestro flows:"
           printf '  %s\n' "${flows[@]}"
+
+          run_flow() {
+            local flow="$1"
+            local attempt
+            for attempt in 1 2 3; do
+              echo "::group::Maestro $flow (attempt $attempt)"
+              if maestro --device "${{ steps.sim.outputs.udid }}" test "$flow"; then
+                echo "::endgroup::"
+                return 0
+              fi
+              echo "::endgroup::"
+              echo "::warning::Maestro failed for $flow on attempt $attempt"
+              sleep $((attempt * 5))
+            done
+            return 1
+          }
+
           # One flow per invocation so clearState + failures are isolated.
           for flow in "${flows[@]}"; do
-            echo "::group::Maestro $flow"
-            maestro --device "${{ steps.sim.outputs.udid }}" test "$flow"
-            echo "::endgroup::"
+            run_flow "$flow"
           done
