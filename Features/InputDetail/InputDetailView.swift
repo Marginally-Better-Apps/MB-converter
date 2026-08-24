@@ -7,6 +7,7 @@ struct InputDetailView: View {
     @State private var outputConfigViewModel: OutputConfigViewModel
     @State private var isScrollInteracting = false
     @State private var isShowingCropEditor = false
+    @State private var isDiscardConfirmationPresented = false
     @State private var cachedRun: CachedRun?
 
     private struct CachedRun {
@@ -96,7 +97,8 @@ struct InputDetailView: View {
                     url: viewModel.media.url,
                     category: viewModel.media.category,
                     sourceDimensions: dimensions,
-                    cropRegion: $outputConfigViewModel.cropRegion
+                    cropRegion: $outputConfigViewModel.cropRegion,
+                    mediaRotation: $outputConfigViewModel.mediaRotation
                 )
                 .presentationDetents([.large])
             }
@@ -109,6 +111,33 @@ struct InputDetailView: View {
         }
         .navigationTitle("Convert")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden()
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    Haptics.impact(.light)
+                    isDiscardConfirmationPresented = true
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.headline.weight(.semibold))
+                }
+                .accessibilityLabel("Back to main page")
+            }
+        }
+        .background(
+            ConvertInteractivePopGestureDisabler()
+                .frame(width: 0, height: 0)
+        )
+        .alert("Discard this conversion?", isPresented: $isDiscardConfirmationPresented) {
+            Button("Keep Editing", role: .cancel) {
+                Haptics.impact(.light)
+            }
+            Button("Discard", role: .destructive) {
+                discardConversion()
+            }
+        } message: {
+            Text("Your current settings and any cached result for this conversion will be discarded.")
+        }
     }
 
     @ViewBuilder
@@ -135,8 +164,10 @@ struct InputDetailView: View {
                 category: viewModel.input.category,
                 compact: true,
                 showsChrome: false,
+                showsMediaBorder: true,
                 sourceDimensions: viewModel.input.dimensions,
-                displayCropRect: viewModel.cropRectForDisplay
+                displayCropRect: viewModel.cropRectForDisplay,
+                mediaRotation: viewModel.mediaRotation
             )
             .frame(maxWidth: .infinity)
 
@@ -145,7 +176,7 @@ struct InputDetailView: View {
                     Haptics.impact(.light)
                     isShowingCropEditor = true
                 } label: {
-                    Text("Crop")
+                    Text("Edit")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.background)
                         .frame(width: 104, height: 32)
@@ -157,7 +188,7 @@ struct InputDetailView: View {
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.bottom, 2)
-                .accessibilityLabel("Edit crop")
+                .accessibilityLabel(viewModel.input.category == .video ? "Edit video" : "Edit image")
             }
         }
         .frame(minWidth: 200, idealWidth: 260, maxWidth: 320, alignment: .topLeading)
@@ -197,12 +228,53 @@ struct InputDetailView: View {
         self.cachedRun = nil
     }
 
+    private func discardConversion() {
+        Haptics.warning()
+        invalidateCachedRun()
+        try? FileManager.default.removeItem(at: viewModel.media.url)
+        if !path.isEmpty {
+            path.removeLast()
+        }
+    }
+
     private static func isInputDetailRoute(for media: MediaFile) -> (AppRoute) -> Bool {
         { route in
             if case .inputDetail(let routeMedia) = route {
                 return routeMedia == media
             }
             return false
+        }
+    }
+}
+
+private struct ConvertInteractivePopGestureDisabler: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> ConvertInteractivePopGestureViewController {
+        ConvertInteractivePopGestureViewController()
+    }
+
+    func updateUIViewController(
+        _ uiViewController: ConvertInteractivePopGestureViewController,
+        context: Context
+    ) {}
+}
+
+private final class ConvertInteractivePopGestureViewController: UIViewController {
+    private weak var owningViewController: UIViewController?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        owningViewController = navigationController?.topViewController
+        navigationController?.interactivePopGestureRecognizer?.isEnabled = false
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard let navigationController, let owningViewController else { return }
+        let ownerIsStillInNavigationStack = navigationController.viewControllers.contains {
+            $0 === owningViewController
+        }
+        if !ownerIsStillInNavigationStack {
+            navigationController.interactivePopGestureRecognizer?.isEnabled = true
         }
     }
 }

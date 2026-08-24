@@ -11,9 +11,13 @@ struct MediaPreview: View {
     var compact: Bool = false
     /// Set false when preview is already inside another card container.
     var showsChrome: Bool = true
+    /// Draws a subtle outline around the aspect-fitted media itself.
+    var showsMediaBorder: Bool = false
     var sourceDimensions: CGSize? = nil
     /// Shaded crop overlay on the inline preview. Pass `nil` to hide; full-frame is shown when the effective crop is uncropped.
     var displayCropRect: CropRegion? = nil
+    /// Clockwise rotation shown for image and video edits.
+    var mediaRotation: MediaRotation = .none
 
     @State private var isShowingFullImage = false
     @State private var isShowingFullVideo = false
@@ -40,7 +44,7 @@ struct MediaPreview: View {
         .overlay {
             if let displayCropRect, let sourceDimensions {
                 CropPreviewOverlay(
-                    sourceDimensions: sourceDimensions,
+                    sourceDimensions: mediaRotation.applied(to: sourceDimensions),
                     displayCrop: displayCropRect,
                     imagePadding: compact ? 2 : 12
                 )
@@ -56,10 +60,13 @@ struct MediaPreview: View {
                     Haptics.impact(.light)
                     isShowingFullImage = true
                 } label: {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .padding(compact ? 2 : 12)
+                    QuarterTurnImage(
+                        image: image,
+                        sourceDimensions: sourceDimensions,
+                        rotation: mediaRotation,
+                        padding: compact ? 2 : 12,
+                        showsBorder: showsMediaBorder
+                    )
                 }
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
@@ -131,13 +138,16 @@ struct MediaPreview: View {
     @ViewBuilder
     private func videoPosterBackground(_ poster: UIImage?) -> some View {
         ZStack {
-            Color(white: 0.12)
+            Color.clear
 
             if let poster {
-                Image(uiImage: poster)
-                    .resizable()
-                    .scaledToFit()
-                    .padding(compact ? 2 : 12)
+                QuarterTurnImage(
+                    image: poster,
+                    sourceDimensions: sourceDimensions,
+                    rotation: mediaRotation,
+                    padding: compact ? 2 : 12,
+                    showsBorder: showsMediaBorder
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -197,6 +207,42 @@ private enum CropLayout {
     }
 }
 
+/// Displays quarter-turn edits without rasterizing another full-size preview image.
+private struct QuarterTurnImage: View {
+    let image: UIImage
+    let sourceDimensions: CGSize?
+    let rotation: MediaRotation
+    let padding: CGFloat
+    let showsBorder: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let bounds = CGRect(origin: .zero, size: proxy.size).insetBy(dx: padding, dy: padding)
+            let rawDimensions = sourceDimensions ?? image.size
+            let displayedDimensions = rotation.applied(to: rawDimensions)
+            let contentRect = CropLayout.aspectFitRect(source: displayedDimensions, in: bounds)
+
+            ZStack {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+
+                if showsBorder {
+                    Rectangle()
+                        .strokeBorder(Theme.textMuted.opacity(0.32), lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(
+                width: rotation.swapsDimensions ? contentRect.height : contentRect.width,
+                height: rotation.swapsDimensions ? contentRect.width : contentRect.height
+            )
+            .rotationEffect(.degrees(Double(rotation.rawValue)))
+            .position(x: contentRect.midX, y: contentRect.midY)
+        }
+    }
+}
+
 private struct CropPreviewOverlay: View {
     let sourceDimensions: CGSize
     let displayCrop: CropRegion
@@ -212,8 +258,14 @@ private struct CropPreviewOverlay: View {
                     CropShadeBands(
                         contentRect: contentRect,
                         cropRect: displayRect,
-                        shadeColor: Theme.primary,
-                        opacity: 0.1
+                        shadeColor: .gray,
+                        opacity: 1
+                    )
+                    .blendMode(.saturation)
+                    CropShadeBands(
+                        contentRect: contentRect,
+                        cropRect: displayRect,
+                        opacity: 0.34
                     )
                     CropFrameChrome(displayRect: displayRect, crop: crop, showsHandles: false, usesThemeAccent: true)
                 }
@@ -228,40 +280,71 @@ struct CropEditorView: View {
     let category: MediaCategory
     let sourceDimensions: CGSize
     @Binding var cropRegion: CropRegion?
+    @Binding var mediaRotation: MediaRotation
 
     @Environment(\.dismiss) private var dismiss
     @State private var liveCrop: CropRegion
+    @State private var liveRotation: MediaRotation
     @State private var previewImage: UIImage?
     @State private var xText = ""
     @State private var yText = ""
     @State private var widthText = ""
     @State private var heightText = ""
 
-    init(url: URL, category: MediaCategory, sourceDimensions: CGSize, cropRegion: Binding<CropRegion?>) {
+    init(
+        url: URL,
+        category: MediaCategory,
+        sourceDimensions: CGSize,
+        cropRegion: Binding<CropRegion?>,
+        mediaRotation: Binding<MediaRotation>
+    ) {
         self.url = url
         self.category = category
         self.sourceDimensions = sourceDimensions
         self._cropRegion = cropRegion
-        let initial = cropRegion.wrappedValue?.clamped(to: sourceDimensions)
-            ?? CropRegion.fullFrame(source: sourceDimensions)
+        self._mediaRotation = mediaRotation
+        let initialRotation = (category == .image || category == .video) ? mediaRotation.wrappedValue : .none
+        let initialDimensions = initialRotation.applied(to: sourceDimensions)
+        let initial = cropRegion.wrappedValue?.clamped(to: initialDimensions)
+            ?? CropRegion.fullFrame(source: initialDimensions)
             ?? CropRegion(x: 0, y: 0, width: 1, height: 1)
         _liveCrop = State(initialValue: initial)
+        _liveRotation = State(initialValue: initialRotation)
     }
 
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 20) {
                 HStack {
-                    Text("Crop")
+                    Text("Edit")
                         .font(.title3.bold())
                         .foregroundStyle(Theme.text)
                         .lineLimit(1)
 
                     Spacer()
 
+                    if category == .image || category == .video {
+                        Button {
+                            Haptics.selection()
+                            rotateClockwise()
+                        } label: {
+                            Image(systemName: "rotate.right")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(Theme.background)
+                                .frame(width: 34, height: 34)
+                                .background(Theme.primary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            category == .video
+                                ? "Rotate video 90 degrees clockwise"
+                                : "Rotate image 90 degrees clockwise"
+                        )
+                    }
+
                     Button {
                         Haptics.selection()
-                        if let full = CropRegion.fullFrame(source: sourceDimensions) {
+                        if let full = CropRegion.fullFrame(source: editingSourceDimensions) {
                             liveCrop = full
                             syncTextFromLive()
                         }
@@ -278,9 +361,10 @@ struct CropEditorView: View {
 
                 // Let media preview consume remaining vertical space.
                 CropCanvasView(
-                    sourceDimensions: sourceDimensions,
+                    sourceDimensions: editingSourceDimensions,
                     liveCrop: $liveCrop,
                     previewImage: previewImage,
+                    rotation: liveRotation,
                     onUserGestureEnded: { syncTextFromLive() }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -378,8 +462,8 @@ struct CropEditorView: View {
             }
         }
         .onAppear {
-            if liveCrop.clamped(to: sourceDimensions) == nil,
-               let full = CropRegion.fullFrame(source: sourceDimensions) {
+            if liveCrop.clamped(to: editingSourceDimensions) == nil,
+               let full = CropRegion.fullFrame(source: editingSourceDimensions) {
                 liveCrop = full
             }
             syncTextFromLive()
@@ -387,8 +471,9 @@ struct CropEditorView: View {
     }
 
     private func applyLiveToBinding() {
-        guard let clamped = liveCrop.clamped(to: sourceDimensions) else { return }
-        cropRegion = clamped.isEffectivelyFullFrame(for: sourceDimensions) ? nil : clamped
+        guard let clamped = liveCrop.clamped(to: editingSourceDimensions) else { return }
+        cropRegion = clamped.isEffectivelyFullFrame(for: editingSourceDimensions) ? nil : clamped
+        mediaRotation = (category == .image || category == .video) ? liveRotation : .none
     }
 
     private func cropField(_ title: String, text: Binding<String>) -> some View {
@@ -413,7 +498,7 @@ struct CropEditorView: View {
     }
 
     private func syncTextFromLive() {
-        let crop = liveCrop.clamped(to: sourceDimensions) ?? liveCrop
+        let crop = liveCrop.clamped(to: editingSourceDimensions) ?? liveCrop
         xText = "\(Int(crop.x.rounded()))"
         yText = "\(Int(crop.y.rounded()))"
         widthText = "\(Int(crop.width.rounded()))"
@@ -427,9 +512,23 @@ struct CropEditorView: View {
               let height = Double(heightText),
               width > 0,
               height > 0,
-              let next = CropRegion(x: x, y: y, width: width, height: height).clamped(to: sourceDimensions)
+              let next = CropRegion(x: x, y: y, width: width, height: height).clamped(to: editingSourceDimensions)
         else { return }
         liveCrop = next
+    }
+
+    private var editingSourceDimensions: CGSize {
+        liveRotation.applied(to: sourceDimensions)
+    }
+
+    private func rotateClockwise() {
+        let currentDimensions = editingSourceDimensions
+        liveCrop = liveCrop.rotatedClockwise(in: currentDimensions)
+        liveRotation = liveRotation.nextClockwise
+        if let clamped = liveCrop.clamped(to: editingSourceDimensions) {
+            liveCrop = clamped
+        }
+        syncTextFromLive()
     }
 }
 
@@ -472,6 +571,7 @@ private struct CropCanvasView: View {
     let sourceDimensions: CGSize
     @Binding var liveCrop: CropRegion
     let previewImage: UIImage?
+    let rotation: MediaRotation
     var onUserGestureEnded: (() -> Void)? = nil
 
     @State private var activeDrag: ActiveCropDrag?
@@ -492,7 +592,11 @@ private struct CropCanvasView: View {
                     Image(uiImage: previewImage)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: contentRect.width, height: contentRect.height)
+                        .frame(
+                            width: rotation.swapsDimensions ? contentRect.height : contentRect.width,
+                            height: rotation.swapsDimensions ? contentRect.width : contentRect.height
+                        )
+                        .rotationEffect(.degrees(Double(rotation.rawValue)))
                         .position(x: contentRect.midX, y: contentRect.midY)
                 } else {
                     ProgressView()

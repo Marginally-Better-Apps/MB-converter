@@ -137,6 +137,7 @@ final class OutputConfigViewModel {
         }
     }
     var cropRegion: CropRegion?
+    var mediaRotation: MediaRotation = .none
     var webpQuality: Double = 0.82
     var targetFraction: Double = 1.0 {
         didSet {
@@ -161,8 +162,8 @@ final class OutputConfigViewModel {
 
     // MARK: - Output metadata
 
-    /// When `true`, strip all EXIF / container tags (default). When `false`, use per-field rows.
-    var removeAllMetadata = true
+    /// When `true`, strip all EXIF / container tags. When `false`, use per-field rows.
+    var removeAllMetadata = false
     var isMetadataSectionExpanded = false
     var isLoadingDiscoveredMetadata = false
     private(set) var discoveredMetadataTags: [DiscoveredMetadataTag] = []
@@ -537,6 +538,7 @@ final class OutputConfigViewModel {
             targetFPS: selectedFPS,
             targetSizeBytes: selectedFormat.supportsTargetSize ? targetSizeBytes : nil,
             cropRegion: normalizedCropRegion,
+            mediaRotation: shouldShowCrop ? mediaRotation : .none,
             imageQuality: selectedFormat == .webpImage ? webpQuality : nil,
             videoQuality: usesVideoQualityFallback ? targetFraction : nil,
             usesSinglePassVideoTargetEncode: shouldShowSinglePassVideoTargetToggle && usesSinglePassVideoTargetEncode,
@@ -591,7 +593,7 @@ final class OutputConfigViewModel {
 
     private var normalizedCropRegion: CropRegion? {
         guard shouldShowCrop,
-              let source = input.dimensions,
+              let source = editingSourceDimensions,
               let crop = cropRegion?.clamped(to: source),
               !crop.isEffectivelyFullFrame(for: source)
         else { return nil }
@@ -599,7 +601,12 @@ final class OutputConfigViewModel {
     }
 
     private var effectiveSourceDimensions: CGSize? {
-        normalizedCropRegion?.dimensions ?? input.dimensions
+        normalizedCropRegion?.dimensions ?? editingSourceDimensions
+    }
+
+    private var editingSourceDimensions: CGSize? {
+        guard let dimensions = input.dimensions else { return nil }
+        return shouldShowCrop ? mediaRotation.applied(to: dimensions) : dimensions
     }
 
     private var mediaForPlanning: MediaFile {
@@ -815,6 +822,7 @@ final class OutputConfigViewModel {
     private var canRemuxCurrentVideoSelection: Bool {
         prefersRemuxWhenPossible
             && normalizedCropRegion == nil
+            && mediaRotation == .none
             && resolvedDimensions == nil
             && selectedFPS == nil
             && selectedFormat.canRemuxVideoCodec(input.videoCodec)

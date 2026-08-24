@@ -358,6 +358,33 @@ enum ImageMetadataScope: String, Hashable, Sendable {
 
 // MARK: - Crop
 
+/// Clockwise quarter-turns applied before cropping visual media.
+enum MediaRotation: Int, CaseIterable, Codable, Hashable, Sendable {
+    case none = 0
+    case clockwise90 = 90
+    case clockwise180 = 180
+    case clockwise270 = 270
+
+    var nextClockwise: MediaRotation {
+        switch self {
+        case .none: .clockwise90
+        case .clockwise90: .clockwise180
+        case .clockwise180: .clockwise270
+        case .clockwise270: .none
+        }
+    }
+
+    var swapsDimensions: Bool {
+        self == .clockwise90 || self == .clockwise270
+    }
+
+    func applied(to dimensions: CGSize) -> CGSize {
+        swapsDimensions
+            ? CGSize(width: dimensions.height, height: dimensions.width)
+            : dimensions
+    }
+}
+
 /// A crop rectangle in the source media's pixel coordinate space.
 struct CropRegion: Hashable, Codable, Sendable {
     var x: Double
@@ -410,6 +437,16 @@ struct CropRegion: Hashable, Codable, Sendable {
             height: Double(source.height.rounded())
         )
     }
+
+    /// Keeps the same selected pixels when the source is turned 90 degrees clockwise.
+    func rotatedClockwise(in source: CGSize) -> CropRegion {
+        CropRegion(
+            x: Double(source.height) - y - height,
+            y: x,
+            width: height,
+            height: width
+        )
+    }
 }
 
 // MARK: - Conversion Config (User Choices)
@@ -454,6 +491,7 @@ struct ConversionConfig: Hashable {
     var targetFPS: Double?                  // nil = keep original; never larger than source
     var targetSizeBytes: Int64?             // nil = use defaults / no enforcement
     var cropRegion: CropRegion?             // nil = full frame
+    var mediaRotation: MediaRotation        // applied before crop
     var imageQuality: Double? = nil         // 0...1 single-pass quality for still-image encoders that use quality mode
     var videoQuality: Double? = nil         // 0...1 quality fallback for video when duration/target sizing is unavailable
     var usesSinglePassVideoTargetEncode: Bool
@@ -470,6 +508,7 @@ struct ConversionConfig: Hashable {
         targetFPS: Double? = nil,
         targetSizeBytes: Int64? = nil,
         cropRegion: CropRegion? = nil,
+        mediaRotation: MediaRotation = .none,
         imageQuality: Double? = nil,
         videoQuality: Double? = nil,
         usesSinglePassVideoTargetEncode: Bool = false,
@@ -485,6 +524,7 @@ struct ConversionConfig: Hashable {
         self.targetFPS = targetFPS
         self.targetSizeBytes = targetSizeBytes
         self.cropRegion = cropRegion
+        self.mediaRotation = mediaRotation
         self.imageQuality = imageQuality
         self.videoQuality = videoQuality
         self.usesSinglePassVideoTargetEncode = usesSinglePassVideoTargetEncode

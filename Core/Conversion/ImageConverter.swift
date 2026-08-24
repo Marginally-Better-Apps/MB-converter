@@ -36,10 +36,15 @@ final class ImageConverter: Converter {
         }
 
         let sourceDimensions = try sourceImageDimensions(from: source)
+        let editingSourceDimensions = config.mediaRotation.applied(to: sourceDimensions)
         var commandConfig = config
         if config.operationMode == .autoTarget, config.outputFormat.supportsTargetSize {
             let plan = AutoTargetPlanner.imagePlan(
-                input: Self.planningInput(input: input, cropRegion: config.cropRegion),
+                input: Self.planningInput(
+                    input: input,
+                    cropRegion: config.cropRegion,
+                    rotation: config.mediaRotation
+                ),
                 outputFormat: config.outputFormat,
                 targetBytes: config.targetSizeBytes ?? input.sizeOnDisk,
                 lockedDimensions: config.targetDimensions,
@@ -53,7 +58,7 @@ final class ImageConverter: Converter {
         var workingImage: CGImage
         if config.cropRegion == nil,
            let target = commandConfig.targetDimensions,
-           target.width < sourceDimensions.width || target.height < sourceDimensions.height {
+           target.width < editingSourceDimensions.width || target.height < editingSourceDimensions.height {
             let maxPixel = Int(ceil(max(target.width, target.height)))
             workingImage = try decodeThumbnail(source: source, maxPixelSize: maxPixel)
         } else {
@@ -63,7 +68,9 @@ final class ImageConverter: Converter {
             workingImage = cgImage
         }
 
-        if let crop = commandConfig.cropRegion?.clamped(to: sourceDimensions) {
+        workingImage = try rotatedImage(workingImage, rotation: commandConfig.mediaRotation)
+
+        if let crop = commandConfig.cropRegion?.clamped(to: editingSourceDimensions) {
             workingImage = try croppedImage(workingImage, to: crop)
         }
 
@@ -355,6 +362,47 @@ final class ImageConverter: Converter {
         return cropped
     }
 
+    private func rotatedImage(_ image: CGImage, rotation: MediaRotation) throws -> CGImage {
+        guard rotation != .none else { return image }
+
+        let sourceWidth = CGFloat(image.width)
+        let sourceHeight = CGFloat(image.height)
+        let destinationSize = rotation.applied(to: CGSize(width: sourceWidth, height: sourceHeight))
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil,
+                width: Int(destinationSize.width),
+                height: Int(destinationSize.height),
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else {
+            throw ConversionError.engineFailed("Couldn't create image rotation context")
+        }
+
+        switch rotation {
+        case .none:
+            break
+        case .clockwise90:
+            context.translateBy(x: 0, y: sourceWidth)
+            context.rotate(by: -.pi / 2)
+        case .clockwise180:
+            context.translateBy(x: sourceWidth, y: sourceHeight)
+            context.rotate(by: .pi)
+        case .clockwise270:
+            context.translateBy(x: sourceHeight, y: 0)
+            context.rotate(by: .pi / 2)
+        }
+
+        context.draw(image, in: CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight))
+        guard let rotated = context.makeImage() else {
+            throw ConversionError.engineFailed("Image rotation failed")
+        }
+        return rotated
+    }
+
     private func resizedImage(_ image: CGImage, to target: CGSize) throws -> CGImage {
         let width = min(image.width, max(1, Int(target.width.rounded())))
         let height = min(image.height, max(1, Int(target.height.rounded())))
@@ -383,11 +431,22 @@ final class ImageConverter: Converter {
         return resized
     }
 
-    private static func planningInput(input: MediaFile, cropRegion: CropRegion?) -> MediaFile {
-        guard let source = input.dimensions,
-              let crop = cropRegion?.clamped(to: source),
-              !crop.isEffectivelyFullFrame(for: source)
-        else { return input }
+    private static func planningInput(
+        input: MediaFile,
+        cropRegion: CropRegion?,
+        rotation: MediaRotation
+    ) -> MediaFile {
+        guard let source = input.dimensions else { return input }
+        let rotatedSource = rotation.applied(to: source)
+        let dimensions: CGSize
+        if let crop = cropRegion?.clamped(to: rotatedSource),
+           !crop.isEffectivelyFullFrame(for: rotatedSource) {
+            dimensions = crop.dimensions
+        } else {
+            dimensions = rotatedSource
+        }
+
+        guard dimensions != input.dimensions else { return input }
 
         return MediaFile(
             id: input.id,
@@ -395,7 +454,7 @@ final class ImageConverter: Converter {
             originalFilename: input.originalFilename,
             category: input.category,
             sizeOnDisk: input.sizeOnDisk,
-            dimensions: crop.dimensions,
+            dimensions: dimensions,
             duration: input.duration,
             fps: input.fps,
             bitrate: input.bitrate,

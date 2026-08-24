@@ -581,6 +581,10 @@ struct HomeView: View {
                     isConfirmDisableSavedHistoryPresented = true
                     return
                 }
+                if !conversionHistoryEnabled, newValue,
+                   !ConversionHistoryStore.shared.persistSessionHistory() {
+                    return
+                }
                 conversionHistoryEnabled = newValue
                 ConversionHistoryStore.shared.refreshForCurrentSettings()
             }

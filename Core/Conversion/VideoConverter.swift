@@ -298,6 +298,7 @@ final class VideoConverter: Converter {
                 let still = try await MediaInspector.inspect(url: outputURL)
                 var imageConfig = config
                 imageConfig.cropRegion = nil
+                imageConfig.mediaRotation = .none
                 imageConfig.targetDimensions = nil
                 let result = try await ImageConverter().convert(input: still, config: imageConfig) { progress(0.5 + $0 * 0.5) }
                 try? FileManager.default.removeItem(at: outputURL)
@@ -348,6 +349,7 @@ final class VideoConverter: Converter {
     private static func shouldRemux(input: MediaFile, config: ConversionConfig) -> Bool {
         config.prefersRemuxWhenPossible
             && config.cropRegion == nil
+            && config.mediaRotation == .none
             && config.targetDimensions == nil
             && config.targetFPS == nil
             && config.outputFormat.canRemuxVideoCodec(input.videoCodec)
@@ -368,8 +370,20 @@ final class VideoConverter: Converter {
     private static func videoFilters(input: MediaFile, config: ConversionConfig) -> String {
         var filters: [String] = []
 
+        switch config.mediaRotation {
+        case .none:
+            break
+        case .clockwise90:
+            filters.append("transpose=clock")
+        case .clockwise180:
+            filters.append(contentsOf: ["hflip", "vflip"])
+        case .clockwise270:
+            filters.append("transpose=cclock")
+        }
+
         if let crop = config.cropRegion,
-           let cropFilter = cropFilter(input: input, crop: crop) {
+           let source = input.dimensions.map({ config.mediaRotation.applied(to: $0) }),
+           let cropFilter = cropFilter(sourceDimensions: source, crop: crop) {
             filters.append(cropFilter)
         }
 
@@ -385,9 +399,8 @@ final class VideoConverter: Converter {
         return " -vf \(filters.joined(separator: ","))"
     }
 
-    private static func cropFilter(input: MediaFile, crop: CropRegion) -> String? {
-        guard let source = input.dimensions,
-              let clamped = crop.clamped(to: source),
+    private static func cropFilter(sourceDimensions source: CGSize, crop: CropRegion) -> String? {
+        guard let clamped = crop.clamped(to: source),
               !clamped.isEffectivelyFullFrame(for: source)
         else { return nil }
 
@@ -413,16 +426,25 @@ final class VideoConverter: Converter {
     }
 
     private static func effectiveVideoDimensions(input: MediaFile, config: ConversionConfig) -> CGSize? {
-        config.targetDimensions
-            ?? config.cropRegion?.clamped(to: input.dimensions ?? .zero)?.dimensions
-            ?? input.dimensions
+        guard let source = input.dimensions else { return config.targetDimensions }
+        let rotatedSource = config.mediaRotation.applied(to: source)
+        return config.targetDimensions
+            ?? config.cropRegion?.clamped(to: rotatedSource)?.dimensions
+            ?? rotatedSource
     }
 
     private static func planningInput(input: MediaFile, config: ConversionConfig) -> MediaFile {
-        guard let source = input.dimensions,
-              let crop = config.cropRegion?.clamped(to: source),
-              !crop.isEffectivelyFullFrame(for: source)
-        else { return input }
+        guard let source = input.dimensions else { return input }
+        let rotatedSource = config.mediaRotation.applied(to: source)
+        let dimensions: CGSize
+        if let crop = config.cropRegion?.clamped(to: rotatedSource),
+           !crop.isEffectivelyFullFrame(for: rotatedSource) {
+            dimensions = crop.dimensions
+        } else {
+            dimensions = rotatedSource
+        }
+
+        guard dimensions != input.dimensions else { return input }
 
         return MediaFile(
             id: input.id,
@@ -430,7 +452,7 @@ final class VideoConverter: Converter {
             originalFilename: input.originalFilename,
             category: input.category,
             sizeOnDisk: input.sizeOnDisk,
-            dimensions: crop.dimensions,
+            dimensions: dimensions,
             duration: input.duration,
             fps: input.fps,
             bitrate: input.bitrate,

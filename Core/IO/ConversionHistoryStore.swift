@@ -88,6 +88,76 @@ final class ConversionHistoryStore {
         entries = isEnabled ? persistedEntries : sessionEntries
     }
 
+    /// Copies the current session's history into durable storage before saved history is enabled.
+    /// Returns `false` without changing the session if any result cannot be copied or indexed.
+    @discardableResult
+    func persistSessionHistory() -> Bool {
+        guard !sessionEntries.isEmpty else { return true }
+
+        do {
+            try fileManager.createDirectory(at: filesDirectory, withIntermediateDirectories: true)
+        } catch {
+            print("[HISTORY] Could not create history directory: \(error)")
+            return false
+        }
+
+        var staged: [(entry: ConversionHistoryEntry, sessionURL: URL)] = []
+
+        for sessionEntry in sessionEntries {
+            let sessionURL = sessionEntry.result.url
+            guard fileManager.fileExists(atPath: sessionURL.path) else {
+                removeStagedHistoryFiles(staged)
+                return false
+            }
+
+            let ext = sessionEntry.result.outputFormat.fileExtension
+            let destinationURL = filesDirectory
+                .appendingPathComponent("\(sessionEntry.id.uuidString).\(ext)")
+
+            do {
+                if fileManager.fileExists(atPath: destinationURL.path) {
+                    try fileManager.removeItem(at: destinationURL)
+                }
+                try fileManager.copyItem(at: sessionURL, to: destinationURL)
+            } catch {
+                print("[HISTORY] Session history copy failed: \(error)")
+                removeStagedHistoryFiles(staged)
+                return false
+            }
+
+            let attrs = (try? fileManager.attributesOfItem(atPath: destinationURL.path)) ?? [:]
+            let onDisk = (attrs[.size] as? NSNumber)?.int64Value
+                ?? sessionEntry.result.sizeOnDisk
+            let result = sessionEntry.result.copy(url: destinationURL, sizeOnDisk: onDisk)
+            let promotedEntry = ConversionHistoryEntry(
+                id: sessionEntry.id,
+                createdAt: sessionEntry.createdAt,
+                input: sessionEntry.input,
+                config: sessionEntry.config,
+                result: result
+            )
+            staged.append((promotedEntry, sessionURL))
+        }
+
+        let previousPersistedEntries = persistedEntries
+        let promotedIDs = Set(staged.map { $0.entry.id })
+        persistedEntries.removeAll { promotedIDs.contains($0.id) }
+        persistedEntries.append(contentsOf: staged.map { $0.entry })
+        persistedEntries.sort { $0.createdAt > $1.createdAt }
+
+        guard persistIndex() else {
+            persistedEntries = previousPersistedEntries
+            removeStagedHistoryFiles(staged)
+            return false
+        }
+
+        sessionEntries.removeAll { promotedIDs.contains($0.id) }
+        for item in staged {
+            try? fileManager.removeItem(at: item.sessionURL)
+        }
+        return true
+    }
+
     /// Deletes all saved (on-disk) history entries and the index. Session-only entries are unchanged.
     func clearPersistedHistory() {
         for entry in persistedEntries {
@@ -196,13 +266,24 @@ final class ConversionHistoryStore {
         sessionEntries.remove(at: index)
     }
 
-    private func persistIndex() {
+    @discardableResult
+    private func persistIndex() -> Bool {
         let records = persistedEntries.map { PersistedEntry(entry: $0) }
         do {
             let data = try JSONEncoder().encode(PersistedIndex(entries: records))
             try data.write(to: indexURL, options: .atomic)
+            return true
         } catch {
             print("[HISTORY] Persist index failed: \(error)")
+            return false
+        }
+    }
+
+    private func removeStagedHistoryFiles(
+        _ staged: [(entry: ConversionHistoryEntry, sessionURL: URL)]
+    ) {
+        for item in staged {
+            try? fileManager.removeItem(at: item.entry.result.url)
         }
     }
 
@@ -233,6 +314,24 @@ final class ConversionHistoryStore {
 
     private static func computeTotalBytes(from entries: [ConversionHistoryEntry]) -> Int64 {
         entries.reduce(0) { $0 + $1.result.sizeOnDisk }
+    }
+}
+
+private extension ConversionResult {
+    func copy(url: URL, sizeOnDisk: Int64) -> ConversionResult {
+        ConversionResult(
+            id: id,
+            url: url,
+            outputFormat: outputFormat,
+            sizeOnDisk: sizeOnDisk,
+            dimensions: dimensions,
+            duration: duration,
+            fps: fps,
+            bitrate: bitrate,
+            audioBitrate: audioBitrate,
+            videoCodec: videoCodec,
+            audioCodec: audioCodec
+        )
     }
 }
 
@@ -288,6 +387,7 @@ private struct PersistedConversionConfig: Codable, Hashable {
     var cropY: Double?
     var cropWidth: Double?
     var cropHeight: Double?
+    var mediaRotation: MediaRotation?
     var imageQuality: Double?
     var videoQuality: Double?
     var usesSinglePassVideoTargetEncode: Bool?
@@ -401,6 +501,7 @@ private extension PersistedConversionConfig {
         self.cropY = config.cropRegion?.y
         self.cropWidth = config.cropRegion?.width
         self.cropHeight = config.cropRegion?.height
+        self.mediaRotation = config.mediaRotation
         self.imageQuality = config.imageQuality
         self.videoQuality = config.videoQuality
         self.usesSinglePassVideoTargetEncode = config.usesSinglePassVideoTargetEncode
@@ -430,6 +531,7 @@ private extension PersistedConversionConfig {
             targetFPS: targetFPS,
             targetSizeBytes: targetSizeBytes,
             cropRegion: crop,
+            mediaRotation: mediaRotation ?? .none,
             imageQuality: imageQuality,
             videoQuality: videoQuality,
             usesSinglePassVideoTargetEncode: usesSinglePassVideoTargetEncode ?? false,
