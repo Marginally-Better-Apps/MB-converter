@@ -97,11 +97,11 @@ struct MediaPreview: View {
                 } label: {
                     videoPosterBackground(poster)
                         .overlay {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: 56))
-                                .symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(.white)
-                                .shadow(color: .black.opacity(0.45), radius: 8, y: 2)
+                            VideoPlayIndicator(
+                                sourceDimensions: sourceDimensions.map { mediaRotation.applied(to: $0) },
+                                cropRegion: displayCropRect,
+                                imagePadding: compact ? 2 : 12
+                            )
                         }
                 }
                 .buttonStyle(.plain)
@@ -131,7 +131,12 @@ struct MediaPreview: View {
             videoPreviewState = isPlayable ? .playable(poster) : .unavailable(poster)
         }
         .fullScreenCover(isPresented: $isShowingFullVideo) {
-            FullVideoPlayer(url: url)
+            FullVideoPlayer(
+                url: url,
+                sourceDimensions: sourceDimensions,
+                cropRegion: displayCropRect,
+                rotation: mediaRotation
+            )
         }
     }
 
@@ -178,6 +183,42 @@ struct MediaPreview: View {
         .fullScreenCover(isPresented: $isShowingFullAudio) {
             FullAudioPlayer(url: url)
         }
+    }
+}
+
+private struct VideoPlayIndicator: View {
+    let sourceDimensions: CGSize?
+    let cropRegion: CropRegion?
+    let imagePadding: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            let bounds = CGRect(origin: .zero, size: proxy.size)
+                .insetBy(dx: imagePadding, dy: imagePadding)
+            let center = indicatorCenter(in: bounds)
+
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 56))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.45), radius: 8, y: 2)
+                .position(center)
+        }
+    }
+
+    private func indicatorCenter(in bounds: CGRect) -> CGPoint {
+        guard let sourceDimensions,
+              let crop = cropRegion?.clamped(to: sourceDimensions) else {
+            return CGPoint(x: bounds.midX, y: bounds.midY)
+        }
+
+        let contentRect = CropLayout.aspectFitRect(source: sourceDimensions, in: bounds)
+        let cropRect = CropLayout.displayRect(
+            for: crop,
+            source: sourceDimensions,
+            in: contentRect
+        )
+        return CGPoint(x: cropRect.midX, y: cropRect.midY)
     }
 }
 
@@ -883,7 +924,12 @@ private struct FullImagePreview: View {
 
 private struct FullVideoPlayer: View {
     let url: URL
+    let sourceDimensions: CGSize?
+    let cropRegion: CropRegion?
+    let rotation: MediaRotation
+
     @State private var player: AVPlayer?
+    @State private var previewFailed = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -893,6 +939,15 @@ private struct FullVideoPlayer: View {
             if let player {
                 VideoPlayer(player: player)
                     .ignoresSafeArea()
+            } else if previewFailed {
+                VStack(spacing: 10) {
+                    Image(systemName: "play.slash")
+                        .font(.system(size: 42, weight: .semibold))
+                    Text("Edited Preview Unavailable")
+                        .font(.headline)
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ProgressView()
                     .tint(.white)
@@ -912,19 +967,200 @@ private struct FullVideoPlayer: View {
             .padding(.top, 16)
             .padding(.leading, 16)
         }
-        .onAppear {
+        .task {
             PreviewAudioSession.configureForPlayback()
-            if player == nil {
-                let newPlayer = AVPlayer(url: url)
+            do {
+                let item = try await EditedVideoPreview.makePlayerItem(
+                    url: url,
+                    sourceDimensions: sourceDimensions,
+                    cropRegion: cropRegion,
+                    rotation: rotation
+                )
+                guard !Task.isCancelled else { return }
+                let newPlayer = AVPlayer(playerItem: item)
                 newPlayer.allowsExternalPlayback = false
                 newPlayer.usesExternalPlaybackWhileExternalScreenIsActive = false
                 player = newPlayer
+                newPlayer.play()
+            } catch {
+                guard !Task.isCancelled else { return }
+                previewFailed = true
             }
-            player?.play()
         }
         .onDisappear {
             player?.pause()
+            player = nil
         }
+    }
+}
+
+/// Builds an in-memory video composition so crop and rotation edits can be previewed without export.
+private enum EditedVideoPreview {
+    enum PreviewError: Error {
+        case missingVideoTrack
+        case invalidDimensions
+        case invalidDuration
+    }
+
+    @MainActor
+    static func makePlayerItem(
+        url: URL,
+        sourceDimensions: CGSize?,
+        cropRegion: CropRegion?,
+        rotation: MediaRotation
+    ) async throws -> AVPlayerItem {
+        let asset = AVURLAsset(url: url)
+        let item = AVPlayerItem(asset: asset)
+        guard cropRegion != nil || rotation != .none else { return item }
+
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            throw PreviewError.missingVideoTrack
+        }
+
+        async let naturalSizeValue = track.load(.naturalSize)
+        async let preferredTransformValue = track.load(.preferredTransform)
+        async let durationValue = asset.load(.duration)
+
+        let naturalSize = try await naturalSizeValue
+        let preferredTransform = try await preferredTransformValue
+        let duration = try await durationValue
+        let nominalFrameRate = (try? await track.load(.nominalFrameRate)) ?? 0
+        let minimumFrameDuration = (try? await track.load(.minFrameDuration)) ?? .invalid
+
+        guard naturalSize.width > 0, naturalSize.height > 0 else {
+            throw PreviewError.invalidDimensions
+        }
+        let durationSeconds = CMTimeGetSeconds(duration)
+        guard duration.isValid, !duration.isIndefinite,
+              durationSeconds.isFinite, durationSeconds > 0 else {
+            throw PreviewError.invalidDuration
+        }
+
+        let rawRect = CGRect(origin: .zero, size: naturalSize)
+        let orientedBounds = rawRect.applying(preferredTransform).standardized
+        let orientedSize = CGSize(width: orientedBounds.width, height: orientedBounds.height)
+        guard orientedSize.width > 0, orientedSize.height > 0 else {
+            throw PreviewError.invalidDimensions
+        }
+
+        let normalizedOrientation = preferredTransform.concatenating(
+            CGAffineTransform(
+                translationX: -orientedBounds.minX,
+                y: -orientedBounds.minY
+            )
+        )
+        let editRotation = rotationTransform(rotation, sourceSize: orientedSize)
+        let editedSize = rotation.applied(to: orientedSize)
+        let logicalSourceSize = validDimensions(sourceDimensions) ?? orientedSize
+        let logicalEditedSize = rotation.applied(to: logicalSourceSize)
+        let logicalCrop = cropRegion?.clamped(to: logicalEditedSize)
+            ?? CropRegion.fullFrame(source: logicalEditedSize)
+
+        guard let logicalCrop else {
+            throw PreviewError.invalidDimensions
+        }
+
+        // Crop coordinates originate from MediaInspector's oriented dimensions. Scale only when
+        // an asset reports a slightly different display size during playback (for example, SAR).
+        let scaleX = editedSize.width / logicalEditedSize.width
+        let scaleY = editedSize.height / logicalEditedSize.height
+        let boundedCrop = CGRect(
+            x: CGFloat(logicalCrop.x) * scaleX,
+            y: CGFloat(logicalCrop.y) * scaleY,
+            width: CGFloat(logicalCrop.width) * scaleX,
+            height: CGFloat(logicalCrop.height) * scaleY
+        ).intersection(CGRect(origin: .zero, size: editedSize))
+
+        guard !boundedCrop.isNull else {
+            throw PreviewError.invalidDimensions
+        }
+        let renderCrop = CGRect(
+            x: boundedCrop.minX.rounded(.up),
+            y: boundedCrop.minY.rounded(.up),
+            width: boundedCrop.maxX.rounded(.down) - boundedCrop.minX.rounded(.up),
+            height: boundedCrop.maxY.rounded(.down) - boundedCrop.minY.rounded(.up)
+        )
+        guard renderCrop.width >= 1, renderCrop.height >= 1 else {
+            throw PreviewError.invalidDimensions
+        }
+
+        let cropTranslation = CGAffineTransform(
+            translationX: -renderCrop.minX,
+            y: -renderCrop.minY
+        )
+        let finalTransform = normalizedOrientation
+            .concatenating(editRotation)
+            .concatenating(cropTranslation)
+
+        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
+        layerInstruction.setTransform(finalTransform, at: .zero)
+
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
+        instruction.layerInstructions = [layerInstruction]
+
+        let composition = AVMutableVideoComposition()
+        composition.renderSize = renderCrop.size
+        composition.frameDuration = resolvedFrameDuration(
+            minimumFrameDuration: minimumFrameDuration,
+            nominalFrameRate: nominalFrameRate
+        )
+        composition.sourceTrackIDForFrameTiming = track.trackID
+        composition.instructions = [instruction]
+        item.videoComposition = composition
+        return item
+    }
+
+    private static func validDimensions(_ dimensions: CGSize?) -> CGSize? {
+        guard let dimensions,
+              dimensions.width.isFinite, dimensions.height.isFinite,
+              dimensions.width > 0, dimensions.height > 0 else { return nil }
+        return dimensions
+    }
+
+    private static func rotationTransform(
+        _ rotation: MediaRotation,
+        sourceSize: CGSize
+    ) -> CGAffineTransform {
+        switch rotation {
+        case .none:
+            return .identity
+        case .clockwise90:
+            return CGAffineTransform(
+                a: 0, b: 1,
+                c: -1, d: 0,
+                tx: sourceSize.height, ty: 0
+            )
+        case .clockwise180:
+            return CGAffineTransform(
+                a: -1, b: 0,
+                c: 0, d: -1,
+                tx: sourceSize.width, ty: sourceSize.height
+            )
+        case .clockwise270:
+            return CGAffineTransform(
+                a: 0, b: -1,
+                c: 1, d: 0,
+                tx: 0, ty: sourceSize.width
+            )
+        }
+    }
+
+    private static func resolvedFrameDuration(
+        minimumFrameDuration: CMTime,
+        nominalFrameRate: Float
+    ) -> CMTime {
+        let minimumSeconds = CMTimeGetSeconds(minimumFrameDuration)
+        if minimumFrameDuration.isValid, !minimumFrameDuration.isIndefinite,
+           minimumSeconds.isFinite, minimumSeconds > 0 {
+            return minimumFrameDuration
+        }
+
+        let fps = Double(nominalFrameRate)
+        if fps.isFinite, fps > 0 {
+            return CMTime(seconds: 1 / fps, preferredTimescale: 60_000)
+        }
+        return CMTime(value: 1, timescale: 30)
     }
 }
 

@@ -16,6 +16,29 @@ enum ImportStorage {
         return directory.appendingPathComponent("\(UUID().uuidString).\(ext)")
     }
 
+    /// Copies an imported file into app-owned temporary storage without loading
+    /// the file contents into memory. The source URL may only be valid for the
+    /// duration of a picker or item-provider callback, so callers must copy it
+    /// before returning from that callback.
+    static func copyFile(
+        at sourceURL: URL,
+        originalName: String? = nil,
+        fallbackExtension: String = "dat"
+    ) throws -> URL {
+        let outputURL = url(
+            originalName: originalName ?? sourceURL.lastPathComponent,
+            fallbackExtension: fallbackExtension
+        )
+
+        do {
+            try FileManager.default.copyItem(at: sourceURL, to: outputURL)
+            return outputURL
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw ImportError.copyFailed(error.localizedDescription)
+        }
+    }
+
     static func cleanAll() {
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: directory,

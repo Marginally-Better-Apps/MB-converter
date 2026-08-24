@@ -1,8 +1,35 @@
+import CoreTransferable
 import Foundation
 import PhotosUI
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+
+/// A file-backed Photos transfer. `ReceivedTransferredFile.file` is temporary,
+/// so each representation copies it into app-owned storage inside the import
+/// callback instead of materializing the whole asset as `Data`.
+private struct ImportedPhotoLibraryFile: Transferable {
+    let url: URL
+    let usedFallbackExtension: Bool
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .image) { received in
+            try copy(received.file, fallbackExtension: "heic")
+        }
+        FileRepresentation(importedContentType: .movie) { received in
+            try copy(received.file, fallbackExtension: "mov")
+        }
+    }
+
+    private static func copy(_ sourceURL: URL, fallbackExtension: String) throws -> Self {
+        let sourceExtension = sourceURL.pathExtension
+        let outputURL = try ImportStorage.copyFile(
+            at: sourceURL,
+            fallbackExtension: fallbackExtension
+        )
+        return Self(url: outputURL, usedFallbackExtension: sourceExtension.isEmpty)
+    }
+}
 
 struct RemoteDownloadProgress: Equatable {
     let bytesReceived: Int64
@@ -20,15 +47,15 @@ struct RemoteDownloadProgress: Equatable {
         }
         // No Content-Length (chunked, etc.): show a monotonic 0...<1 curve vs the import cap so the bar still advances.
         let b = max(0, Double(bytesReceived))
-        let cap = Double(ImportService.maxImportBytes)
+        let cap = Double(ImportService.maxRemoteImportBytes)
         guard cap > 0 else { return 0 }
         return min(0.99, log(1 + b) / log(1 + cap))
     }
 }
 
 struct ImportService {
-    /// Maximum size for any single import (bytes).
-    static let maxImportBytes: Int64 = 150 * 1024 * 1024
+    /// Maximum size for a file downloaded from a remote link (bytes).
+    static let maxRemoteImportBytes: Int64 = 150 * 1024 * 1024
 
     private static let mimeToExtension: [String: String] = [
         "video/mp4": "mp4",
@@ -110,15 +137,14 @@ struct ImportService {
     }
 
     func importFromPhotos(_ item: PhotosPickerItem) async throws -> URL {
-        guard let data = try await item.loadTransferable(type: Data.self) else {
+        guard let imported = try await item.loadTransferable(type: ImportedPhotoLibraryFile.self) else {
             throw ImportError.unsupportedType
         }
-
-        let preferredType = item.supportedContentTypes.first
-        let fallbackExtension = preferredType?.preferredFilenameExtension ?? "dat"
-        let outputURL = ImportStorage.url(originalName: nil, fallbackExtension: fallbackExtension)
-        try write(data, to: outputURL)
-        return outputURL
+        if imported.usedFallbackExtension,
+           let preferredExtension = item.supportedContentTypes.lazy.compactMap(\.preferredFilenameExtension).first {
+            return try replaceFilenameExtension(of: imported.url, with: preferredExtension)
+        }
+        return imported.url
     }
 
     func importFromFiles(at url: URL) async throws -> URL {
@@ -135,34 +161,20 @@ struct ImportService {
             throw ImportError.unsupportedType
         }
 
-        try enforceImportSizeLimit(for: url)
-
-        let outputURL = ImportStorage.url(
+        return try ImportStorage.copyFile(
+            at: url,
             originalName: url.lastPathComponent,
             fallbackExtension: url.pathExtension.isEmpty ? "dat" : url.pathExtension
         )
-
-        do {
-            if FileManager.default.fileExists(atPath: outputURL.path) {
-                try FileManager.default.removeItem(at: outputURL)
-            }
-            try FileManager.default.copyItem(at: url, to: outputURL)
-            try enforceImportSizeLimit(for: outputURL)
-            return outputURL
-        } catch let error as ImportError {
-            if FileManager.default.fileExists(atPath: outputURL.path) {
-                try? FileManager.default.removeItem(at: outputURL)
-            }
-            throw error
-        } catch {
-            throw ImportError.copyFailed(error.localizedDescription)
-        }
     }
 
     func importFromPasteboard() async throws -> URL {
         let pasteboard = UIPasteboard.general
         if let fileURL = Self.firstSupportedMediaFileURL(in: pasteboard) {
             return try await importFromFiles(at: fileURL)
+        }
+        if let fileRepresentation = Self.preferredPasteboardFileRepresentation(in: pasteboard) {
+            return try await importPasteboardFileRepresentation(fileRepresentation)
         }
         if let binary = Self.preferredPasteboardBinaryMediaRepresentation(in: pasteboard) {
             let outputURL = ImportStorage.url(
@@ -184,7 +196,8 @@ struct ImportService {
         return outputURL
     }
 
-    /// Downloads a file from an http(s) URL into ``ImportStorage``, enforcing ``maxImportBytes`` and ``FormatMatrix`` support.
+    /// Downloads a file from an http(s) URL into ``ImportStorage``, enforcing
+    /// ``maxRemoteImportBytes`` and ``FormatMatrix`` support.
     func importFromRemoteURL(
         _ string: String,
         progress: ((RemoteDownloadProgress) async -> Void)? = nil
@@ -219,8 +232,8 @@ struct ImportService {
         }
 
         let declaredContentLength = Self.declaredContentLength(from: http)
-        if let declared = declaredContentLength, declared > Self.maxImportBytes {
-            throw ImportError.fileTooLarge(limitBytes: Self.maxImportBytes)
+        if let declared = declaredContentLength, declared > Self.maxRemoteImportBytes {
+            throw ImportError.fileTooLarge(limitBytes: Self.maxRemoteImportBytes)
         }
 
         guard let ext = Self.inferredFileExtension(remoteURL: url, response: http) else {
@@ -260,9 +273,9 @@ struct ImportService {
                 scratch[scratchCount] = byte
                 scratchCount += 1
                 total += 1
-                if total > Self.maxImportBytes {
+                if total > Self.maxRemoteImportBytes {
                     try? FileManager.default.removeItem(at: outputURL)
-                    throw ImportError.fileTooLarge(limitBytes: Self.maxImportBytes)
+                    throw ImportError.fileTooLarge(limitBytes: Self.maxRemoteImportBytes)
                 }
                 if scratchCount == chunkCapacity {
                     try handle.write(contentsOf: scratch)
@@ -394,6 +407,69 @@ struct ImportService {
         preferredConcreteImageTypes(in: pasteboard).first
     }
 
+    private struct PasteboardFileRepresentation {
+        let provider: NSItemProvider
+        let typeIdentifier: String
+        let fallbackExtension: String
+        let suggestedName: String?
+    }
+
+    /// Requests a temporary file from the item provider. Even data-backed
+    /// pasteboard entries are written to a file by the provider, keeping the
+    /// app from receiving the full payload as one `Data` allocation.
+    private static func preferredPasteboardFileRepresentation(
+        in pasteboard: UIPasteboard
+    ) -> PasteboardFileRepresentation? {
+        for provider in pasteboard.itemProviders {
+            for identifier in provider.registeredTypeIdentifiers {
+                guard let ext = mediaFileExtension(forPasteboardTypeIdentifier: identifier),
+                      FormatMatrix.detectCategory(
+                          from: URL(fileURLWithPath: "clipboard.\(ext)")
+                      ) != nil else {
+                    continue
+                }
+                return PasteboardFileRepresentation(
+                    provider: provider,
+                    typeIdentifier: identifier,
+                    fallbackExtension: ext,
+                    suggestedName: provider.suggestedName
+                )
+            }
+        }
+        return nil
+    }
+
+    private func importPasteboardFileRepresentation(
+        _ representation: PasteboardFileRepresentation
+    ) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            representation.provider.loadFileRepresentation(
+                forTypeIdentifier: representation.typeIdentifier
+            ) { sourceURL, error in
+                guard let sourceURL else {
+                    continuation.resume(
+                        throwing: ImportError.copyFailed(
+                            error?.localizedDescription
+                                ?? "The clipboard did not provide a readable file."
+                        )
+                    )
+                    return
+                }
+
+                do {
+                    let outputURL = try ImportStorage.copyFile(
+                        at: sourceURL,
+                        originalName: representation.suggestedName,
+                        fallbackExtension: representation.fallbackExtension
+                    )
+                    continuation.resume(returning: outputURL)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     private static func preferredPasteboardBinaryMediaRepresentation(in pasteboard: UIPasteboard) -> PasteboardBinaryMediaRepresentation? {
         guard let mediaType = preferredPasteboardBinaryMediaType(in: pasteboard) else {
             return nil
@@ -507,20 +583,6 @@ struct ImportService {
         for u in pasteboard.urls ?? [] {
             add(u)
         }
-        for item in pasteboard.items {
-            for (_, any) in item {
-                if let u = any as? URL {
-                    add(u)
-                } else if let s = any as? String, let u = URL(string: s) {
-                    add(u)
-                } else if let data = any as? Data, let s = String(data: data, encoding: .utf8) {
-                    let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let u = URL(string: t) {
-                        add(u)
-                    }
-                }
-            }
-        }
         return ordered
     }
 
@@ -562,7 +624,6 @@ struct ImportService {
     }
 
     private func write(_ data: Data, to url: URL) throws {
-        try enforceImportSizeLimit(byteCount: Int64(data.count))
         do {
             try data.write(to: url, options: .atomic)
         } catch {
@@ -570,15 +631,17 @@ struct ImportService {
         }
     }
 
-    private func enforceImportSizeLimit(for url: URL) throws {
-        let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
-        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
-        try enforceImportSizeLimit(byteCount: size)
-    }
-
-    private func enforceImportSizeLimit(byteCount: Int64) throws {
-        guard byteCount <= Self.maxImportBytes else {
-            throw ImportError.fileTooLarge(limitBytes: Self.maxImportBytes)
+    private func replaceFilenameExtension(of url: URL, with fileExtension: String) throws -> URL {
+        let outputURL = ImportStorage.url(
+            originalName: nil,
+            fallbackExtension: fileExtension
+        )
+        do {
+            try FileManager.default.moveItem(at: url, to: outputURL)
+            return outputURL
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            throw ImportError.copyFailed(error.localizedDescription)
         }
     }
 

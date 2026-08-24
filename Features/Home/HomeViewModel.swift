@@ -74,9 +74,16 @@ final class HomeViewModel {
 
         do {
             let url = try await operation()
-            let media = try await importService.validatedMediaFile(at: url)
-            Haptics.success()
-            return media
+            do {
+                let media = try await importService.validatedMediaFile(at: url)
+                Haptics.success()
+                return media
+            } catch {
+                // Imported picker/provider files are app-owned copies. Remove a
+                // potentially very large copy when validation cannot use it.
+                try? FileManager.default.removeItem(at: url)
+                throw error
+            }
         } catch {
             errorMessage = error.localizedDescription
             Haptics.error()
