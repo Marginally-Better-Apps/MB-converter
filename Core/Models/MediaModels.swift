@@ -321,7 +321,7 @@ struct MetadataExportPolicy: Hashable, Sendable {
     var stripAll: Bool
     /// Global container tags (FFmpeg `-metadata`); used when `stripAll` is `false`.
     var retainedFormatTags: [String: String]
-    /// Per input stream index (as reported by ffprobe) for `-metadata:s:i:key=value`.
+    /// Per input stream index (as reported by ffprobe) for `-metadata:s:i key=value`.
     var retainedStreamTags: [Int: [String: String]]
     /// Image metadata split by `ImageMetadataScope` for `CGImageDestination` (Exif, GPS, IPTC, TIFF, …).
     var retainedImageTags: [ImageMetadataEntry]

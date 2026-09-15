@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10100000000000000000002 /* App/PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A10100000000000000000001 /* App/PrivacyInfo.xcprivacy */; };
 		03614AE9659E9987EA4D99B7 /* Features/Result/ResultViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B403D1DC0F08573A12B1C0F3 /* Features/Result/ResultViewModel.swift */; };
 		0DB035BD952470DD6B9F27A9 /* Core/Models/MediaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1278B01E06AE0E3DD4A48D /* Core/Models/MediaModels.swift */; };
 		10243D95112383F5A4CEAE18 /* Features/Processing/ProcessingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84FDB4160E922ECC46E415F7 /* Features/Processing/ProcessingViewModel.swift */; };
@@ -19,6 +20,8 @@
 		4BF3A50D9B32DDFE52917C7F /* Core/Conversion/ImageConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B5815CB64C6A94C7D3F9FA7 /* Core/Conversion/ImageConverter.swift */; };
 		76EF36980B835BBA131FC699 /* DesignSystem/Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D038AD9308CAA6F50A8DAB33 /* DesignSystem/Theme.swift */; };
 		E20000000000000000000002 /* DesignSystem/Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000000000000000000001 /* DesignSystem/Haptics.swift */; };
+		D1A600000000000000000002 /* Core/Diagnostics/DiagnosticsLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A600000000000000000001 /* Core/Diagnostics/DiagnosticsLog.swift */; };
+		D1A600000000000000000004 /* Features/Diagnostics/DiagnosticsLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A600000000000000000003 /* Features/Diagnostics/DiagnosticsLogView.swift */; };
 		787FBE6716A41B0C918450B2 /* Features/Processing/ProcessingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8FF6CBC213A8BCC191A89D7 /* Features/Processing/ProcessingView.swift */; };
 		7E5245C73D8B207FE0AC1C63 /* Features/InputDetail/InputDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AA15805B061664047C07F98 /* Features/InputDetail/InputDetailViewModel.swift */; };
 		8117B47462A88AEE5A74348A /* DesignSystem/Components/MediaPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DA06243CF8E46EDF93F69AF /* DesignSystem/Components/MediaPreview.swift */; };
@@ -78,6 +81,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A10100000000000000000001 /* App/PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = App/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		17949D7ED22F4550A4443107 /* DesignSystem/Components/TargetSizeSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/Components/TargetSizeSlider.swift; sourceTree = "<group>"; };
 		1894B411C6DBB29ADBBDB7D1 /* Features/Result/ResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Result/ResultView.swift; sourceTree = "<group>"; };
 		1B5815CB64C6A94C7D3F9FA7 /* Core/Conversion/ImageConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/ImageConverter.swift; sourceTree = "<group>"; };
@@ -91,6 +95,8 @@
 		58E010773AB057D470B783A9 /* Core/Conversion/VideoConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/VideoConverter.swift; sourceTree = "<group>"; };
 		5B63929DD0C6EDA4E6B74F0E /* App/ConverterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ConverterApp.swift; sourceTree = "<group>"; };
 		E30000000000000000000000 /* App/AppColorMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppColorMode.swift; sourceTree = "<group>"; };
+		D1A600000000000000000001 /* Core/Diagnostics/DiagnosticsLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Diagnostics/DiagnosticsLog.swift; sourceTree = "<group>"; };
+		D1A600000000000000000003 /* Features/Diagnostics/DiagnosticsLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Diagnostics/DiagnosticsLogView.swift; sourceTree = "<group>"; };
 		E10000000000000000000003 /* ConverterTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConverterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7996D8ED5E115F25BAD34224 /* Core/Conversion/AnimatedImageConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/AnimatedImageConverter.swift; sourceTree = "<group>"; };
 		7F8559C440514ECFD6C7E34E /* Core/Conversion/FFmpegCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/FFmpegCommandRunner.swift; sourceTree = "<group>"; };
@@ -148,8 +154,11 @@
 			children = (
 				5B63929DD0C6EDA4E6B74F0E /* App/ConverterApp.swift */,
 				E30000000000000000000000 /* App/AppColorMode.swift */,
+				A10100000000000000000001 /* App/PrivacyInfo.xcprivacy */,
 				D038AD9308CAA6F50A8DAB33 /* DesignSystem/Theme.swift */,
 				E20000000000000000000001 /* DesignSystem/Haptics.swift */,
+				D1A600000000000000000001 /* Core/Diagnostics/DiagnosticsLog.swift */,
+				D1A600000000000000000003 /* Features/Diagnostics/DiagnosticsLogView.swift */,
 				8E1278B01E06AE0E3DD4A48D /* Core/Models/MediaModels.swift */,
 				95450C8885454FA4793790A7 /* Core/Compatibility/FormatMatrix.swift */,
 				C0DEC0DE0000000000000001 /* Core/Compatibility/FFmpegRuntimeInfo.swift */,
@@ -303,6 +312,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				95F893ABF8DE2704294E63B9 /* Assets.xcassets in Resources */,
+				A10100000000000000000002 /* App/PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -346,6 +356,8 @@
 				E30000000000000000000001 /* App/AppColorMode.swift in Sources */,
 				76EF36980B835BBA131FC699 /* DesignSystem/Theme.swift in Sources */,
 				E20000000000000000000002 /* DesignSystem/Haptics.swift in Sources */,
+				D1A600000000000000000002 /* Core/Diagnostics/DiagnosticsLog.swift in Sources */,
+				D1A600000000000000000004 /* Features/Diagnostics/DiagnosticsLogView.swift in Sources */,
 				0DB035BD952470DD6B9F27A9 /* Core/Models/MediaModels.swift in Sources */,
 				DA560FB595FB5C30E3D44FE4 /* Core/Compatibility/FormatMatrix.swift in Sources */,
 				C0DEC0DE0000000000000002 /* Core/Compatibility/FFmpegRuntimeInfo.swift in Sources */,
@@ -668,8 +680,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/tylerjonesio/ffmpeg-kit-spm";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = revision;
+				revision = 6053b0e4f8607314ff5e14e0b18fc250c0f87c9b;
 			};
 		};
 		D4E5F60718293A4B5C6D7E8F /* XCRemoteSwiftPackageReference "libwebp-xcode" */ = {

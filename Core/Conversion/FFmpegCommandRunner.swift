@@ -64,8 +64,13 @@ final class FFmpegCommandRunner {
                         } else {
                             message = "FFmpeg exited with code \(returnCodeText)"
                         }
-                        print("[FFMPEG COMMAND] \(command)")
-                        print("[FFMPEG ERROR] \(message)")
+                        let recentOutput = recentLogLines.joined(separator: "\n")
+                        DiagnosticsLog.shared.record(
+                            message: message,
+                            context: "FFmpeg command failed",
+                            metadata: ["Return code": returnCodeText],
+                            details: "Command:\n\(command)\n\nRecent FFmpeg output:\n\(recentOutput)"
+                        )
                         guardBox.resume(throwing: ConversionError.engineFailed(message))
                     }
                 }, withLogCallback: logHandler, withStatisticsCallback: { statistics in
@@ -79,7 +84,7 @@ final class FFmpegCommandRunner {
                             FFmpegEncodingDisplayStats(
                                 frame: Int(statistics.getVideoFrameNumber()),
                                 fps: Double(statistics.getVideoFps()),
-                                encodedSize: "\(statistics.getSize())kB",
+                                encodedSize: "\(statistics.getSize())B",
                                 time: Self.formatFfmpegTime(milliseconds: Int64(statistics.getTime())),
                                 timeMilliseconds: Int64(statistics.getTime()),
                                 throughputBitrate: String(format: "%.1fkbits/s", statistics.getBitrate()),

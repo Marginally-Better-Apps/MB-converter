@@ -1,96 +1,105 @@
-# MB Converter — developer documentation
+# Build and run MB Converter
 
-Native **iOS / iPadOS** app to convert and compress video, audio, and images. Built with **SwiftUI**, **FFmpegKit** (LGPL), and native image pipelines (ImageIO / Core Image).
+MB Converter is a native SwiftUI app for iOS and iPadOS 17 or later. Video and audio conversion use FFmpegKit; still images use ImageIO, Core Image, and libwebp.
 
-| | |
-|---|---|
-| Platforms | iOS 17+, iPadOS 17+ |
-| UI | SwiftUI, system typography, light haptics |
-| Media | FFmpegKit for video/audio/animated workflows; ImageIO for still images |
-| State | `@Observable` view models |
-
-## Features (technical summary)
-
-- Import from **Photos**, **Files**, **URLs**, or the **clipboard** (images)
-- Inspect metadata, pick output format, resolution, frame rate, and target size where applicable
-- **Video / audio / animated** conversion via FFmpeg command-line flows wrapped in Swift
-- **Still images** via `ImageConverter` (including target-size passes)
-- Conversion **history** and share/save using the system share sheet (output stays in temp until the user saves)
+[App overview](../README.md) · [Release guide](RELEASING.md)
 
 ## Requirements
 
-- Xcode 15+ (iOS 17 SDK)
-- Swift 5.9+
+- A Mac with **Xcode 26 or later**, its command-line tools, and the iOS SDK installed. The project uses Swift 5 language mode; you do not need a separate Swift installation.
+- Internet access for the initial Swift package and binary-framework downloads.
+- For a physical device: an Apple account added in Xcode, a signing team, and an iPhone or iPad running iOS/iPadOS 17 or later with Developer Mode enabled.
+- For App Store distribution: an Apple Developer Program membership and access to this app in App Store Connect.
 
-## Build
+The deployment target remains iOS 17. Building with a newer SDK does not raise that minimum. App Store uploads currently require Xcode 26 or later and the iOS 26 SDK or later; check [Apple's current requirements](https://developer.apple.com/news/upcoming-requirements/) before submitting.
 
-1. Clone the repository.
-2. Open `Converter.xcodeproj` in Xcode.
-3. Select the **Converter** scheme and a simulator or device, then **Run**.
-
-Command line (use a simulator that exists on your machine):
+## Run in Xcode
 
 ```sh
-xcodebuild -scheme Converter -destination 'platform=iOS Simulator,name=iPhone 17' -quiet build
+git clone https://github.com/Marginally-Better-Apps/MB-converter.git
+cd MB-converter
+open Converter.xcodeproj
 ```
 
-### Swift packages
+1. Let Xcode resolve the Swift package dependencies.
+2. Select the **Converter** scheme.
+3. Select an installed iPhone/iPad simulator or a connected device as the run destination.
+4. For a physical device, open the **Converter** target's **Signing & Capabilities**, select your own team, and use a unique bundle identifier for your personal build. Enable automatic signing. The checked-in team and bundle identifier belong to the published app's maintainers.
+5. Choose **Product → Run** (`⌘R`).
 
-Resolved via Swift Package Manager (see the project’s **Package Dependencies**):
+No API keys, backend services, CocoaPods, or environment files are needed. Local file conversion can run offline once the app and dependencies are installed. Hardware-backed video encoders should also be tested on a real device.
 
-| Package | Role |
-|---------|------|
-| [ffmpeg-kit-spm / `min.v5.1.2.6`](https://github.com/tylerjonesio/ffmpeg-kit-spm) | LGPL FFmpegKit bindings for FFmpeg 5.1.2. This app currently ships the `min` package, which does not include external codec libraries. |
-| [libwebp-Xcode](https://github.com/SDWebImage/libwebp-Xcode) | WebP support where used by the pipeline. |
+## Build from the command line
 
-If you ship a binary, include notices required by **LGPL** (and any other licenses of linked libraries) in your app’s legal / credits screen; this repo’s **MIT license applies to the app source here**, not to FFmpeg itself.
+Run commands from the repository root. Check the selected toolchain with `xcodebuild -version`; if it points at Command Line Tools instead of Xcode, select the Xcode installation in **Xcode → Settings → Locations**.
 
-### FFmpeg runtime capability notes
+Resolve the checked-in dependency versions:
 
-`FFmpegRuntimeInfo` logs the package name, FFmpeg version, FFmpegKit version, build date, and external libraries at launch. `CodecCapability` is the app's source of truth for output filtering, import blocking, and conversion preflight checks.
+```sh
+xcodebuild -resolvePackageDependencies \
+  -project Converter.xcodeproj \
+  -scheme Converter \
+  -onlyUsePackageVersionsFromResolvedFile
+```
 
-| Direction | Available in the bundled min build |
-|-----------|------------------------------------|
-| Encode | H.264 / HEVC via VideoToolbox, AAC via AudioToolbox/native FFmpeg, PCM WAV, FLAC, ALAC, native Opus, GIF, MJPEG, PNG, TIFF, and still WebP through `libwebp-Xcode`. |
-| Decode | Native FFmpeg decoders for common H.264, HEVC, VP8, VP9, MPEG-2, MP3, Vorbis, Opus, FLAC, and ALAC inputs. AV1 is not available in this bundle and is blocked at import. |
+Compile a Release build for iOS devices without signing or installing it:
 
-External encoders such as `libvpx`, `libmp3lame`, `libvorbis`, and `libopus` are not present in the min package, so formats that require those libraries are hidden from the output picker.
+```sh
+xcodebuild \
+  -project Converter.xcodeproj \
+  -scheme Converter \
+  -configuration Release \
+  -destination 'generic/platform=iOS' \
+  -derivedDataPath build/DerivedData \
+  -onlyUsePackageVersionsFromResolvedFile \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+This checks compilation and app packaging. It does not validate signing, exercise conversions, or produce an App Store upload. The [release guide](RELEASING.md) covers signed archives and device checks.
+
+## Dependencies and reproducible builds
+
+| Dependency | Pinned version | Role |
+| --- | --- | --- |
+| [ffmpeg-kit-spm](https://github.com/tylerjonesio/ffmpeg-kit-spm) | Revision `6053b0e4f8607314ff5e14e0b18fc250c0f87c9b`, referencing binary release `min.v5.1.2.6` | FFmpeg 5.1.2 media conversion and probing |
+| [libwebp-Xcode](https://github.com/SDWebImage/libwebp-Xcode) | 1.6.0 in `Package.resolved` | Still WebP encoding |
+
+Keep [`Package.resolved`](../Converter.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved) in Git. FFmpegKit is pinned to a revision in the Xcode project. Review dependency updates and commit the resulting lockfile changes together; release builds use `-onlyUsePackageVersionsFromResolvedFile` to prevent silent re-resolution.
+
+FFmpegKit downloads prebuilt XCFrameworks from the package's GitHub release. If resolution fails, check the download error and access to those assets before changing versions. Build caches and downloaded packages are ignored; the lockfile, shared scheme, source assets, and original release screenshots are retained.
+
+### Format support
+
+`Core/Compatibility/FormatMatrix.swift` defines the outputs offered for each input category. `CodecCapability.swift` handles encoder availability and import checks. `FFmpegRuntimeInfo.swift` reports the bundled runtime configuration.
+
+The app offers MP4 (H.264/HEVC), MOV, M4A, AAC, WAV, JPEG, PNG, HEIC, WebP, and TIFF output. GIF inputs can become MP4 or a still image. AV1 video is blocked at import. Additional encoders named in the code do not imply that those formats are offered in the UI.
 
 ## Repository layout
 
-```
-├── App/                 App entry point
-├── Assets.xcassets      App icon and assets
-├── Core/
-│   ├── Compatibility/   Format matrix (allowed conversions)
-│   ├── Conversion/      Converters, FFmpeg runner, routing
-│   ├── Inspection/      Metadata / probe helpers
-│   ├── IO/              Import, temp storage, history
-│   └── Models/          Shared types
-├── DesignSystem/        Theme and reusable UI pieces
-├── Features/            Screens (Home, detail, config, processing, result, history)
-└── Converter.xcodeproj
-```
+| Path | Contents |
+| --- | --- |
+| `App/` | App entry point, navigation, appearance, privacy manifest |
+| `Assets.xcassets/` | App icon and assets |
+| `Core/` | Conversion, metadata inspection, format compatibility, imports, history, diagnostics, models |
+| `DesignSystem/` | Theme, haptics, reusable controls |
+| `Features/` | Import, editing, conversion, results, history, and diagnostics screens |
+| `Scripts/` | Build-time removal of unsupported framework architectures |
+| `Converter.xcodeproj/` | Project, shared scheme, dependency lockfile |
+| `docs/` | Build/release guides, listing copy, original screenshots |
 
-## Demo asset
+## Storage and diagnostics
 
-The screenshot used on the main README lives at [`demo.png`](demo.png) in this folder.
+Imported files and conversion working files use the app's temporary directory and are cleaned at launch. Session-only history is also cleared on the next launch. Saved history copies output files into Application Support until the user deletes them or disables saved history.
+
+Settings → Error Log displays diagnostics and supports copying or exporting a report. Reports may contain file paths, media metadata, conversion commands, and device information. They are not automatically uploaded; review reports before sharing them publicly.
+
+`App/PrivacyInfo.xcprivacy` declares app-local preferences and file timestamp access. Revisit those declarations whenever storage, diagnostics, networking, or dependencies change.
+
+## Validation
+
+The project currently has an empty `ConverterTests` target and no testables in the shared scheme. A successful build is not a passing automated test suite. Use the device smoke checks in the [release guide](RELEASING.md) before shipping.
 
 ## License
 
-This project’s **source code** is released under the [MIT License](../LICENSE).
-
-Third-party libraries (FFmpeg via FFmpegKit, libwebp, Apple frameworks) remain under their respective licenses.
-
-## Color theme (reference)
-
-```
-            Light       Dark
-text        #050b0f     #f0f6fa
-background  #eff6fb     #0B1622
-primary     #003a5c     #a3ddff
-secondary   #7fc7f0     #0f5680
-accent      #3cb2f6     #081d2a
-```
-
-In dark mode, primary actions use `Theme.primary` (see `DesignSystem/Theme.swift`).
+The application source is under the [MIT License](../LICENSE). FFmpegKit, FFmpeg, libwebp, and other bundled libraries have their own licenses. Retain their notices and review the exact distributed binaries and corresponding source before release. The app's MIT license does not relicense its dependencies.

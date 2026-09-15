@@ -1,43 +1,62 @@
 # macOS
 .DS_Store
+.AppleDouble
+._*
 
 # Xcode user data
+xcuserdata/
 *.xcuserstate
-*.xcuserdata/
+*.xcscmblueprint
+*.xccheckout
 
-# Xcode build artifacts
+# Xcode build and distribution artifacts
 DerivedData/
 build/
+*.xcarchive/
+*.xcresult/
+*.ipa
+*.dSYM/
+*.dSYM.zip
+*.bcsymbolmap
+*.hmap
 
-# Swift Package Manager
+# Swift Package Manager caches (keep Package.resolved for reproducible app builds)
 .build/
 Packages/
 Package.pins
-Package.resolved
+.swiftpm/
 
 # Fastlane
 fastlane/report.xml
 fastlane/Preview.html
-fastlane/screenshots/**/*.png
+fastlane/screenshots/
 fastlane/test_output/
 
-# Temporary/editor files
+# Generated screenshot archives (keep the original images and instructions)
+/docs/app-store-screenshots/*.zip
+
+# Temporary files, logs, and local editor state
 *.swp
 *.swo
 *~
-
-# cursor
+*.log
+*.tmp
+*.orig
+*.rej
+.idea/
+.vscode/
 .cursor/
 
-# Xcode / tooling
-*.xcresult
-*.xcscmblueprint
-*.hmap
-*.ipa
-*.dSYM.zip
-.swiftpm/configuration/registries.json
-
-# Misc
-.direnv
+# Local environment and signing credentials
+.direnv/
 .env
+.env.*
+!.env.example
+!.env.sample
 .envrc
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
+
+# Shared Xcode schemes, package lockfiles, app assets, and release docs belong in Git.

@@ -114,6 +114,14 @@ enum MediaInspector {
             vTracks = try await videoTracks
             aTracks = try await audioTracks
         } catch {
+            DiagnosticsLog.shared.record(
+                error: error,
+                context: "Inspect video with AVFoundation",
+                metadata: [
+                    "Filename": filename,
+                    "Fallback": "FFprobe or basic media metadata"
+                ]
+            )
             #if canImport(ffmpegkit)
             if let p = FFprobeVideoMetadata.probeVideo(at: url) {
                 let durationSec = p.duration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }

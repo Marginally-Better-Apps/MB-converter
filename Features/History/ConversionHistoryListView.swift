@@ -2,289 +2,248 @@ import SwiftUI
 
 struct ConversionHistoryListView: View {
     @Binding var path: [AppRoute]
+    var showsContentTitle = false
+    /// Allows deterministic previews without mutating the shared history store.
+    var previewEntries: [ConversionHistoryEntry]? = nil
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.isRootSectionActive) private var isRootSectionActive
     @State private var store = ConversionHistoryStore.shared
     @State private var isClearAllConfirming = false
     @State private var entryPendingDeletion: ConversionHistoryEntry?
 
     var body: some View {
-        ZStack {
-            Theme.background.ignoresSafeArea()
+        List {
+            if showsContentTitle {
+                Text("History")
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(Theme.text)
+                    .accessibilityAddTraits(.isHeader)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
 
-            if store.entries.isEmpty {
-                ContentUnavailableView(
-                    "No Conversions Yet",
-                    systemImage: "clock.arrow.circlepath",
-                    description: Text("\(store.storageSummaryTitle). \(store.storageSummaryDescription)")
-                )
-                .foregroundStyle(Theme.text)
+            Section {
+                historySummary
+                    .listRowBackground(Theme.surface)
+            }
+
+            if entries.isEmpty {
+                Section {
+                    ContentUnavailableView(
+                        "No Conversions Yet",
+                        systemImage: "clock.arrow.circlepath",
+                        description: Text("Converted files will appear here.")
+                    )
+                    .foregroundStyle(Theme.text)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Theme.surface)
+                }
             } else {
-                List {
-                    Section {
-                        historySummaryCard
-                        .listRowBackground(Theme.surface)
-                    }
-                    Section {
-                        ForEach(store.entries) { entry in
-                            historyRow(entry: entry)
-                                .listRowBackground(Theme.surface)
-                        }
+                Section("Conversions") {
+                    ForEach(entries) { entry in
+                        historyRow(entry: entry)
+                            .listRowBackground(Theme.surface)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    Haptics.warning()
+                                    entryPendingDeletion = entry
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                     }
                 }
-                .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
-            }
-
-            if isClearAllConfirming {
-                clearAllConfirmationOverlay
-                    .transition(.opacity)
-            }
-
-            if let entryPendingDeletion {
-                deleteEntryConfirmationOverlay(entry: entryPendingDeletion)
-                    .transition(.opacity)
             }
         }
-        .navigationTitle("History")
-        .navigationBarTitleDisplayMode(.inline)
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
+        .tint(Theme.primary)
+        .navigationTitle(isRootSectionActive && !showsContentTitle ? "History" : "")
+        .navigationBarTitleDisplayMode(.large)
         .onAppear {
+            guard previewEntries == nil else { return }
             store = ConversionHistoryStore.shared
             store.refreshForCurrentSettings()
         }
-        .animation(.easeInOut(duration: 0.18), value: isClearAllConfirming)
+        .alert("Delete all history?", isPresented: $isClearAllConfirming) {
+            Button("Delete All", role: .destructive) {
+                Haptics.warning()
+                store.removeAll()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes every result file shown in History. This action cannot be undone.")
+        }
+        .confirmationDialog(
+            "Delete this conversion?",
+            isPresented: deleteEntryConfirmationBinding,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let entry = entryPendingDeletion else { return }
+                Haptics.warning()
+                store.removeEntry(id: entry.id)
+                entryPendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) {
+                entryPendingDeletion = nil
+            }
+        } message: {
+            if let entry = entryPendingDeletion {
+                Text("This removes the result file for \(entry.input.originalFilename) from History.")
+            }
+        }
     }
 
-    private var historySummaryCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
+    private var historySummary: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(store.storageSummaryTitle)
+                        .font(.headline)
+                        .foregroundStyle(Theme.text)
+                    Text(store.storageSummaryDescription)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.textMuted)
+                }
+            } icon: {
                 Image(systemName: store.isEnabled ? "externaldrive.fill" : "hourglass")
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Theme.primary)
-                    .frame(width: 28, height: 28)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(store.storageSummaryTitle)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.text)
-                    Text(store.storageSummaryDescription)
-                        .font(.caption)
-                        .foregroundStyle(Theme.textMuted)
-                }
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Theme.secondary.opacity(0.2),
+                        in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    )
             }
+            .labelStyle(.titleAndIcon)
 
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Storage used")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Theme.textMuted)
-                    Text(MetadataFormatter.bytes(store.totalStorageBytes))
-                        .font(.title3.bold())
-                        .foregroundStyle(Theme.primary)
-                }
-                Spacer()
+            Divider()
+
+            LabeledContent("Storage Used") {
+                Text(MetadataFormatter.bytes(storageBytes))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.primary)
+                    .monospacedDigit()
+            }
+            .foregroundStyle(Theme.text)
+
+            if !entries.isEmpty {
                 Button(role: .destructive) {
                     Haptics.warning()
                     isClearAllConfirming = true
                 } label: {
-                    Text("Clear all")
+                    Label("Clear History", systemImage: "trash")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.destructive)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Theme.separator, lineWidth: 1)
+                        }
                 }
+                .buttonStyle(.plain)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 
-    private var clearAllConfirmationOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.38)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    Haptics.impact(.light)
-                    isClearAllConfirming = false
-                }
-
-            VStack(spacing: 18) {
-                Image(systemName: "trash.fill")
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(.red)
-
-                VStack(spacing: 8) {
-                    Text("Delete all history?")
-                        .font(.title3.bold())
-                        .foregroundStyle(Theme.text)
-
-                    Text("This removes all result files shown here. This cannot be undone.")
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.textMuted)
-                        .multilineTextAlignment(.center)
-                }
-
-                VStack(spacing: 10) {
-                    Button(role: .destructive) {
-                        Haptics.impact(.medium)
-                        store.removeAll()
-                        isClearAllConfirming = false
-                    } label: {
-                        Text("Clear all")
-                            .font(.headline)
-                            .foregroundStyle(Theme.background)
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .background(.red)
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        Haptics.impact(.light)
-                        isClearAllConfirming = false
-                    } label: {
-                        Text("Cancel")
-                            .font(.headline)
-                            .foregroundStyle(Theme.primary)
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .background(Theme.surface)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Theme.accent, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(22)
-            .frame(maxWidth: 340)
-            .background(Theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Theme.accent, lineWidth: 1)
-            )
-            .padding(24)
-        }
+    private var entries: [ConversionHistoryEntry] {
+        previewEntries ?? store.entries
     }
 
-    private func deleteEntryConfirmationOverlay(entry: ConversionHistoryEntry) -> some View {
-        ZStack {
-            Color.black.opacity(0.38)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    Haptics.impact(.light)
+    private var storageBytes: Int64 {
+        previewEntries?.reduce(0) { $0 + $1.result.sizeOnDisk } ?? store.totalStorageBytes
+    }
+
+    private var deleteEntryConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { entryPendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented {
                     entryPendingDeletion = nil
                 }
-
-            VStack(spacing: 18) {
-                Image(systemName: "trash.fill")
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(.red)
-
-                VStack(spacing: 8) {
-                    Text("Delete this item?")
-                        .font(.title3.bold())
-                        .foregroundStyle(Theme.text)
-
-                    Text(entry.input.originalFilename)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.textMuted)
-                        .lineLimit(2)
-
-                    Text("This removes the result file for this conversion from history.")
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.textMuted)
-                        .multilineTextAlignment(.center)
-                }
-
-                VStack(spacing: 10) {
-                    Button(role: .destructive) {
-                        Haptics.impact(.medium)
-                        store.removeEntry(id: entry.id)
-                        entryPendingDeletion = nil
-                    } label: {
-                        Text("Delete item")
-                            .font(.headline)
-                            .foregroundStyle(Theme.background)
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .background(.red)
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        Haptics.impact(.light)
-                        entryPendingDeletion = nil
-                    } label: {
-                        Text("Cancel")
-                            .font(.headline)
-                            .foregroundStyle(Theme.primary)
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .background(Theme.surface)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Theme.accent, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                }
             }
-            .padding(22)
-            .frame(maxWidth: 340)
-            .background(Theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Theme.accent, lineWidth: 1)
-            )
-            .padding(24)
-        }
+        )
     }
 
-    @ViewBuilder
     private func historyRow(entry: ConversionHistoryEntry) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            Button {
-                Haptics.impact(.light)
-                path.append(
-                    .result(
-                        entry.input,
-                        entry.config,
-                        entry.result,
-                        fromHistory: true
-                    )
+        Button {
+            Haptics.impact(.light)
+            path.append(
+                .result(
+                    entry.input,
+                    entry.config,
+                    entry.result,
+                    fromHistory: true
                 )
-            } label: {
+            )
+        } label: {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(entry.input.originalFilename)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Theme.text)
+                    Text(
+                        "\(entry.result.outputFormat.displayName) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))"
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textMuted)
+                    Text(entry.createdAt, format: .dateTime)
+                        .font(.caption)
+                        .foregroundStyle(Theme.textMuted)
+                }
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
                 HStack(alignment: .center, spacing: 14) {
                     MediaPreview(
                         url: entry.result.url,
                         category: entry.result.outputFormat.category,
                         compact: true,
-                        showsChrome: false
+                        showsChrome: false,
+                        isInteractive: false
                     )
-                    .frame(width: 84, height: 84)
+                    .frame(width: 72, height: 72)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .accessibilityHidden(true)
 
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 5) {
                         Text(entry.input.originalFilename)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.body.weight(.semibold))
                             .foregroundStyle(Theme.text)
                             .lineLimit(2)
                         Text(
                             "\(entry.result.outputFormat.displayName) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))"
                         )
-                            .font(.caption)
-                            .foregroundStyle(Theme.textMuted)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.textMuted)
                         Text(entry.createdAt, format: .dateTime)
-                            .font(.caption2)
+                            .font(.caption)
                             .foregroundStyle(Theme.textMuted)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Image(systemName: "chevron.forward")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.textMuted.opacity(0.7))
+                        .accessibilityHidden(true)
                 }
             }
-            .buttonStyle(.plain)
-
-            Button {
-                Haptics.warning()
-                entryPendingDeletion = entry
-            } label: {
-                Image(systemName: "trash")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Theme.textMuted)
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove from history")
         }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .accessibilityHint("Opens the converted file")
     }
+}
+
+#Preview("History · Empty · Compact", traits: .fixedLayout(width: 390, height: 844)) {
+    NavigationStack {
+        ConversionHistoryListView(path: .constant([]), previewEntries: [])
+    }
+    .environment(\.horizontalSizeClass, .compact)
+    .preferredColorScheme(.light)
 }

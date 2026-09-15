@@ -3,6 +3,9 @@ import UIKit
 
 struct InputDetailView: View {
     @Binding var path: [AppRoute]
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.isRootSectionActive) private var isRootSectionActive
     @State private var viewModel: InputDetailViewModel
     @State private var outputConfigViewModel: OutputConfigViewModel
     @State private var isScrollInteracting = false
@@ -28,23 +31,18 @@ struct InputDetailView: View {
             Theme.background.ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 22) {
+                VStack(spacing: 16) {
                     previewAndMetadataCard(viewModel: outputConfigViewModel)
 
-                    InputMetadataEditor(
-                        viewModel: outputConfigViewModel,
-                        isMenuInteractionDisabled: isScrollInteracting
-                    )
+                    essentialOutputSection(viewModel: outputConfigViewModel)
 
-                    OutputConfigForm(
-                        viewModel: outputConfigViewModel,
-                        isMenuInteractionDisabled: isScrollInteracting
-                    ) { handleConvertTap(viewModel: outputConfigViewModel) }
+                    editorLinks(viewModel: outputConfigViewModel)
                 }
-                .frame(maxWidth: 1100)
+                .frame(maxWidth: 920)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 20)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
             .simultaneousGesture(
                 TapGesture().onEnded {
@@ -67,6 +65,9 @@ struct InputDetailView: View {
             .scrollDismissesKeyboard(.interactively)
             .scrollBounceBehavior(.basedOnSize)
         }
+        .safeAreaInset(edge: .bottom) {
+            convertActionBar(viewModel: outputConfigViewModel)
+        }
         .task {
             await outputConfigViewModel.loadDiscoveredMetadataIfNeeded()
         }
@@ -82,7 +83,8 @@ struct InputDetailView: View {
             }
             cachedRun = CachedRun(config: config, result: result)
         }
-        .onChange(of: outputConfigViewModel.makeConfig()) { oldConfig, newConfig in
+        .onChange(of: outputConfigViewModel.cacheInvalidationConfig) { oldConfig, newConfig in
+            guard let oldConfig, let newConfig else { return }
             guard oldConfig != newConfig else { return }
             invalidateCachedRun()
         }
@@ -109,19 +111,21 @@ struct InputDetailView: View {
             guard !path.contains(where: Self.isInputDetailRoute(for: viewModel.media)) else { return }
             invalidateCachedRun()
         }
-        .navigationTitle("Convert")
+        .navigationTitle(isRootSectionActive ? "Convert" : "")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    Haptics.impact(.light)
-                    isDiscardConfirmationPresented = true
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.headline.weight(.semibold))
+            if isRootSectionActive {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        Haptics.impact(.light)
+                        isDiscardConfirmationPresented = true
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.headline.weight(.semibold))
+                    }
+                    .accessibilityLabel("Back to main page")
                 }
-                .accessibilityLabel("Back to main page")
             }
         }
         .background(
@@ -142,18 +146,24 @@ struct InputDetailView: View {
 
     @ViewBuilder
     private func previewAndMetadataCard(viewModel: OutputConfigViewModel) -> some View {
-        HStack(alignment: .top, spacing: 20) {
-            previewColumn(viewModel: viewModel)
-            metadataSummaryColumn
+        Group {
+            if usesSideBySidePreviewLayout {
+                HStack(alignment: .top, spacing: 24) {
+                    previewColumn(viewModel: viewModel)
+                    metadataSummaryColumn
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 16) {
+                    previewColumn(viewModel: viewModel)
+                    Divider()
+                        .overlay(Theme.separator)
+                    metadataSummaryColumn
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Theme.accent, lineWidth: 1)
-        )
+        .padding(16)
+        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     @ViewBuilder
@@ -176,26 +186,34 @@ struct InputDetailView: View {
                     Haptics.impact(.light)
                     isShowingCropEditor = true
                 } label: {
-                    Text("Edit")
+                    Label("Edit Media", systemImage: "crop.rotate")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.background)
-                        .frame(width: 104, height: 32)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Theme.primary)
-                        )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
+                .tint(Theme.tint)
                 .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.bottom, 2)
                 .accessibilityLabel(viewModel.input.category == .video ? "Edit video" : "Edit image")
             }
         }
-        .frame(minWidth: 200, idealWidth: 260, maxWidth: 320, alignment: .topLeading)
+        .frame(
+            minWidth: usesSideBySidePreviewLayout ? 240 : nil,
+            idealWidth: usesSideBySidePreviewLayout ? 300 : nil,
+            maxWidth: usesSideBySidePreviewLayout ? 360 : .infinity,
+            alignment: .topLeading
+        )
+    }
+
+    private var usesSideBySidePreviewLayout: Bool {
+        horizontalSizeClass == .regular && !dynamicTypeSize.isAccessibilitySize
     }
 
     private var metadataSummaryColumn: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 140), alignment: .leading)],
+            alignment: .leading,
+            spacing: 14
+        ) {
             ForEach(MetadataFormatter.summaryRows(for: viewModel.media)) { row in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(row.label)
@@ -210,7 +228,241 @@ struct InputDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private func essentialOutputSection(viewModel: OutputConfigViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Output")
+                .font(.headline)
+                .foregroundStyle(Theme.text)
+
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Format")
+                            .foregroundStyle(Theme.text)
+                        FormatPicker(
+                            formats: viewModel.formats,
+                            inputCategory: viewModel.input.category,
+                            isInteractionDisabled: isScrollInteracting,
+                            selection: Binding(
+                                get: { viewModel.selectedFormat },
+                                set: { viewModel.selectedFormat = $0 }
+                            )
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: 16) {
+                        Text("Format")
+                            .foregroundStyle(Theme.text)
+                        Spacer(minLength: 12)
+                        FormatPicker(
+                            formats: viewModel.formats,
+                            inputCategory: viewModel.input.category,
+                            isInteractionDisabled: isScrollInteracting,
+                            selection: Binding(
+                                get: { viewModel.selectedFormat },
+                                set: { viewModel.selectedFormat = $0 }
+                            )
+                        )
+                        .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+            }
+
+            if viewModel.shouldShowTargetSize {
+                Divider()
+                    .overlay(Theme.separator)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(viewModel.targetControlTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.text)
+                    TargetSizeSlider(
+                        sourceSizeBytes: viewModel.targetSizeSliderReferenceBytes,
+                        minimumSizeBytes: viewModel.targetMinimumSizeBytes,
+                        valueLabel: viewModel.targetControlValueLabel,
+                        minimumLabel: viewModel.targetControlMinimumLabel,
+                        estimatedLabel: viewModel.shouldShowTargetSizeEstimate ? viewModel.estimatedLabel : nil,
+                        showsRemuxBadge: viewModel.shouldShowRemuxBadgeOnTargetSize,
+                        accessibilityLabel: viewModel.targetControlAccessibilityLabel,
+                        targetFraction: Binding(
+                            get: { viewModel.targetFraction },
+                            set: { viewModel.targetFraction = $0 }
+                        )
+                    )
+                }
+            } else if viewModel.shouldShowWebPQuality {
+                Divider()
+                    .overlay(Theme.separator)
+                VStack(alignment: .leading, spacing: 10) {
+                    LabeledContent("Quality", value: "\(Int((viewModel.webpQuality * 100).rounded()))%")
+                        .font(.subheadline.weight(.semibold))
+                    Slider(
+                        value: Binding(
+                            get: { viewModel.webpQuality },
+                            set: { viewModel.webpQuality = $0 }
+                        ),
+                        in: 0...1,
+                        step: 0.01
+                    )
+                        .tint(Theme.tint)
+                    Text("Faster single-pass encoding; the final file size is estimated.")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.textMuted)
+                }
+            } else if let note = viewModel.losslessNote {
+                Divider()
+                    .overlay(Theme.separator)
+                Text(note)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textMuted)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func editorLinks(viewModel: OutputConfigViewModel) -> some View {
+        VStack(spacing: 0) {
+            if hasAdvancedOutputOptions(viewModel) {
+                NavigationLink {
+                    OutputConfigForm(
+                        viewModel: viewModel,
+                        isMenuInteractionDisabled: false,
+                        showsPrimaryControls: false,
+                        showsConvertButton: false,
+                        onConvert: {}
+                    )
+                    .navigationTitle(isRootSectionActive ? "Advanced Output" : "")
+                    .navigationBarTitleDisplayMode(.inline)
+                } label: {
+                    editorLinkLabel(
+                        title: "Advanced Output",
+                        systemImage: "slider.horizontal.3",
+                        detail: advancedOutputSummary(viewModel)
+                    )
+                }
+
+                Divider()
+                    .padding(.leading, 56)
+                    .overlay(Theme.separator)
+            }
+
+            NavigationLink {
+                InputMetadataEditor(
+                    viewModel: viewModel,
+                    isMenuInteractionDisabled: false
+                )
+            } label: {
+                editorLinkLabel(
+                    title: "Metadata",
+                    systemImage: "info.circle",
+                    detail: metadataSummary(viewModel)
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func editorLinkLabel(title: String, systemImage: String, detail: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Theme.tint)
+                .frame(width: 32, height: 32)
+                .background(Theme.secondaryFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(Theme.text)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(Theme.textMuted)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.textMuted)
+        }
+        .frame(minHeight: 52)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+    }
+
+    private func hasAdvancedOutputOptions(_ viewModel: OutputConfigViewModel) -> Bool {
+        viewModel.shouldShowResolution
+            || viewModel.shouldShowFPS
+            || viewModel.shouldShowVideoOutputAudio
+            || viewModel.shouldShowSinglePassVideoTargetToggle
+    }
+
+    private func advancedOutputSummary(_ viewModel: OutputConfigViewModel) -> String {
+        var values: [String] = []
+        if viewModel.shouldShowResolution {
+            values.append(
+                viewModel.resolutionOptions.first(where: { $0.id == viewModel.selectedResolutionID })?.label
+                    ?? "Original resolution"
+            )
+        }
+        if viewModel.shouldShowFPS {
+            values.append(
+                viewModel.fpsOptions.first(where: { $0.value == viewModel.selectedFPS })?.label
+                    ?? "Original FPS"
+            )
+        }
+        if viewModel.shouldShowVideoOutputAudio {
+            values.append(viewModel.videoAudioQualitySelectionLabel)
+        }
+        if viewModel.shouldShowSinglePassVideoTargetToggle {
+            values.append(viewModel.usesSinglePassVideoTargetEncode ? "Fast encode" : "Two-pass target")
+        }
+        return values.isEmpty ? "Additional encoding controls" : values.joined(separator: " · ")
+    }
+
+    private func metadataSummary(_ viewModel: OutputConfigViewModel) -> String {
+        if viewModel.removeAllMetadata {
+            return "All metadata will be removed"
+        }
+        if viewModel.isLoadingDiscoveredMetadata {
+            return "Reading metadata…"
+        }
+        let included = viewModel.metadataFieldRows.filter { !$0.isRemoved }.count
+        return "\(included) of \(viewModel.metadataFieldRows.count) fields included"
+    }
+
+    private func convertActionBar(viewModel: OutputConfigViewModel) -> some View {
+        Button {
+            Haptics.impact(.medium)
+            handleConvertTap(viewModel: viewModel)
+        } label: {
+            Label("Convert", systemImage: "arrow.triangle.2.circlepath")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.roundedRectangle(radius: 14))
+        .controlSize(.large)
+        .tint(Theme.tint)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .overlay(alignment: .top) {
+            Divider()
+                .overlay(Theme.separator)
+        }
+        .disabled(viewModel.isLoadingDiscoveredMetadata)
+        .accessibilityHint("Starts the conversion using the selected settings.")
+    }
+
     private func handleConvertTap(viewModel: OutputConfigViewModel) {
+        guard !viewModel.isLoadingDiscoveredMetadata else { return }
         let config = viewModel.makeConfig()
         if let cachedRun,
            cachedRun.config == config,
@@ -259,23 +511,16 @@ private struct ConvertInteractivePopGestureDisabler: UIViewControllerRepresentab
 }
 
 private final class ConvertInteractivePopGestureViewController: UIViewController {
-    private weak var owningViewController: UIViewController?
-
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        owningViewController = navigationController?.topViewController
         navigationController?.interactivePopGestureRecognizer?.isEnabled = false
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        guard let navigationController, let owningViewController else { return }
-        let ownerIsStillInNavigationStack = navigationController.viewControllers.contains {
-            $0 === owningViewController
-        }
-        if !ownerIsStillInNavigationStack {
-            navigationController.interactivePopGestureRecognizer?.isEnabled = true
-        }
+        // The guarded Convert screen itself cannot be swiped away, but native
+        // edge-swipe navigation remains available in editors pushed above it.
+        navigationController?.interactivePopGestureRecognizer?.isEnabled = true
     }
 }
 

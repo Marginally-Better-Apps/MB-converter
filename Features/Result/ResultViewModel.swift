@@ -2,6 +2,20 @@ import Foundation
 import Observation
 import UIKit
 
+struct ResultSizeComparison: Hashable {
+    enum Direction: Hashable {
+        case smaller
+        case larger
+        case unchanged
+        case unavailable
+    }
+
+    let before: String
+    let after: String
+    let change: String
+    let direction: Direction
+}
+
 @MainActor
 @Observable
 final class ResultViewModel {
@@ -20,18 +34,46 @@ final class ResultViewModel {
         self.editableBaseName = ResultViewModel.defaultBaseName(input: input, result: result)
     }
 
-    var comparisonText: String {
+    var sizeComparison: ResultSizeComparison {
         let before = MetadataFormatter.bytes(input.sizeOnDisk)
         let after = MetadataFormatter.bytes(result.sizeOnDisk)
+
         guard input.sizeOnDisk > 0 else {
-            return "\(before) -> \(after)"
+            return ResultSizeComparison(
+                before: before,
+                after: after,
+                change: "Not available",
+                direction: .unavailable
+            )
         }
 
         let change = 1 - (Double(result.sizeOnDisk) / Double(input.sizeOnDisk))
-        // Truncate toward zero so we never overstate compression (e.g. 99.9% -> 99%, not 100%).
-        let percent = Int(change * 100)
-        let sign = percent >= 0 ? "-" : "+"
-        return "\(before) -> \(after) (\(sign)\(abs(percent))%)"
+        let percentage = Int(abs(change) * 100)
+
+        if change > 0 {
+            return ResultSizeComparison(
+                before: before,
+                after: after,
+                change: percentage == 0 ? "Less than 1% smaller" : "\(percentage)% smaller",
+                direction: .smaller
+            )
+        }
+
+        if change < 0 {
+            return ResultSizeComparison(
+                before: before,
+                after: after,
+                change: percentage == 0 ? "Less than 1% larger" : "\(percentage)% larger",
+                direction: .larger
+            )
+        }
+
+        return ResultSizeComparison(
+            before: before,
+            after: after,
+            change: "No change",
+            direction: .unchanged
+        )
     }
 
     var canCopyToPasteboard: Bool {
@@ -65,6 +107,11 @@ final class ResultViewModel {
 
         guard let outputFileSize, outputFileSize > 0 else {
             errorMessage = "Couldn't copy the file to the clipboard."
+            DiagnosticsLog.shared.record(
+                message: "The converted output is missing or empty.",
+                context: "Copy converted file to clipboard",
+                metadata: diagnosticMetadata
+            )
             Haptics.error()
             return
         }
@@ -75,6 +122,11 @@ final class ResultViewModel {
             stagedURL = try PasteboardFileStaging.stage(sourceURL: result.url, filename: filename)
         } catch {
             errorMessage = "Couldn't prepare the file for clipboard copy."
+            DiagnosticsLog.shared.record(
+                error: error,
+                context: "Stage converted file for clipboard",
+                metadata: diagnosticMetadata
+            )
             Haptics.error()
             return
         }
@@ -106,6 +158,7 @@ final class ResultViewModel {
 
     private func pasteboardItemProvider(stagedURL: URL, filename: String) -> NSItemProvider {
         let provider = NSItemProvider()
+        let diagnosticMetadata = diagnosticMetadata
         provider.suggestedName = filename
         provider.registerObject(stagedURL as NSURL, visibility: .all)
         provider.registerFileRepresentation(
@@ -117,11 +170,25 @@ final class ResultViewModel {
                 let loadURL = try PasteboardFileStaging.makeLoadCopy(from: stagedURL, filename: filename)
                 completion(loadURL, false, nil)
             } catch {
+                DiagnosticsLog.shared.record(
+                    error: error,
+                    context: "Provide converted file to clipboard",
+                    metadata: diagnosticMetadata
+                )
                 completion(nil, false, error)
             }
             return nil
         }
         return provider
+    }
+
+    private var diagnosticMetadata: [String: String] {
+        [
+            "Export filename": exportFilename,
+            "Output format": result.outputFormat.displayName,
+            "Output bytes": String(result.sizeOnDisk),
+            "Output exists": String(FileManager.default.fileExists(atPath: result.url.path))
+        ]
     }
 }
 

@@ -36,12 +36,12 @@ struct FormatPicker: View {
                     .font(.caption.weight(.semibold))
             }
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Theme.background)
-            .padding(.horizontal, 14)
+            .foregroundStyle(Theme.tint)
+            .padding(.horizontal, 4)
             .frame(minHeight: 42)
-            .background(Theme.primary)
-            .clipShape(Capsule())
         }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.roundedRectangle(radius: 10))
         .disabled(isInteractionDisabled)
         .frame(maxWidth: .infinity, alignment: .leading)
     }

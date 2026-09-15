@@ -146,7 +146,7 @@ final class OutputConfigViewModel {
         }
     }
     var megabytesText = ""
-    var usesSinglePassVideoTargetEncode = false
+    var usesSinglePassVideoTargetEncode = true
     var videoOutputAudioQuality: VideoOutputAudioQualityPreset = .auto {
         didSet {
             guard !isApplyingAutoTarget else { return }
@@ -164,8 +164,10 @@ final class OutputConfigViewModel {
 
     /// When `true`, strip all EXIF / container tags. When `false`, use per-field rows.
     var removeAllMetadata = false
-    var isMetadataSectionExpanded = false
-    var isLoadingDiscoveredMetadata = false
+    /// Starts as `true` so Convert cannot snapshot an empty retention policy before
+    /// the view's metadata-discovery task gets its first opportunity to run.
+    private(set) var isLoadingDiscoveredMetadata = true
+    private(set) var hasCompletedMetadataDiscovery = false
     private(set) var discoveredMetadataTags: [DiscoveredMetadataTag] = []
     var metadataFieldRows: [MetadataFieldRowModel] = []
     private var metadataLoadToken = UUID()
@@ -182,6 +184,8 @@ final class OutputConfigViewModel {
     }
 
     func loadDiscoveredMetadataIfNeeded() async {
+        guard !hasCompletedMetadataDiscovery else { return }
+
         let token = UUID()
         metadataLoadToken = token
         isLoadingDiscoveredMetadata = true
@@ -191,7 +195,16 @@ final class OutputConfigViewModel {
         if metadataFieldRows.isEmpty {
             metadataFieldRows = tags.map { MetadataFieldRowModel(tag: $0) }
         }
+        hasCompletedMetadataDiscovery = true
         isLoadingDiscoveredMetadata = false
+    }
+
+    /// Cache invalidation should begin only after discovery establishes the initial
+    /// retention policy. The initial `nil` to populated transition is background
+    /// model setup, not a user configuration edit.
+    var cacheInvalidationConfig: ConversionConfig? {
+        guard hasCompletedMetadataDiscovery else { return nil }
+        return makeConfig()
     }
 
     /// Rebuilds rows from a fresh discovery (e.g. after changing the advanced preference).

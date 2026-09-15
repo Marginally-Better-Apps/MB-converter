@@ -22,10 +22,38 @@ enum Theme {
         dynamic(light: 0xffffff, dark: 0x152233)
     }
 
+    /// Flat, recessed surface used to make unavailable controls visually distinct.
+    static var disabledSurface: Color {
+        dynamic(light: 0xdbe3e8, dark: 0x0a1119)
+    }
+
     /// Subtle text for secondary labels.
     static var textMuted: Color {
         dynamic(light: 0x4a5660, dark: 0x9aa9b8)
     }
+
+    // MARK: - Semantic roles
+
+    /// The app-wide interaction tint. Keeping this semantic alias makes it
+    /// harder for decorative blues to accidentally become actionable colors.
+    static var tint: Color { primary }
+
+    /// Background used behind grouped lists and forms.
+    static var groupedBackground: Color { background }
+
+    /// Elevated content surface used for list rows and media summaries.
+    static var groupedSurface: Color { surface }
+
+    /// Quiet fill for icon wells, selection backgrounds, and secondary actions.
+    static var secondaryFill: Color { secondary.opacity(0.22) }
+
+    /// Separators should remain subtle in both appearances.
+    static var separator: Color { textMuted.opacity(0.18) }
+
+    /// Disabled controls retain enough contrast without looking actionable.
+    static var disabledFill: Color { textMuted.opacity(0.16) }
+
+    static var destructive: Color { .red }
 
     // MARK: - Construction
 

@@ -5,21 +5,27 @@ import UIKit
 
 struct ResultView: View {
     @Binding var path: [AppRoute]
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.isRootSectionActive) private var isRootSectionActive
     @State private var viewModel: ResultViewModel
     @State private var isRenamePromptPresented = false
     @State private var renameDraft = ""
     @State private var shareItem: ShareSheetItem?
     private let fromHistory: Bool
+    private let onConvertAnother: (() -> Void)?
 
     init(
         input: MediaFile,
         config: ConversionConfig,
         result: ConversionResult,
         fromHistory: Bool,
-        path: Binding<[AppRoute]>
+        path: Binding<[AppRoute]>,
+        onConvertAnother: (() -> Void)? = nil
     ) {
         self._path = path
         self.fromHistory = fromHistory
+        self.onConvertAnother = onConvertAnother
         self._viewModel = State(initialValue: ResultViewModel(input: input, config: config, result: result))
     }
 
@@ -28,73 +34,15 @@ struct ResultView: View {
             Theme.background.ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Button {
-                            Haptics.impact(.light)
-                            renameDraft = viewModel.editableBaseName
-                            isRenamePromptPresented = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text(viewModel.exportFilename)
-                                    .font(.headline.weight(.semibold))
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Image(systemName: "pencil")
-                                    .font(.subheadline.weight(.semibold))
-                            }
-                            .foregroundStyle(Theme.text)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Rename output file")
-
-                        HStack(alignment: .center, spacing: 20) {
-                        MediaPreview(
-                            url: viewModel.result.url,
-                            category: viewModel.result.outputFormat.category,
-                            compact: true,
-                            showsChrome: false
-                        )
-                        .frame(minWidth: 200, idealWidth: 260, maxWidth: 320)
-
-                            VStack(alignment: .leading, spacing: 12) {
-                                ForEach(MetadataFormatter.summaryRows(for: viewModel.result)) { row in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(row.label)
-                                            .font(.caption)
-                                            .foregroundStyle(Theme.textMuted)
-                                        Text(row.value)
-                                            .font(.subheadline.weight(.medium))
-                                            .foregroundStyle(Theme.text)
-                                    }
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
-                    .background(Theme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(Theme.accent, lineWidth: 1)
-                    )
-
-                    Text(viewModel.comparisonText)
-                        .font(.headline)
-                        .foregroundStyle(Theme.primary)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Theme.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-
-                    actionRow
+                VStack(spacing: 18) {
+                    successHeader
+                    outputCard
+                    comparisonCard
                 }
-                .frame(maxWidth: 1100)
+                .frame(maxWidth: 900)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
             }
             .scrollBounceBehavior(.basedOnSize)
 
@@ -105,31 +53,39 @@ struct ResultView: View {
 
                     VStack(spacing: 10) {
                         ProgressView()
-                            .tint(Theme.primary)
+                            .tint(Theme.tint)
                         Text("Copying...")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.text)
                     }
                     .padding(.horizontal, 22)
                     .padding(.vertical, 18)
-                    .background(Theme.surface)
+                    .background(Theme.groupedSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Copying converted file")
                 }
                 .transition(.opacity)
             }
         }
-        .navigationTitle("Result")
+        .safeAreaInset(edge: .bottom) {
+            actionBar
+        }
+        .navigationTitle(isRootSectionActive ? "Result" : "")
+        .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    Haptics.impact(.light)
-                    goBackToSettings()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.headline.weight(.semibold))
+            if isRootSectionActive {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        Haptics.impact(.light)
+                        goBackToSettings()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.headline.weight(.semibold))
+                    }
+                    .accessibilityLabel(fromHistory ? "Back to history" : "Back to settings")
                 }
-                .accessibilityLabel(fromHistory ? "Back to history" : "Back to settings")
             }
         }
 #if canImport(UIKit)
@@ -170,67 +126,294 @@ struct ResultView: View {
         }
     }
 
-    private var actionRow: some View {
-        VStack(spacing: 12) {
-            Button {
-                Haptics.impact(.light)
-                do {
-                    let url = try viewModel.prepareShareFileURL()
-                    shareItem = ShareSheetItem(url: url)
-                } catch {
-                    viewModel.errorMessage = "Couldn't prepare the file for sharing."
-                    Haptics.error()
-                }
-            } label: {
-                actionLabel("Share", systemImage: "square.and.arrow.up", filled: true)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Share converted file")
+    private var successHeader: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 54, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.green)
+                .accessibilityHidden(true)
 
-            if viewModel.canCopyToPasteboard {
+            Text(fromHistory ? "Saved Conversion" : "Conversion Complete")
+                .font(.title2.bold())
+                .foregroundStyle(Theme.text)
+
+            Text(fromHistory ? "This converted file is ready to share again." : "Your converted file is ready to share.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.textMuted)
+                .multilineTextAlignment(.center)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var outputCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 12) {
+                Label("Output", systemImage: "doc.fill")
+                    .font(.headline)
+                    .foregroundStyle(Theme.text)
+
+                Spacer()
+
                 Button {
                     Haptics.impact(.light)
-                    Task {
-                        await viewModel.copyToPasteboard()
-                    }
+                    renameDraft = viewModel.editableBaseName
+                    isRenamePromptPresented = true
                 } label: {
-                    actionLabel("Copy", systemImage: "doc.on.doc", filled: false)
+                    Label("Rename", systemImage: "pencil")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Copy file to clipboard")
-                .disabled(viewModel.isCopyingToPasteboard)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
+                .controlSize(.small)
+                .tint(Theme.tint)
+                .accessibilityLabel("Rename output file")
             }
 
-            Button {
-                Haptics.impact(.medium)
-                TempStorage.cleanAll()
-                ImportStorage.cleanAll()
-                path.removeAll()
-            } label: {
-                actionLabel("Convert Another", systemImage: "arrow.counterclockwise", filled: false)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Convert another file")
+            Text(viewModel.exportFilename)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(Theme.text)
+                .lineLimit(2)
+                .truncationMode(.middle)
+
+            Divider()
+                .overlay(Theme.separator)
+
+            responsiveOutputContent
+        }
+        .padding(20)
+        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var responsiveOutputContent: some View {
+        let layout = usesWideOutputLayout
+            ? AnyLayout(HStackLayout(alignment: .top, spacing: 24))
+            : AnyLayout(VStackLayout(alignment: .leading, spacing: 18))
+
+        return layout {
+            MediaPreview(
+                url: viewModel.result.url,
+                category: viewModel.result.outputFormat.category,
+                compact: true,
+                showsChrome: false
+            )
+            .frame(
+                minWidth: usesWideOutputLayout ? 280 : 0,
+                maxWidth: usesWideOutputLayout ? 360 : .infinity
+            )
+            .accessibilityLabel("Preview converted file")
+
+            outputDetails
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func actionLabel(_ title: String, systemImage: String, filled: Bool) -> some View {
-        HStack {
-            Image(systemName: systemImage)
-            Text(title)
-                .fontWeight(.semibold)
+    private var outputDetails: some View {
+        let rows = MetadataFormatter.summaryRows(for: viewModel.result)
+
+        return VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                LabeledContent(row.label) {
+                    Text(row.value)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Theme.text)
+                        .multilineTextAlignment(.trailing)
+                }
+                .font(.subheadline)
+                .foregroundStyle(Theme.textMuted)
+                .padding(.vertical, 10)
+                .accessibilityElement(children: .combine)
+
+                if index < rows.count - 1 {
+                    Divider()
+                        .overlay(Theme.separator)
+                }
+            }
         }
-        .foregroundStyle(filled ? Theme.background : Theme.primary)
-        .frame(maxWidth: .infinity, minHeight: 52)
-        .background(filled ? Theme.primary : Theme.surface)
-        .clipShape(Capsule())
-        .overlay(Capsule().stroke(Theme.accent, lineWidth: filled ? 0 : 1))
+    }
+
+    private var comparisonCard: some View {
+        let comparison = viewModel.sizeComparison
+
+        return VStack(alignment: .leading, spacing: 16) {
+            Label("File Size", systemImage: "chart.bar.fill")
+                .font(.headline)
+                .foregroundStyle(Theme.text)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    comparisonMetric(title: "Before", value: comparison.before)
+                    comparisonDivider
+                    comparisonMetric(title: "After", value: comparison.after)
+                    comparisonDivider
+                    comparisonMetric(title: "Change", value: comparison.change, emphasized: true)
+                }
+
+                VStack(spacing: 0) {
+                    comparisonRow(title: "Before", value: comparison.before)
+                    Divider().overlay(Theme.separator)
+                    comparisonRow(title: "After", value: comparison.after)
+                    Divider().overlay(Theme.separator)
+                    comparisonRow(title: "Change", value: comparison.change, emphasized: true)
+                }
+            }
+        }
+        .padding(20)
+        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .contain)
+    }
+
+    private func comparisonMetric(title: String, value: String, emphasized: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(Theme.textMuted)
+            Text(value)
+                .font(.subheadline.weight(emphasized ? .semibold : .medium))
+                .foregroundStyle(emphasized ? Theme.tint : Theme.text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(minWidth: 92, maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var comparisonDivider: some View {
+        Divider()
+            .overlay(Theme.separator)
+            .frame(minHeight: 44)
+    }
+
+    private func comparisonRow(title: String, value: String, emphasized: Bool = false) -> some View {
+        LabeledContent(title) {
+            Text(value)
+                .font(.subheadline.weight(emphasized ? .semibold : .medium))
+                .foregroundStyle(emphasized ? Theme.tint : Theme.text)
+                .multilineTextAlignment(.trailing)
+        }
+        .font(.subheadline)
+        .foregroundStyle(Theme.textMuted)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var actionBar: some View {
+        VStack(spacing: 10) {
+            Button {
+                shareResult()
+            } label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+                    .font(.headline)
+                    .foregroundStyle(Theme.background)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.roundedRectangle(radius: 14))
+            .controlSize(.large)
+            .tint(Theme.tint)
+            .accessibilityLabel("Share converted file")
+
+            secondaryActions
+        }
+        .disabled(viewModel.isCopyingToPasteboard)
+        .frame(maxWidth: 900)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(.regularMaterial)
+        .overlay(alignment: .top) {
+            Divider()
+                .overlay(Theme.separator)
+        }
+    }
+
+    @ViewBuilder
+    private var secondaryActions: some View {
+        if viewModel.canCopyToPasteboard {
+            LazyVGrid(columns: secondaryActionColumns, spacing: 10) {
+                copyAction
+                doneAction
+            }
+        } else {
+            doneAction
+        }
+    }
+
+    private var secondaryActionColumns: [GridItem] {
+        if dynamicTypeSize.isAccessibilitySize {
+            return [GridItem(.flexible())]
+        }
+        return [
+            GridItem(.flexible(), spacing: 10),
+            GridItem(.flexible(), spacing: 10)
+        ]
+    }
+
+    private var copyAction: some View {
+        Button {
+            Haptics.impact(.light)
+            Task {
+                await viewModel.copyToPasteboard()
+            }
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+                .frame(maxWidth: .infinity, minHeight: 24)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.roundedRectangle(radius: 14))
+        .controlSize(.large)
+        .tint(Theme.tint)
+        .accessibilityLabel("Copy file to clipboard")
+        .disabled(viewModel.isCopyingToPasteboard)
+    }
+
+    private var doneAction: some View {
+        Button {
+            Haptics.impact(.medium)
+            TempStorage.cleanAll()
+            ImportStorage.cleanAll()
+            if let onConvertAnother {
+                onConvertAnother()
+            } else {
+                path.removeAll()
+            }
+        } label: {
+            Label("Done", systemImage: "checkmark")
+                .frame(maxWidth: .infinity, minHeight: 24)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.roundedRectangle(radius: 14))
+        .controlSize(.large)
+        .tint(Theme.tint)
+        .accessibilityLabel("Done")
+    }
+
+    private var usesWideOutputLayout: Bool {
+        horizontalSizeClass == .regular && !dynamicTypeSize.isAccessibilitySize
+    }
+
+    private func shareResult() {
+        Haptics.impact(.light)
+        do {
+            let url = try viewModel.prepareShareFileURL()
+            shareItem = ShareSheetItem(url: url)
+        } catch {
+            viewModel.errorMessage = "Couldn't prepare the file for sharing."
+            DiagnosticsLog.shared.record(
+                error: error,
+                context: "Stage converted file for sharing",
+                metadata: [
+                    "Export filename": viewModel.exportFilename,
+                    "Output format": viewModel.result.outputFormat.displayName,
+                    "Output bytes": String(viewModel.result.sizeOnDisk)
+                ]
+            )
+            Haptics.error()
+        }
     }
 
     private func goBackToSettings() {
-        if !fromHistory {
-            try? FileManager.default.removeItem(at: viewModel.result.url)
-        }
+        // Normal results stay alive as the InputDetail screen's one-entry cache.
+        // That screen removes the file when settings change or the flow is discarded;
+        // History-owned results continue to be managed by ConversionHistoryStore.
         if !path.isEmpty {
             path.removeLast()
         }
@@ -272,7 +455,7 @@ private final class ResultInteractivePopGestureViewController: UIViewController 
 }
 #endif
 
-#Preview {
+#Preview("Result · Compact · Light", traits: .fixedLayout(width: 390, height: 844)) {
     NavigationStack {
         ResultView(
             input: MediaFile(
@@ -292,4 +475,83 @@ private final class ResultInteractivePopGestureViewController: UIViewController 
             path: .constant([])
         )
     }
+    .environment(\.horizontalSizeClass, .compact)
+    .preferredColorScheme(.light)
+}
+
+#Preview("Result · Regular · Dark", traits: .fixedLayout(width: 1_024, height: 768)) {
+    NavigationStack {
+        ResultView(
+            input: MediaFile(
+                url: URL(fileURLWithPath: "/tmp/input.mp4"),
+                originalFilename: "input.mp4",
+                category: .video,
+                sizeOnDisk: 5_400_000,
+                dimensions: CGSize(width: 1_920, height: 1_080),
+                duration: 42,
+                fps: 30,
+                bitrate: 8_000_000,
+                audioBitrate: 192_000,
+                videoCodec: "h264",
+                audioCodec: "aac",
+                containerFormat: "mp4"
+            ),
+            config: ConversionConfig(outputFormat: .mp4_h264),
+            result: ConversionResult(
+                url: URL(fileURLWithPath: "/tmp/output.mp4"),
+                outputFormat: .mp4_h264,
+                sizeOnDisk: 1_800_000,
+                dimensions: CGSize(width: 1_280, height: 720),
+                duration: 42,
+                fps: 30,
+                bitrate: 2_500_000,
+                audioBitrate: 128_000,
+                videoCodec: "h264",
+                audioCodec: "aac"
+            ),
+            fromHistory: false,
+            path: .constant([])
+        )
+    }
+    .environment(\.horizontalSizeClass, .regular)
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Result · Long Filename", traits: .fixedLayout(width: 390, height: 844)) {
+    NavigationStack {
+        ResultView(
+            input: MediaFile(
+                url: URL(fileURLWithPath: "/tmp/input.mp4"),
+                originalFilename: "Family Vacation — Lake Michigan Sunset — Final Edited Version With Captions.mp4",
+                category: .video,
+                sizeOnDisk: 92_400_000,
+                dimensions: CGSize(width: 3_840, height: 2_160),
+                duration: 184,
+                fps: 60,
+                bitrate: 18_000_000,
+                audioBitrate: 256_000,
+                videoCodec: "hevc",
+                audioCodec: "aac",
+                containerFormat: "mp4"
+            ),
+            config: ConversionConfig(outputFormat: .mp4_h264),
+            result: ConversionResult(
+                url: URL(fileURLWithPath: "/tmp/long-output.mp4"),
+                outputFormat: .mp4_h264,
+                sizeOnDisk: 24_800_000,
+                dimensions: CGSize(width: 1_920, height: 1_080),
+                duration: 184,
+                fps: 30,
+                bitrate: 5_000_000,
+                audioBitrate: 128_000,
+                videoCodec: "h264",
+                audioCodec: "aac"
+            ),
+            fromHistory: false,
+            path: .constant([])
+        )
+    }
+    .environment(\.horizontalSizeClass, .compact)
+    .environment(\.dynamicTypeSize, .accessibility2)
+    .preferredColorScheme(.light)
 }

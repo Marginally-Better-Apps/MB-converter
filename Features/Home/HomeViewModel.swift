@@ -36,26 +36,36 @@ final class HomeViewModel {
     }
 
     func importFromPhotos(_ item: PhotosPickerItem) async -> MediaFile? {
-        await importFile {
+        await importFile(context: "Import from Photos") {
             try await importService.importFromPhotos(item)
         }
     }
 
     func importFromFiles(_ url: URL) async -> MediaFile? {
-        await importFile {
+        await importFile(
+            context: "Import from Files",
+            metadata: ["Selected file": url.lastPathComponent]
+        ) {
             try await importService.importFromFiles(at: url)
         }
     }
 
     func importFromPasteboard() async -> MediaFile? {
-        await importFile {
+        await importFile(context: "Import from clipboard") {
             try await importService.importFromPasteboard()
         }
     }
 
     func importFromRemoteLink(_ linkString: String) async -> MediaFile? {
         remoteDownloadProgress = RemoteDownloadProgress(bytesReceived: 0, totalBytes: nil)
-        return await importFile {
+        let parsedURL = URL(string: linkString.trimmingCharacters(in: .whitespacesAndNewlines))
+        let source = [parsedURL?.scheme, parsedURL?.host]
+            .compactMap { $0 }
+            .joined(separator: "://")
+        return await importFile(
+            context: "Import from link",
+            metadata: source.isEmpty ? [:] : ["Remote source": source]
+        ) {
             try await importService.importFromRemoteURL(linkString) { [weak self] progress in
                 await MainActor.run {
                     self?.remoteDownloadProgress = progress
@@ -64,7 +74,11 @@ final class HomeViewModel {
         }
     }
 
-    private func importFile(_ operation: () async throws -> URL) async -> MediaFile? {
+    private func importFile(
+        context: String,
+        metadata: [String: String] = [:],
+        _ operation: () async throws -> URL
+    ) async -> MediaFile? {
         isImporting = true
         errorMessage = nil
         defer {
@@ -86,6 +100,7 @@ final class HomeViewModel {
             }
         } catch {
             errorMessage = error.localizedDescription
+            DiagnosticsLog.shared.record(error: error, context: context, metadata: metadata)
             Haptics.error()
             return nil
         }

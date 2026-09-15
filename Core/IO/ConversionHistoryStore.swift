@@ -59,7 +59,7 @@ final class ConversionHistoryStore {
         do {
             try fileManager.createDirectory(at: filesDirectory, withIntermediateDirectories: true)
         } catch {
-            print("[HISTORY] Could not create history directory: \(error)")
+            DiagnosticsLog.shared.record(error: error, context: "Create saved history directory")
         }
         reloadFromDisk()
         refreshForCurrentSettings()
@@ -97,7 +97,7 @@ final class ConversionHistoryStore {
         do {
             try fileManager.createDirectory(at: filesDirectory, withIntermediateDirectories: true)
         } catch {
-            print("[HISTORY] Could not create history directory: \(error)")
+            DiagnosticsLog.shared.record(error: error, context: "Enable saved conversion history")
             return false
         }
 
@@ -106,6 +106,11 @@ final class ConversionHistoryStore {
         for sessionEntry in sessionEntries {
             let sessionURL = sessionEntry.result.url
             guard fileManager.fileExists(atPath: sessionURL.path) else {
+                DiagnosticsLog.shared.record(
+                    message: "A session history file no longer exists.",
+                    context: "Enable saved conversion history",
+                    metadata: ["History entry ID": sessionEntry.id.uuidString]
+                )
                 removeStagedHistoryFiles(staged)
                 return false
             }
@@ -120,7 +125,14 @@ final class ConversionHistoryStore {
                 }
                 try fileManager.copyItem(at: sessionURL, to: destinationURL)
             } catch {
-                print("[HISTORY] Session history copy failed: \(error)")
+                DiagnosticsLog.shared.record(
+                    error: error,
+                    context: "Copy session item into saved history",
+                    metadata: [
+                        "History entry ID": sessionEntry.id.uuidString,
+                        "Output format": sessionEntry.result.outputFormat.displayName
+                    ]
+                )
                 removeStagedHistoryFiles(staged)
                 return false
             }
@@ -184,7 +196,15 @@ final class ConversionHistoryStore {
             }
             try fileManager.copyItem(at: result.url, to: destURL)
         } catch {
-            print("[HISTORY] Copy failed: \(error)")
+            DiagnosticsLog.shared.record(
+                error: error,
+                context: "Record conversion in history",
+                metadata: [
+                    "History mode": savesPersistently ? "saved" : "session",
+                    "Output format": result.outputFormat.displayName,
+                    "Output bytes": String(result.sizeOnDisk)
+                ]
+            )
             return
         }
 
@@ -274,7 +294,11 @@ final class ConversionHistoryStore {
             try data.write(to: indexURL, options: .atomic)
             return true
         } catch {
-            print("[HISTORY] Persist index failed: \(error)")
+            DiagnosticsLog.shared.record(
+                error: error,
+                context: "Write saved history index",
+                metadata: ["Entry count": String(records.count)]
+            )
             return false
         }
     }
@@ -307,7 +331,7 @@ final class ConversionHistoryStore {
                 persistedEntries = loaded
             }
         } catch {
-            print("[HISTORY] Load index failed: \(error)")
+            DiagnosticsLog.shared.record(error: error, context: "Load saved history index")
             persistedEntries = []
         }
     }

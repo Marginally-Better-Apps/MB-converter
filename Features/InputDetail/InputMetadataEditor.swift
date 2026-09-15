@@ -5,126 +5,156 @@ import UIKit
 struct InputMetadataEditor: View {
     @Bindable var viewModel: OutputConfigViewModel
     let isMenuInteractionDisabled: Bool
-    @State private var expandedGroups: Set<MetadataFieldGroup.Kind> = []
+    @Environment(\.isRootSectionActive) private var isRootSectionActive
     @FocusState private var focusedMetadataRowID: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center, spacing: 12) {
-                Text("Metadata")
-                    .font(.headline)
-                    .foregroundStyle(Theme.text)
-                Spacer()
-                CheckboxControl(
-                    title: "Remove all",
-                    isChecked: $viewModel.removeAllMetadata,
-                    font: .subheadline.weight(.medium)
-                )
-            }
-            .onChange(of: viewModel.removeAllMetadata) { _, isRemovingAll in
-                if !isRemovingAll, viewModel.metadataFieldRows.isEmpty, !viewModel.discoveredMetadataTags.isEmpty {
-                    viewModel.resetMetadataRowsFromDiscovery()
-                }
-                if isRemovingAll {
-                    viewModel.isMetadataSectionExpanded = false
-                    focusedMetadataRowID = nil
-                    dismissKeyboard()
-                }
+        List {
+            Section {
+                Toggle("Remove All Metadata", isOn: $viewModel.removeAllMetadata)
+                    .tint(Theme.tint)
+            } footer: {
+                Text("Choose which source details are included in the converted file.")
             }
 
-            DisclosureGroup(isExpanded: $viewModel.isMetadataSectionExpanded) {
-                metadataBody
-            } label: {
-                HStack(spacing: 8) {
-                    Text("Fields")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Theme.text)
-                    Text(fieldCountText)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Theme.textMuted)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Theme.background.opacity(0.5))
-                        .clipShape(Capsule())
+            if viewModel.isLoadingDiscoveredMetadata {
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("Reading metadata…")
+                            .foregroundStyle(Theme.textMuted)
+                    }
                 }
-            }
-            .tint(Theme.primary)
-        }
-        .onChange(of: viewModel.isMetadataSectionExpanded) { _, isExpanded in
-            if !isExpanded {
-                expandedGroups.removeAll()
-                focusedMetadataRowID = nil
-            }
-            dismissKeyboard()
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Theme.accent, lineWidth: 1)
-        )
-    }
-
-    @ViewBuilder
-    private var metadataBody: some View {
-        if viewModel.isLoadingDiscoveredMetadata {
-            HStack {
-                ProgressView()
-                Text("Reading metadata…")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.textMuted)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 8)
-        } else {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(groupedRows) { group in
-                    MetadataSectionDisclosure(
-                        group: group,
-                        isExpanded: groupExpansionBinding(for: group.kind),
-                        isRemoved: !group.indices.isEmpty && group.indices.allSatisfy { viewModel.metadataFieldRows[$0].isRemoved },
-                        onSetSectionRemoved: { shouldRemove in
-                            setSection(group, removed: shouldRemove)
+            } else {
+                Section("Groups") {
+                    ForEach(groupedRows) { group in
+                        NavigationLink {
+                            metadataGroupEditor(kind: group.kind)
+                        } label: {
+                            metadataGroupRow(group)
                         }
-                    ) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            if group.kind == .location, let coordinate = locationCoordinateBinding() {
-                                MetadataLocationCard(coordinate: coordinate)
-                            }
-
-                            if group.indices.isEmpty {
-                                Text("No fields in this section yet.")
-                                    .font(.footnote)
-                                    .foregroundStyle(Theme.textMuted)
-                            } else {
-                                LazyVGrid(
-                                    columns: [GridItem(.adaptive(minimum: 230), spacing: 10, alignment: .top)],
-                                    alignment: .leading,
-                                    spacing: 10
-                                ) {
-                                    ForEach(group.indices, id: \.self) { index in
-                                        MetadataFieldCard(
-                                            row: $viewModel.metadataFieldRows[index],
-                                            focusedRowID: $focusedMetadataRowID,
-                                            onUserEdit: userEditedField
-                                        )
-                                    }
-                                }
-                            }
-
-                            AddMetadataFieldMenu(
-                                items: missingTemplates(for: group.kind),
-                                isInteractionDisabled: isMenuInteractionDisabled,
-                                onAdd: addMetadataField
-                            )
-                        }
+                        .disabled(viewModel.removeAllMetadata)
                     }
                 }
             }
-            .padding(.top, 8)
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.groupedBackground)
+        .navigationTitle(isRootSectionActive ? "Metadata" : "")
+        .navigationBarTitleDisplayMode(.inline)
+        .tint(Theme.tint)
+        .onChange(of: viewModel.removeAllMetadata) { _, isRemovingAll in
+            if !isRemovingAll, viewModel.metadataFieldRows.isEmpty, !viewModel.discoveredMetadataTags.isEmpty {
+                viewModel.resetMetadataRowsFromDiscovery()
+            }
+            if isRemovingAll {
+                focusedMetadataRowID = nil
+                dismissKeyboard()
+            }
+        }
+    }
+
+    private func metadataGroupRow(_ group: MetadataFieldGroup) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: group.systemImage)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Theme.tint)
+                .frame(width: 32, height: 32)
+                .background(Theme.secondaryFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(group.title)
+                    .foregroundStyle(Theme.text)
+                Text(groupSummary(group))
+                    .font(.caption)
+                    .foregroundStyle(Theme.textMuted)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func groupSummary(_ group: MetadataFieldGroup) -> String {
+        guard !group.indices.isEmpty else { return "No fields" }
+        let included = group.indices.filter { !viewModel.metadataFieldRows[$0].isRemoved }.count
+        return "\(included) of \(group.indices.count) included"
+    }
+
+    @ViewBuilder
+    private func metadataGroupEditor(kind: MetadataFieldGroup.Kind) -> some View {
+        let group = groupedRows.first(where: { $0.kind == kind })
+            ?? MetadataFieldGroup(kind: kind, indices: [])
+
+        ZStack {
+            Theme.groupedBackground.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Toggle(
+                        "Include \(group.title) Metadata",
+                        isOn: Binding(
+                            get: {
+                                group.indices.isEmpty
+                                    || !group.indices.allSatisfy { viewModel.metadataFieldRows[$0].isRemoved }
+                            },
+                            set: { isIncluded in
+                                setSection(group, removed: !isIncluded)
+                            }
+                        )
+                    )
+                    .tint(Theme.tint)
+                    .disabled(group.indices.isEmpty)
+                    .padding(16)
+                    .background(
+                        Theme.groupedSurface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+
+                    if kind == .location,
+                       !group.indices.allSatisfy({ viewModel.metadataFieldRows[$0].isRemoved }),
+                       let coordinate = locationCoordinateBinding() {
+                        MetadataLocationCard(coordinate: coordinate)
+                    }
+
+                    if group.indices.isEmpty {
+                        ContentUnavailableView(
+                            "No \(group.title) Metadata",
+                            systemImage: group.systemImage,
+                            description: Text("Add a supported field below to include it in the output.")
+                        )
+                        .foregroundStyle(Theme.text)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 24)
+                    } else {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 260), spacing: 12, alignment: .top)],
+                            alignment: .leading,
+                            spacing: 12
+                        ) {
+                            ForEach(group.indices, id: \.self) { index in
+                                MetadataFieldCard(
+                                    row: $viewModel.metadataFieldRows[index],
+                                    focusedRowID: $focusedMetadataRowID,
+                                    onUserEdit: userEditedField
+                                )
+                            }
+                        }
+                    }
+
+                    AddMetadataFieldMenu(
+                        items: missingTemplates(for: kind),
+                        isInteractionDisabled: isMenuInteractionDisabled,
+                        onAdd: addMetadataField
+                    )
+                }
+                .frame(maxWidth: 900)
+                .frame(maxWidth: .infinity)
+                .padding(16)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .navigationTitle(isRootSectionActive ? group.title : "")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var groupedRows: [MetadataFieldGroup] {
@@ -148,10 +178,6 @@ struct InputMetadataEditor: View {
         }
     }
 
-    private var fieldCountText: String {
-        return "\(viewModel.metadataFieldRows.count)"
-    }
-
     private func missingTemplates(for kind: MetadataFieldGroup.Kind) -> [AddableMetadataField] {
         switch viewModel.input.category {
         case .image:
@@ -161,8 +187,6 @@ struct InputMetadataEditor: View {
                 .map { .image($0) }
         case .video, .audio, .animatedImage:
             return missingFfprobeFieldTemplates(for: kind)
-        default:
-            return []
         }
     }
 
@@ -205,18 +229,12 @@ struct InputMetadataEditor: View {
         userEditedField()
         switch item {
         case .image(let template):
-            if !expandedGroups.contains(template.group) {
-                expandedGroups.insert(template.group)
-            }
             let row = MetadataFieldRowModel(tag: template.makeTag())
             viewModel.metadataFieldRows.append(row)
             DispatchQueue.main.async {
                 focusedMetadataRowID = row.id
             }
         case .video(let template):
-            if !expandedGroups.contains(template.group) {
-                expandedGroups.insert(template.group)
-            }
             let tag = template.makeTag { self.firstFfprobeStreamIndex(matching: $0) }
             let row = MetadataFieldRowModel(tag: tag)
             viewModel.metadataFieldRows.append(row)
@@ -230,21 +248,6 @@ struct InputMetadataEditor: View {
         if viewModel.removeAllMetadata {
             viewModel.removeAllMetadata = false
         }
-    }
-
-    private func groupExpansionBinding(for kind: MetadataFieldGroup.Kind) -> Binding<Bool> {
-        Binding(
-            get: { expandedGroups.contains(kind) },
-            set: { isExpanded in
-                if isExpanded {
-                    expandedGroups.insert(kind)
-                } else {
-                    expandedGroups.remove(kind)
-                }
-                focusedMetadataRowID = nil
-                dismissKeyboard()
-            }
-        )
     }
 
     private func setSection(_ group: MetadataFieldGroup, removed: Bool) {
@@ -271,31 +274,25 @@ struct InputMetadataEditor: View {
     private func updateLocationRows(to coordinate: CLLocationCoordinate2D) {
         userEditedField()
         let isoValue = MetadataLocationResolver.iso6709String(for: coordinate)
-        if let index = viewModel.metadataFieldRows.firstIndex(where: MetadataLocationResolver.isISO6709Row) {
-            viewModel.metadataFieldRows[index].value = isoValue
-            viewModel.metadataFieldRows[index].isRemoved = false
-            return
-        }
-
         for index in viewModel.metadataFieldRows.indices {
-            if MetadataLocationResolver.isLatitudeRow(viewModel.metadataFieldRows[index]) {
+            guard !viewModel.metadataFieldRows[index].isRemoved else { continue }
+
+            if MetadataLocationResolver.isISO6709RepresentationRow(viewModel.metadataFieldRows[index]) {
+                viewModel.metadataFieldRows[index].value = isoValue
+            } else if MetadataLocationResolver.isLatitudeRow(viewModel.metadataFieldRows[index]) {
                 viewModel.metadataFieldRows[index].value = String(format: "%.6f", abs(coordinate.latitude))
-                viewModel.metadataFieldRows[index].isRemoved = false
             } else if MetadataLocationResolver.isLongitudeRow(viewModel.metadataFieldRows[index]) {
                 viewModel.metadataFieldRows[index].value = String(format: "%.6f", abs(coordinate.longitude))
-                viewModel.metadataFieldRows[index].isRemoved = false
             } else if MetadataLocationResolver.isLatitudeRefRow(viewModel.metadataFieldRows[index]) {
                 viewModel.metadataFieldRows[index].value = coordinate.latitude < 0 ? "S" : "N"
-                viewModel.metadataFieldRows[index].isRemoved = false
             } else if MetadataLocationResolver.isLongitudeRefRow(viewModel.metadataFieldRows[index]) {
                 viewModel.metadataFieldRows[index].value = coordinate.longitude < 0 ? "W" : "E"
-                viewModel.metadataFieldRows[index].isRemoved = false
             }
         }
     }
 }
 
-private struct MetadataFieldGroup: Identifiable {
+struct MetadataFieldGroup: Identifiable {
     let kind: Kind
     let indices: [Int]
 
@@ -356,73 +353,6 @@ private struct MetadataFieldGroup: Identifiable {
     }
 }
 
-private struct MetadataSectionDisclosure<Content: View>: View {
-    let group: MetadataFieldGroup
-    @Binding var isExpanded: Bool
-    let isRemoved: Bool
-    let onSetSectionRemoved: (Bool) -> Void
-    let content: Content
-
-    init(
-        group: MetadataFieldGroup,
-        isExpanded: Binding<Bool>,
-        isRemoved: Bool,
-        onSetSectionRemoved: @escaping (Bool) -> Void,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.group = group
-        self._isExpanded = isExpanded
-        self.isRemoved = isRemoved
-        self.onSetSectionRemoved = onSetSectionRemoved
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Button {
-                    withAnimation(.snappy(duration: 0.2)) {
-                        isExpanded.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(Theme.textMuted)
-                        Label(group.title, systemImage: group.systemImage)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.text)
-                        Text("\(group.indices.count)")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Theme.textMuted)
-                    }
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                CheckboxControl(
-                    title: "Remove section",
-                    isChecked: Binding(
-                        get: { isRemoved },
-                        set: { onSetSectionRemoved($0) }
-                    ),
-                    font: .caption.weight(.semibold)
-                )
-            }
-
-            if isExpanded {
-                content
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.background.opacity(0.28))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-}
-
 private enum AddableMetadataField: Identifiable, Hashable {
     case image(StandardMetadataFieldTemplate)
     case video(VideoMetadataFieldTemplate)
@@ -449,7 +379,7 @@ private enum AddableMetadataField: Identifiable, Hashable {
     }
 }
 
-/// FFmpeg can write these as container format tags or per-stream tags (`-metadata` / `-metadata:s:n:`).
+/// FFmpeg can write these as container format tags or per-stream tags (`-metadata` / `-metadata:s:n`).
 /// See `FFmpegMetadataOptions` and `VideoConverter` / `AudioConverter` encode paths.
 private struct VideoMetadataFieldTemplate: Identifiable, Hashable {
     enum Target: Hashable {
@@ -585,32 +515,24 @@ private struct AddMetadataFieldMenu: View {
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "plus.circle.fill")
+                Image(systemName: "plus")
                     .font(.subheadline.weight(.semibold))
-                Text("Add field")
+                Text("Add Field")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
                 if !items.isEmpty {
                     Text("\(items.count)")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Theme.textMuted)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Theme.background.opacity(0.6))
-                        .clipShape(Capsule())
                 }
             }
-            .padding(.horizontal, 12)
             .frame(height: 44)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surface)
-            .foregroundStyle(items.isEmpty ? Theme.textMuted : Theme.primary)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Theme.accent.opacity(0.65), lineWidth: 1)
-            )
+            .foregroundStyle(items.isEmpty ? Theme.textMuted : Theme.tint)
         }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.roundedRectangle(radius: 10))
+        .tint(Theme.tint)
         .disabled(items.isEmpty || isInteractionDisabled)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -751,23 +673,37 @@ private struct MetadataFieldCard: View {
     @Binding var row: MetadataFieldRowModel
     let focusedRowID: FocusState<String?>.Binding
     let onUserEdit: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isDatePickerPresented = false
     @State private var pickerDate = Date()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                Text(row.tag.label)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.textMuted)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 6)
-                CheckboxControl(
-                    title: "Remove",
-                    isChecked: removeBinding,
-                    font: .caption
-                )
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(row.tag.label)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Toggle("Include", isOn: includeBinding)
+                        .toggleStyle(.switch)
+                        .tint(Theme.tint)
+                        .accessibilityLabel("Include \(row.tag.label)")
+                }
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(row.tag.label)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 6)
+                    Toggle("Include", isOn: includeBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .tint(Theme.tint)
+                        .accessibilityLabel("Include \(row.tag.label)")
+                }
             }
 
             if row.isRemoved {
@@ -775,46 +711,27 @@ private struct MetadataFieldCard: View {
                     .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
                     .padding(.vertical, 8)
-            } else {
-                HStack(spacing: 8) {
-                    TextField("Value", text: valueBinding, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1...3)
-                        .focused(focusedRowID, equals: row.id)
+            } else if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    valueField
 
                     if isCalendarEligibleDateField {
-                        Button {
-                            focusedRowID.wrappedValue = nil
-                            dismissKeyboard()
-                            pickerDate = DateMetadataValueCodec.parse(row.value) ?? Date()
-                            isDatePickerPresented = true
-                        } label: {
-                            Image(systemName: "calendar")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.primary)
-                                .padding(6)
-                                .background(Theme.background.opacity(0.6))
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Choose date")
+                        dateButton(showsLabel: true)
                     }
                 }
-                .padding(10)
-                .background(Theme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Theme.accent.opacity(0.65), lineWidth: 1)
-                )
+            } else {
+                HStack(spacing: 8) {
+                    valueField
+
+                    if isCalendarEligibleDateField {
+                        dateButton(showsLabel: false)
+                    }
+                }
             }
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.background.opacity(0.35))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .sheet(isPresented: $isDatePickerPresented) {
             DateTimePickerSheet(
                 date: $pickerDate,
@@ -832,12 +749,43 @@ private struct MetadataFieldCard: View {
         }
     }
 
-    private var removeBinding: Binding<Bool> {
+    private var valueField: some View {
+        TextField("Value", text: valueBinding, axis: .vertical)
+            .textFieldStyle(.roundedBorder)
+            .font(.subheadline)
+            .foregroundStyle(Theme.text)
+            .lineLimit(1...3)
+            .focused(focusedRowID, equals: row.id)
+    }
+
+    private func dateButton(showsLabel: Bool) -> some View {
+        Button {
+            focusedRowID.wrappedValue = nil
+            dismissKeyboard()
+            pickerDate = DateMetadataValueCodec.parse(row.value) ?? Date()
+            isDatePickerPresented = true
+        } label: {
+            if showsLabel {
+                Label("Choose Date", systemImage: "calendar")
+                    .frame(maxWidth: .infinity)
+            } else {
+                Image(systemName: "calendar")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 32, height: 32)
+            }
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.roundedRectangle(radius: 8))
+        .tint(Theme.tint)
+        .accessibilityLabel("Choose date")
+    }
+
+    private var includeBinding: Binding<Bool> {
         Binding(
-            get: { row.isRemoved },
-            set: { newValue in
+            get: { !row.isRemoved },
+            set: { isIncluded in
                 onUserEdit()
-                row.isRemoved = newValue
+                row.isRemoved = !isIncluded
             }
         )
     }
@@ -1046,6 +994,7 @@ private struct LocationPreviewMap: View {
 private struct LocationEditorSheet: View {
     @Binding var coordinate: CLLocationCoordinate2D
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var search = LocationSearchModel()
     @State private var draftCoordinate: CLLocationCoordinate2D
 
@@ -1067,7 +1016,7 @@ private struct LocationEditorSheet: View {
 
                 if !search.results.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
+                        LazyHStack(alignment: .top, spacing: 10) {
                             ForEach(search.results, id: \.self) { completion in
                                 Button {
                                     search.resolve(completion) { coordinate in
@@ -1079,26 +1028,33 @@ private struct LocationEditorSheet: View {
                                         Text(completion.title)
                                             .font(.caption.weight(.semibold))
                                             .foregroundStyle(Theme.text)
-                                            .lineLimit(1)
+                                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                                         if !completion.subtitle.isEmpty {
                                             Text(completion.subtitle)
                                                 .font(.caption2)
                                                 .foregroundStyle(Theme.textMuted)
-                                                .lineLimit(1)
+                                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                                         }
                                     }
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 8)
-                                    .frame(width: 220, alignment: .leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(Theme.background.opacity(0.55))
                                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 }
                                 .buttonStyle(.plain)
+                                .containerRelativeFrame(
+                                    .horizontal,
+                                    count: dynamicTypeSize.isAccessibilitySize ? 1 : 2,
+                                    span: 1,
+                                    spacing: 10
+                                )
                             }
                         }
-                        .padding(.horizontal)
+                        .scrollTargetLayout()
                     }
-                    .frame(height: 62)
+                    .contentMargins(.horizontal, 16, for: .scrollContent)
+                    .scrollTargetBehavior(.viewAligned)
                 }
 
                 EditableLocationMap(coordinate: $draftCoordinate)
@@ -1287,12 +1243,24 @@ private final class LocationSearchModel: NSObject, ObservableObject, MKLocalSear
     }
 
     func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        DiagnosticsLog.shared.record(
+            error: error,
+            context: "Search for metadata location",
+            metadata: ["Query": query]
+        )
         results = []
     }
 
     func resolve(_ completion: MKLocalSearchCompletion, completionHandler: @escaping (CLLocationCoordinate2D?) -> Void) {
         let request = MKLocalSearch.Request(completion: completion)
-        MKLocalSearch(request: request).start { response, _ in
+        MKLocalSearch(request: request).start { response, error in
+            if let error {
+                DiagnosticsLog.shared.record(
+                    error: error,
+                    context: "Resolve metadata location",
+                    metadata: ["Selection": completion.title]
+                )
+            }
             DispatchQueue.main.async {
                 completionHandler(response?.mapItems.first?.placemark.coordinate)
             }
@@ -1302,7 +1270,9 @@ private final class LocationSearchModel: NSObject, ObservableObject, MKLocalSear
 
 private enum MetadataLocationResolver {
     static func coordinate(from rows: [MetadataFieldRowModel]) -> CLLocationCoordinate2D? {
-        if let iso = coordinateFromISO6709Fields(rows) {
+        let includedRows = rows.filter { !$0.isRemoved }
+
+        if let iso = coordinateFromISO6709Fields(includedRows) {
             return iso
         }
 
@@ -1311,7 +1281,7 @@ private enum MetadataLocationResolver {
         var latitudeRef: String?
         var longitudeRef: String?
 
-        for row in rows {
+        for row in includedRows {
             let key = (row.tag.tagKey + " " + row.tag.label).lowercased()
             if key.contains("latitude") && !key.contains("ref") {
                 latitude = parseNumber(row.value)
@@ -1340,6 +1310,12 @@ private enum MetadataLocationResolver {
         return key.contains("iso6709")
             || key == "com.apple.quicktime.location.iso6709"
             || key == "location-iso6709"
+    }
+
+    static func isISO6709RepresentationRow(_ row: MetadataFieldRowModel) -> Bool {
+        if isISO6709Row(row) { return true }
+        let key = row.tag.tagKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return key == "location" || key == "com.apple.quicktime.location"
     }
 
     static func isLatitudeRow(_ row: MetadataFieldRowModel) -> Bool {
@@ -1413,30 +1389,6 @@ private enum MetadataLocationResolver {
             return nil
         }
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
-    }
-}
-
-private struct CheckboxControl: View {
-    let title: String
-    @Binding var isChecked: Bool
-    var font: Font = .body
-
-    var body: some View {
-        Button {
-            isChecked.toggle()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: isChecked ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(isChecked ? Theme.primary : Theme.textMuted)
-                Text(title)
-                    .font(font)
-                    .foregroundStyle(Theme.text)
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityValue(isChecked ? "Checked" : "Unchecked")
-        .accessibilityAddTraits(.isButton)
     }
 }
 

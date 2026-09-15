@@ -18,6 +18,8 @@ struct MediaPreview: View {
     var displayCropRect: CropRegion? = nil
     /// Clockwise rotation shown for image and video edits.
     var mediaRotation: MediaRotation = .none
+    /// Disable full-screen playback when the preview is embedded in another control.
+    var isInteractive: Bool = true
 
     @State private var isShowingFullImage = false
     @State private var isShowingFullVideo = false
@@ -56,20 +58,32 @@ struct MediaPreview: View {
     private var imagePreview: some View {
         Group {
             if let image = UIImage.firstFrame(from: url) {
-                Button {
-                    Haptics.impact(.light)
-                    isShowingFullImage = true
-                } label: {
-                    QuarterTurnImage(
-                        image: image,
-                        sourceDimensions: sourceDimensions,
-                        rotation: mediaRotation,
-                        padding: compact ? 2 : 12,
-                        showsBorder: showsMediaBorder
-                    )
+                Group {
+                    if isInteractive {
+                        Button {
+                            Haptics.impact(.light)
+                            isShowingFullImage = true
+                        } label: {
+                            QuarterTurnImage(
+                                image: image,
+                                sourceDimensions: sourceDimensions,
+                                rotation: mediaRotation,
+                                padding: compact ? 2 : 12,
+                                showsBorder: showsMediaBorder
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                    } else {
+                        QuarterTurnImage(
+                            image: image,
+                            sourceDimensions: sourceDimensions,
+                            rotation: mediaRotation,
+                            padding: compact ? 2 : 12,
+                            showsBorder: showsMediaBorder
+                        )
+                    }
                 }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
                 .fullScreenCover(isPresented: $isShowingFullImage) {
                     FullImagePreview(image: image)
                 }
@@ -91,21 +105,25 @@ struct MediaPreview: View {
                             .tint(Theme.textMuted)
                     }
             case .playable(let poster):
-                Button {
-                    Haptics.impact(.light)
-                    isShowingFullVideo = true
-                } label: {
+                if isInteractive {
+                    Button {
+                        Haptics.impact(.light)
+                        isShowingFullVideo = true
+                    } label: {
+                        videoPosterBackground(poster)
+                            .overlay {
+                                VideoPlayIndicator(
+                                    sourceDimensions: sourceDimensions.map { mediaRotation.applied(to: $0) },
+                                    cropRegion: displayCropRect,
+                                    imagePadding: compact ? 2 : 12
+                                )
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                } else {
                     videoPosterBackground(poster)
-                        .overlay {
-                            VideoPlayIndicator(
-                                sourceDimensions: sourceDimensions.map { mediaRotation.applied(to: $0) },
-                                cropRegion: displayCropRect,
-                                imagePadding: compact ? 2 : 12
-                            )
-                        }
                 }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
             case .unavailable(let poster):
                 videoPosterBackground(poster)
                     .overlay {
@@ -165,24 +183,34 @@ struct MediaPreview: View {
     }
 
     private var audioPlayerPreview: some View {
-        Button {
-            Haptics.impact(.light)
-            isShowingFullAudio = true
-        } label: {
-            ZStack {
-                Color(white: 0.12)
-                Image(systemName: "waveform.circle.fill")
-                    .font(.system(size: 72))
-                    .foregroundStyle(Theme.primary)
-                    .allowsHitTesting(false)
+        Group {
+            if isInteractive {
+                Button {
+                    Haptics.impact(.light)
+                    isShowingFullAudio = true
+                } label: {
+                    audioArtwork
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+            } else {
+                audioArtwork
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
         .fullScreenCover(isPresented: $isShowingFullAudio) {
             FullAudioPlayer(url: url)
         }
+    }
+
+    private var audioArtwork: some View {
+        ZStack {
+            Color(white: 0.12)
+            Image(systemName: "waveform.circle.fill")
+                .font(.system(size: 72))
+                .foregroundStyle(Theme.primary)
+                .allowsHitTesting(false)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -324,6 +352,7 @@ struct CropEditorView: View {
     @Binding var mediaRotation: MediaRotation
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var liveCrop: CropRegion
     @State private var liveRotation: MediaRotation
     @State private var previewImage: UIImage?
@@ -355,27 +384,55 @@ struct CropEditorView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    Text("Edit")
-                        .font(.title3.bold())
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1)
+            CropCanvasView(
+                sourceDimensions: editingSourceDimensions,
+                liveCrop: $liveCrop,
+                previewImage: previewImage,
+                rotation: liveRotation,
+                onUserGestureEnded: { syncTextFromLive() }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.surface.opacity(0.85))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Theme.accent, lineWidth: 1)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Theme.background.ignoresSafeArea())
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                cropControls
+            }
+            .navigationTitle("Crop")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        Haptics.selection()
+                        dismiss()
+                    }
+                }
 
-                    Spacer()
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        Haptics.impact(.light)
+                        applyLiveToBinding()
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
 
+                ToolbarItemGroup(placement: .bottomBar) {
                     if category == .image || category == .video {
                         Button {
                             Haptics.selection()
                             rotateClockwise()
                         } label: {
-                            Image(systemName: "rotate.right")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(Theme.background)
-                                .frame(width: 34, height: 34)
-                                .background(Theme.primary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            Label("Rotate", systemImage: "rotate.right")
                         }
-                        .buttonStyle(.plain)
                         .accessibilityLabel(
                             category == .video
                                 ? "Rotate video 90 degrees clockwise"
@@ -383,113 +440,21 @@ struct CropEditorView: View {
                         )
                     }
 
+                    Spacer()
+
                     Button {
                         Haptics.selection()
-                        if let full = CropRegion.fullFrame(source: editingSourceDimensions) {
-                            liveCrop = full
-                            syncTextFromLive()
-                        }
+                        resetCrop()
                     } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(Theme.background)
-                            .frame(width: 34, height: 34)
-                            .background(Theme.primary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        Label("Reset Crop", systemImage: "arrow.counterclockwise")
                     }
-                    .buttonStyle(.plain)
                     .accessibilityLabel("Reset crop")
                 }
-
-                // Let media preview consume remaining vertical space.
-                CropCanvasView(
-                    sourceDimensions: editingSourceDimensions,
-                    liveCrop: $liveCrop,
-                    previewImage: previewImage,
-                    rotation: liveRotation,
-                    onUserGestureEnded: { syncTextFromLive() }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.surface.opacity(0.85))
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(Theme.accent, lineWidth: 1)
-                )
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Theme.background.ignoresSafeArea())
-            .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Crop region (pixels)")
-                            .font(.title3.bold())
-                            .foregroundStyle(Theme.text)
-
-                        HStack(spacing: 10) {
-                            cropField("X", text: $xText)
-                            cropField("Y", text: $yText)
-                        }
-                        HStack(spacing: 10) {
-                            cropField("Width", text: $widthText)
-                            cropField("Height", text: $heightText)
-                        }
-
-                        Text("Drag the frame or use the fields. Target-size planning runs when you tap Done or close the sheet.")
-                            .font(.footnote)
-                            .foregroundStyle(Theme.textMuted)
-                    }
-                    .padding(18)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(Theme.accent, lineWidth: 1)
-                    )
-
-                    HStack(spacing: 12) {
-                        Button {
-                            Haptics.selection()
-                            dismiss()
-                        } label: {
-                            Text("Cancel")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.text)
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(Theme.surface)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(Theme.accent, lineWidth: 1)
-                                )
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            Haptics.impact(.light)
-                            applyLiveToBinding()
-                            dismiss()
-                        } label: {
-                            Text("Done")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.background)
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(Theme.primary)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 10)
-                .padding(.bottom, 14)
-                .background(Theme.background.opacity(0.96))
-            }
+            .toolbarBackground(Theme.surface, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Theme.surface, for: .bottomBar)
+            .toolbarBackground(.visible, for: .bottomBar)
         }
         .task(id: url) {
             previewImage = nil
@@ -511,6 +476,42 @@ struct CropEditorView: View {
         }
     }
 
+    private var cropControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Crop Region")
+                    .font(.headline)
+                    .foregroundStyle(Theme.text)
+
+                LazyVGrid(columns: cropFieldColumns, alignment: .leading, spacing: 12) {
+                    cropField("X", text: $xText)
+                    cropField("Y", text: $yText)
+                    cropField("Width", text: $widthText)
+                    cropField("Height", text: $heightText)
+                }
+
+                Text("Drag the frame or enter exact pixel values.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textMuted)
+            }
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Divider()
+        }
+    }
+
+    private var cropFieldColumns: [GridItem] {
+        if dynamicTypeSize.isAccessibilitySize {
+            return [GridItem(.flexible())]
+        }
+        return [GridItem(.adaptive(minimum: 140), spacing: 12)]
+    }
+
     private func applyLiveToBinding() {
         guard let clamped = liveCrop.clamped(to: editingSourceDimensions) else { return }
         cropRegion = clamped.isEffectivelyFullFrame(for: editingSourceDimensions) ? nil : clamped
@@ -525,13 +526,7 @@ struct CropEditorView: View {
             TextField(title, text: text)
                 .keyboardType(.numberPad)
                 .font(.subheadline.monospacedDigit())
-                .padding(10)
-                .background(Theme.background.opacity(0.55))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Theme.accent.opacity(0.5), lineWidth: 1)
-                )
+                .textFieldStyle(.roundedBorder)
                 .onChange(of: text.wrappedValue) { _, _ in
                     applyTextToLive()
                 }
@@ -560,6 +555,12 @@ struct CropEditorView: View {
 
     private var editingSourceDimensions: CGSize {
         liveRotation.applied(to: sourceDimensions)
+    }
+
+    private func resetCrop() {
+        guard let full = CropRegion.fullFrame(source: editingSourceDimensions) else { return }
+        liveCrop = full
+        syncTextFromLive()
     }
 
     private func rotateClockwise() {
@@ -883,13 +884,22 @@ private extension UIImage {
             CMTime(seconds: 0.1, preferredTimescale: 600),
             CMTime(seconds: 0.5, preferredTimescale: 600)
         ]
+        var lastError: Error?
         for t in startTimes {
             do {
                 let (cg, _) = try await generator.image(at: t)
                 return UIImage(cgImage: cg)
             } catch {
+                lastError = error
                 continue
             }
+        }
+        if let lastError {
+            DiagnosticsLog.shared.record(
+                error: lastError,
+                context: "Generate video preview image",
+                metadata: ["Filename": url.lastPathComponent]
+            )
         }
         return nil
     }
@@ -913,9 +923,11 @@ private struct FullImagePreview: View {
                 Image(systemName: "xmark")
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.white)
-                    .padding(10)
+                    .frame(width: 44, height: 44)
                     .background(.black.opacity(0.45), in: Circle())
             }
+            .accessibilityLabel("Close image preview")
+            .accessibilityHint("Dismisses the full-screen preview")
             .padding(.top, 16)
             .padding(.leading, 16)
         }
@@ -961,9 +973,11 @@ private struct FullVideoPlayer: View {
                 Image(systemName: "xmark")
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.white)
-                    .padding(10)
+                    .frame(width: 44, height: 44)
                     .background(.black.opacity(0.45), in: Circle())
             }
+            .accessibilityLabel("Close video preview")
+            .accessibilityHint("Stops playback and dismisses the full-screen preview")
             .padding(.top, 16)
             .padding(.leading, 16)
         }
@@ -984,6 +998,14 @@ private struct FullVideoPlayer: View {
                 newPlayer.play()
             } catch {
                 guard !Task.isCancelled else { return }
+                DiagnosticsLog.shared.record(
+                    error: error,
+                    context: "Build edited video preview",
+                    metadata: [
+                        "Filename": url.lastPathComponent,
+                        "Rotation degrees": String(rotation.rawValue)
+                    ]
+                )
                 previewFailed = true
             }
         }
@@ -1189,9 +1211,11 @@ private struct FullAudioPlayer: View {
                 Image(systemName: "xmark")
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.white)
-                    .padding(10)
+                    .frame(width: 44, height: 44)
                     .background(.black.opacity(0.45), in: Circle())
             }
+            .accessibilityLabel("Close audio preview")
+            .accessibilityHint("Stops playback and dismisses the full-screen preview")
             .padding(.top, 16)
             .padding(.leading, 16)
         }
@@ -1218,6 +1242,7 @@ private enum PreviewAudioSession {
             try session.setCategory(.playback, mode: .default)
             try session.setActive(true)
         } catch {
+            DiagnosticsLog.shared.record(error: error, context: "Configure preview audio session")
             assertionFailure("Unable to configure preview audio session: \(error)")
         }
     }

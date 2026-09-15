@@ -1,67 +1,58 @@
 # MB Converter
 
-**Convert and compress** photos, video, and audio on your iPhone and iPad, one simple flow from choosing a format to picking where your file comes from. MB Converter is completely free and open source.
+<img src="Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="80" />
 
-## Get the beta
+**Convert and compress photos, videos, and audio on your iPhone or iPad.** Change formats, make files smaller, and save or share the results. Free and open source, with no account required.
 
-<p>
-  <a href="https://testflight.apple.com/join/FEA9U9HB">
-    <img alt="Join on TestFlight" src="https://img.shields.io/badge/TestFlight-Join%20Beta-0A84FF?style=for-the-badge&logo=apple&logoColor=white" />
-  </a>
-</p>
+## Get MB Converter
 
-**App Icon**
+[Join the beta on TestFlight](https://testflight.apple.com/join/FEA9U9HB).
 
-<img src="Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="8%" />
+Requires **iOS 17 or later** or **iPadOS 17 or later**.
 
-**Main Screen Preview**
+## Make your media easier to share
+
+- **Convert files:** change image, video, and audio formats, extract audio from videos, or turn a GIF into a video or still image.
+- **Control file size:** choose a target size for supported formats and adjust resolution, frame rate, or audio settings where available.
+- **Make quick edits:** crop and rotate images and videos, and review, edit, or remove metadata before exporting.
+- **Import your way:** choose Photos or Files, paste a supported image from the clipboard, or download media from a direct link. Link imports support files up to 150 MB.
+- **Save the result:** preview your conversion, compare file sizes, rename it, and save or share it with the system share sheet.
+- **Keep useful conversions:** revisit History during your session, or enable saved history to keep conversions across app launches.
 
 <table>
   <tr>
     <td align="center">
       <strong>Light</strong><br />
-      <img src="docs/light_mainpage.png" alt="MB Converter light main screen" width="180" />
+      <img src="docs/light_mainpage.png" alt="MB Converter import screen in light mode" width="240" />
     </td>
     <td align="center">
       <strong>Dark</strong><br />
-      <img src="docs/dark_mainpage.png" alt="MB Converter dark main screen" width="180" />
+      <img src="docs/dark_mainpage.png" alt="MB Converter import screen in dark mode" width="240" />
     </td>
   </tr>
 </table>
 
-## Supported formats
+## Formats
 
-| Files | Codecs we can read |
-|-------|--------------------|
-| Video: MP4, MOV, M4V, MKV, WebM, AVI, FLV, F4V, TS, MTS, M2TS, 3GP, MPEG/MPG, M2V, MXF, OGV, VOB, ASF, WMV, WTV, SWF, HEVC, MJPEG | H.264, HEVC, VP8, VP9, MPEG-2, MPEG-4, MJPEG, Theora |
-| Audio: MP3, M4A, WAV, AAC, FLAC, OGG, Opus, ALAC | AAC, MP3, FLAC, ALAC, Vorbis, Opus, PCM |
-| Photos: JPEG, PNG, HEIC, WebP, AVIF, TIFF | handled by iOS |
-| Animated: GIF | — |
+| Media | Common input formats | Save as |
+| --- | --- | --- |
+| Photos | JPEG, PNG, HEIC, WebP, AVIF, TIFF | JPEG, PNG, HEIC, WebP, TIFF |
+| Video | MP4, MOV, M4V, MKV, WebM, AVI, and more | MP4 (H.264 or HEVC), MOV; M4A, AAC, or WAV for audio extraction |
+| Audio | MP3, M4A, WAV, AAC, FLAC, OGG, Opus, ALAC | M4A, AAC, WAV |
+| Animated GIFs | GIF | MP4 (H.264 or HEVC), or a still JPEG, PNG, HEIC, or TIFF |
 
-### What you can save out
+Compatibility depends on the encoding inside the file and your device. AV1 video is currently unsupported. Target sizes are estimates; some formats and settings may produce larger files.
 
-| Output | Codec used |
-|--------|------------|
-| MP4 (H.264) | H.264 |
-| MP4 (HEVC) | HEVC |
-| MOV | H.264 |
-| M4A | AAC |
-| AAC | AAC |
-| WAV | PCM 16-bit |
-| JPEG | — |
-| PNG | — |
-| HEIC | — |
-| WebP (still image) | — |
-| TIFF | — |
+## Your files stay under your control
 
-## For developers
+Media conversion runs on your device. Importing from a link connects to the website hosting that file. Save or share anything you want to keep, or turn on saved history in Settings; session-only history is cleared when you quit and reopen the app.
 
-Building from source or curious about how it’s put together? See the **[Developer documentation](docs/DEVELOPMENT.md)**.
+Read the [Privacy Policy](PRIVACY.md) for details about local storage, diagnostics, downloads, and sharing.
 
-## License
+## Help and feedback
 
-The app’s source code is under the [MIT License](LICENSE). The libraries it relies on keep their own licenses — see the developer doc for the full list.
+[Report a problem or request a feature](https://github.com/Marginally-Better-Apps/MB-converter/issues). Include your device, iOS version, and the input and output formats. If you share an error report from Settings, review it first: it can include file names, paths, and media details.
 
-## More projects
+Want to build and run the app yourself? Follow the [build guide](docs/DEVELOPMENT.md).
 
-Check out our other projects at [marginally-better.app](https://marginally-better.app).
+Explore more apps at [Marginally Better](https://marginally-better.app).

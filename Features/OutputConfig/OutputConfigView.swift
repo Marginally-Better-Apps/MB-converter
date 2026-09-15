@@ -3,118 +3,136 @@ import SwiftUI
 /// Output format and tuning controls shared by the convert screen.
 struct OutputConfigForm: View {
     @Bindable var viewModel: OutputConfigViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let isMenuInteractionDisabled: Bool
+    var showsPrimaryControls = true
+    var showsConvertButton = true
     var onConvert: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 18) {
-                if viewModel.shouldShowTargetSize, !viewModel.isAudioOutput {
+        Form {
+            if showsPrimaryControls, viewModel.shouldShowTargetSize, !viewModel.isAudioOutput {
+                Section {
                     targetSizeSection
-                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
+            }
 
-                VStack(spacing: 14) {
-                    optionRow("Format") {
-                        FormatPicker(
-                            formats: viewModel.formats,
-                            inputCategory: viewModel.input.category,
-                            isInteractionDisabled: isMenuInteractionDisabled,
-                            selection: $viewModel.selectedFormat
-                        )
+            if showsPrimaryControls
+                || viewModel.shouldShowResolution
+                || viewModel.shouldShowFPS
+                || viewModel.shouldShowVideoOutputAudio {
+                Section("Output Options") {
+                    if showsPrimaryControls {
+                        optionRow("Format") {
+                            FormatPicker(
+                                formats: viewModel.formats,
+                                inputCategory: viewModel.input.category,
+                                isInteractionDisabled: isMenuInteractionDisabled,
+                                selection: $viewModel.selectedFormat
+                            )
+                        }
                     }
 
                     if viewModel.shouldShowResolution {
                         optionRow("Resolution") {
                             resolutionPicker
                         }
-                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
                     if viewModel.shouldShowFPS {
                         optionRow("FPS") {
                             fpsPicker
                         }
-                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
                     if viewModel.shouldShowVideoOutputAudio {
                         optionRow("Audio") {
                             videoAudioQualitySection
                         }
-                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-
                 }
+            }
 
-                if viewModel.shouldShowTargetSize, viewModel.isAudioOutput {
+            if showsPrimaryControls, viewModel.shouldShowTargetSize, viewModel.isAudioOutput {
+                Section {
                     targetSizeSection
-                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
+            }
 
-                if viewModel.shouldShowWebPQuality {
-                    section("Quality") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Text("WebP Quality")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(Theme.text)
-                                Spacer()
-                                Text("\(Int((viewModel.webpQuality * 100).rounded()))%")
-                                    .font(.subheadline.monospacedDigit())
-                                    .foregroundStyle(Theme.textMuted)
-                            }
+            if !showsPrimaryControls, viewModel.shouldShowSinglePassVideoTargetToggle {
+                Section("Encoding") {
+                    singlePassVideoTargetToggle
+                }
+            }
 
-                            Slider(
-                                value: $viewModel.webpQuality,
-                                in: 0...1,
-                                step: 0.01,
-                                onEditingChanged: { isEditing in
-                                    if !isEditing {
-                                        Haptics.selection()
-                                    }
-                                }
-                            )
-                            .tint(Theme.primary)
-
-                            Text("Single-pass encode. Faster than target-size tuning, but final file size is not guaranteed.")
-                                .font(.footnote)
+            if showsPrimaryControls, viewModel.shouldShowWebPQuality {
+                Section("Quality") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("WebP Quality")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.text)
+                            Spacer()
+                            Text("\(Int((viewModel.webpQuality * 100).rounded()))%")
+                                .font(.subheadline.monospacedDigit())
                                 .foregroundStyle(Theme.textMuted)
                         }
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                } else if let note = viewModel.losslessNote {
-                    section("Target Size") {
-                        Text(note)
-                            .font(.subheadline)
+
+                        Slider(
+                            value: $viewModel.webpQuality,
+                            in: 0...1,
+                            step: 0.01,
+                            onEditingChanged: { isEditing in
+                                if !isEditing {
+                                    Haptics.selection()
+                                }
+                            }
+                        )
+                        .tint(Theme.primary)
+
+                        Text("Single-pass encode. Faster than target-size tuning, but final file size is not guaranteed.")
+                            .font(.footnote)
                             .foregroundStyle(Theme.textMuted)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            } else if showsPrimaryControls, let note = viewModel.losslessNote {
+                Section("Target Size") {
+                    Text(note)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.textMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(18)
-            .background(Theme.surface.opacity(0.7))
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
-            Button {
-                Haptics.impact(.medium)
-                onConvert()
-            } label: {
-                Text("Convert")
-                    .font(.headline)
-                    .foregroundStyle(Theme.background)
-                    .frame(maxWidth: .infinity, minHeight: 56)
-                    .background(Theme.primary)
-                    .clipShape(Capsule())
+            if showsConvertButton {
+                Section {
+                    Button {
+                        Haptics.impact(.medium)
+                        onConvert()
+                    } label: {
+                        Text("Convert")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.roundedRectangle(radius: 14))
+                    .controlSize(.large)
+                    .tint(Theme.tint)
+                    .accessibilityLabel("Convert")
+                }
             }
-            .accessibilityLabel("Convert")
-            .transition(.opacity.combined(with: .move(edge: .top)))
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.groupedBackground)
+        .tint(Theme.tint)
     }
 
     private var videoAudioQualitySection: some View {
-        HStack(spacing: 10) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+
+        return layout {
             Menu {
                 ForEach(viewModel.videoAudioQualityOptions) { preset in
                     Button {
@@ -130,6 +148,8 @@ struct OutputConfigForm: View {
                     accessibility: "Audio quality"
                 )
             }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.roundedRectangle(radius: 10))
             .disabled(isMenuInteractionDisabled)
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -144,7 +164,11 @@ struct OutputConfigForm: View {
 
     private var resolutionPicker: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+                : AnyLayout(HStackLayout(spacing: 10))
+
+            layout {
                 Menu {
                     ForEach(viewModel.resolutionOptions) { option in
                         Button {
@@ -160,6 +184,8 @@ struct OutputConfigForm: View {
                         accessibility: "Resolution"
                     )
                 }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
                 .disabled(isMenuInteractionDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -172,32 +198,55 @@ struct OutputConfigForm: View {
             }
 
             if viewModel.selectedResolutionID == "custom" {
-                HStack {
-                    TextField("Width", text: Binding(
-                        get: { viewModel.customWidthText },
-                        set: { viewModel.updateCustomWidth($0) }
-                    ))
-                    .keyboardType(.numberPad)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Custom width")
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 10) {
+                        customDimensionField(
+                            "Width",
+                            text: Binding(
+                                get: { viewModel.customWidthText },
+                                set: { viewModel.updateCustomWidth($0) }
+                            )
+                        )
+                        customDimensionField(
+                            "Height",
+                            text: Binding(
+                                get: { viewModel.customHeightText },
+                                set: { viewModel.updateCustomHeight($0) }
+                            )
+                        )
+                    }
+                } else {
+                    HStack {
+                        customDimensionField(
+                            "Width",
+                            text: Binding(
+                                get: { viewModel.customWidthText },
+                                set: { viewModel.updateCustomWidth($0) }
+                            )
+                        )
 
-                    Text("x")
-                        .foregroundStyle(Theme.textMuted)
+                        Text("x")
+                            .foregroundStyle(Theme.textMuted)
 
-                    TextField("Height", text: Binding(
-                        get: { viewModel.customHeightText },
-                        set: { viewModel.updateCustomHeight($0) }
-                    ))
-                    .keyboardType(.numberPad)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Custom height")
+                        customDimensionField(
+                            "Height",
+                            text: Binding(
+                                get: { viewModel.customHeightText },
+                                set: { viewModel.updateCustomHeight($0) }
+                            )
+                        )
+                    }
                 }
             }
         }
     }
 
     private var fpsPicker: some View {
-        HStack(spacing: 10) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+
+        return layout {
             Menu {
                 ForEach(viewModel.fpsOptions) { option in
                     Button {
@@ -213,6 +262,8 @@ struct OutputConfigForm: View {
                     accessibility: "FPS"
                 )
             }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.roundedRectangle(radius: 10))
             .disabled(isMenuInteractionDisabled)
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -232,16 +283,11 @@ struct OutputConfigForm: View {
         } label: {
             Image(systemName: isLocked.wrappedValue ? "lock.fill" : "lock.open")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(isLocked.wrappedValue ? Theme.background : Theme.primary)
-                .frame(width: 42, height: 42)
-                .background(
-                    isLocked.wrappedValue
-                    ? Theme.primary
-                    : Theme.primary.opacity(0.12)
-                )
-                .clipShape(Circle())
+                .frame(minWidth: 42, minHeight: 42)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.circle)
+        .tint(Theme.tint)
         .accessibilityLabel(label)
         .accessibilityValue(isLocked.wrappedValue ? "Locked" : "Unlocked")
     }
@@ -255,25 +301,37 @@ struct OutputConfigForm: View {
                 .font(.caption.weight(.semibold))
         }
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(Theme.background)
-        .padding(.horizontal, 14)
+        .foregroundStyle(Theme.tint)
+        .padding(.horizontal, 4)
         .frame(minHeight: 42)
-        .background(Theme.primary)
-        .clipShape(Capsule())
         .accessibilityLabel(accessibility)
     }
 
     private var targetSizeSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                Text(viewModel.targetControlTitle)
-                    .font(.title3.bold())
-                    .foregroundStyle(Theme.text)
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(viewModel.targetControlTitle)
+                            .font(.title3.bold())
+                            .foregroundStyle(Theme.text)
 
-                Spacer()
+                        if viewModel.shouldShowSinglePassVideoTargetToggle {
+                            singlePassVideoTargetToggle
+                        }
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text(viewModel.targetControlTitle)
+                            .font(.title3.bold())
+                            .foregroundStyle(Theme.text)
 
-                if viewModel.shouldShowSinglePassVideoTargetToggle {
-                    singlePassVideoTargetToggle
+                        Spacer()
+
+                        if viewModel.shouldShowSinglePassVideoTargetToggle {
+                            singlePassVideoTargetToggle
+                        }
+                    }
                 }
             }
 
@@ -293,78 +351,75 @@ struct OutputConfigForm: View {
     }
 
     private var singlePassVideoTargetToggle: some View {
-        Button {
-            Haptics.impact(.light)
-            viewModel.usesSinglePassVideoTargetEncode.toggle()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: viewModel.usesSinglePassVideoTargetEncode ? "checkmark.square.fill" : "square")
-                    .font(.subheadline.weight(.semibold))
-                Text("Fast")
-                    .font(.footnote.weight(.semibold))
+        Toggle("Fast", isOn: Binding(
+            get: { viewModel.usesSinglePassVideoTargetEncode },
+            set: { newValue in
+                Haptics.impact(.light)
+                viewModel.usesSinglePassVideoTargetEncode = newValue
             }
-            .foregroundStyle(viewModel.usesSinglePassVideoTargetEncode ? Theme.background : Theme.primary)
-            .padding(.horizontal, 10)
-            .frame(minHeight: 34)
-            .background(
-                viewModel.usesSinglePassVideoTargetEncode
-                ? Theme.primary
-                : Theme.primary.opacity(0.12)
-            )
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
+        ))
+        .font(.footnote.weight(.semibold))
+        .toggleStyle(.switch)
+        .tint(Theme.tint)
         .accessibilityLabel("Use single-pass target encode")
         .accessibilityValue(viewModel.usesSinglePassVideoTargetEncode ? "On" : "Off")
     }
 
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.title3.bold())
-                .foregroundStyle(Theme.text)
-            content()
+    private func optionRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.text)
+
+                    content()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 14) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.text)
+                        .frame(width: 96, alignment: .leading)
+                        .padding(.top, 10)
+
+                    content()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
     }
 
-    private func optionRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Theme.text)
-                .frame(width: 96, alignment: .leading)
-                .padding(.top, 10)
-
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+    private func customDimensionField(_ title: String, text: Binding<String>) -> some View {
+        TextField(title, text: text)
+            .keyboardType(.numberPad)
+            .textFieldStyle(.roundedBorder)
+            .accessibilityLabel("Custom \(title.lowercased())")
     }
 }
 
 #Preview {
     NavigationStack {
-        ScrollView {
-            OutputConfigForm(
-                viewModel: OutputConfigViewModel(
-                    input: MediaFile(
-                        url: URL(fileURLWithPath: "/tmp/video.mp4"),
-                        originalFilename: "video.mp4",
-                        category: .video,
-                        sizeOnDisk: 100_000_000,
-                        dimensions: CGSize(width: 1920, height: 1080),
-                        duration: 60,
-                        fps: 30,
-                        bitrate: 13_000_000,
-                        audioBitrate: 128_000,
-                        videoCodec: "avc1",
-                        audioCodec: "mp4a",
-                        containerFormat: "mp4"
-                    )
-                ),
-                isMenuInteractionDisabled: false,
-                onConvert: {}
-            )
-            .padding(20)
-        }
+        OutputConfigForm(
+            viewModel: OutputConfigViewModel(
+                input: MediaFile(
+                    url: URL(fileURLWithPath: "/tmp/video.mp4"),
+                    originalFilename: "video.mp4",
+                    category: .video,
+                    sizeOnDisk: 100_000_000,
+                    dimensions: CGSize(width: 1920, height: 1080),
+                    duration: 60,
+                    fps: 30,
+                    bitrate: 13_000_000,
+                    audioBitrate: 128_000,
+                    videoCodec: "avc1",
+                    audioCodec: "mp4a",
+                    containerFormat: "mp4"
+                )
+            ),
+            isMenuInteractionDisabled: false,
+            onConvert: {}
+        )
     }
 }

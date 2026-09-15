@@ -15,7 +15,7 @@ enum FFmpegMetadataOptions {
         }
         for (streamIndex, dict) in policy.retainedStreamTags.sorted(by: { $0.key < $1.key }) {
             for (key, value) in dict.sorted(by: { $0.key < $1.key }) {
-                parts += " -metadata:s:\(streamIndex):\(key)=\(ffmpegQuoted(value))"
+                parts += " -metadata:s:\(streamIndex) \(key)=\(ffmpegQuoted(value))"
             }
         }
         return parts
