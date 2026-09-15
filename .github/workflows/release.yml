@@ -1,0 +1,122 @@
+name: Release IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build unsigned iOS IPA
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    outputs:
+      version: ${{ steps.ipa.outputs.version }}
+      build_number: ${{ steps.ipa.outputs.build_number }}
+      ipa_name: ${{ steps.ipa.outputs.ipa_name }}
+      tag: ${{ steps.ipa.outputs.tag }}
+    steps:
+      - name: Check out the pushed commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Archive and package IPA
+        id: ipa
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: bash Scripts/BuildUnsignedIPA.sh
+
+      - name: Upload release files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-ipa
+          path: |
+            build/ipa-release/${{ steps.ipa.outputs.ipa_name }}
+            build/ipa-release/${{ steps.ipa.outputs.ipa_name }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Keep build log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-log
+          path: build/ipa-release/build.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download validated IPA
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-ipa
+          path: release
+
+      - name: Publish release with IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          APP_VERSION: ${{ needs.build.outputs.version }}
+          APP_BUILD: ${{ needs.build.outputs.build_number }}
+          IPA_NAME: ${{ needs.build.outputs.ipa_name }}
+          COMMIT_SHA: ${{ github.sha }}
+        working-directory: release
+        run: |
+          set -euo pipefail
+          test -s "$IPA_NAME"
+          sha256sum --check "$IPA_NAME.sha256"
+
+          # A retry can resume an incomplete draft, or leave a published release intact.
+          if gh release view "$RELEASE_TAG" --json isDraft,assets > existing-release.json 2>/dev/null; then
+            if [ "$(jq -r '.isDraft' existing-release.json)" = false ]; then
+              jq -e --arg ipa "$IPA_NAME" \
+                'any(.assets[]; .name == $ipa) and any(.assets[]; .name == ($ipa + ".sha256"))' \
+                existing-release.json >/dev/null
+              echo "Release $RELEASE_TAG already contains the IPA and checksum."
+              exit 0
+            fi
+          else
+            cat > release-notes.md <<EOF
+          Automated iOS build from main.
+
+          - Version: $APP_VERSION (build $APP_BUILD)
+          - Source commit: $COMMIT_SHA
+          - Requires iOS or iPadOS 17 or later.
+
+          Download $IPA_NAME and import it into AltStore or Sideloadly to sign and install it with your own Apple account. This IPA is unsigned and cannot be installed directly or uploaded to App Store Connect as-is.
+
+          A SHA-256 checksum is attached alongside the IPA.
+          EOF
+            gh release create "$RELEASE_TAG" \
+              --target "$COMMIT_SHA" \
+              --title "MB Converter $APP_VERSION (build $APP_BUILD)" \
+              --notes-file release-notes.md \
+              --draft
+          fi
+
+          gh release upload "$RELEASE_TAG" "$IPA_NAME" "$IPA_NAME.sha256" --clobber
+          gh release edit "$RELEASE_TAG" --draft=false
+          gh release view "$RELEASE_TAG" --json url --jq '.url' >> "$GITHUB_STEP_SUMMARY"

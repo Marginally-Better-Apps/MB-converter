@@ -2,6 +2,34 @@
 
 [Build and run](DEVELOPMENT.md) · [App Store listing copy](app-store-metadata.md) · [Screenshots](app-store-screenshots/README.md)
 
+## Automatic GitHub releases with an IPA
+
+The [Release IPA workflow](../.github/workflows/release.yml) runs on every push to `main`, including merged pull requests. It can also be started from **Actions → Release IPA → Run workflow**, with `main` selected.
+
+Each successful run:
+
+1. Archives the pushed commit for iOS devices with Xcode 26.6 on the `macos-26` GitHub runner, using the checked-in dependency versions.
+2. Packages an **unsigned IPA** for signing and installation with AltStore or Sideloadly. The app's build number is the workflow run number; the marketing version comes from the Xcode project.
+3. Creates a release such as `v1.0-build.12` with `MB-Converter-1.0-12-unsigned.ipa` and its SHA-256 checksum attached.
+
+The workflow publishes only after the IPA passes validation and both assets upload successfully. A failed upload leaves a draft that a rerun can complete. Rerunning an already published run verifies the expected assets exist and leaves that release intact. A failed build publishes nothing. Build logs are retained as Actions artifacts for seven days; release files are also kept as Actions artifacts for fourteen days and remain attached to the GitHub release afterward.
+
+### Enable it
+
+Commit and push the workflow and `Scripts/BuildUnsignedIPA.sh` to `main`. No Apple certificate, provisioning profile, App Store Connect key, or custom GitHub token is needed. The publishing job requests `contents: write` for GitHub's automatic `GITHUB_TOKEN`; the build job has read-only repository access. Repository or organization policies must allow GitHub Actions, the pinned official actions, and release/tag creation. See [GitHub's token permissions documentation](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token).
+
+Change `MARKETING_VERSION` in the Xcode project when you want a new app version. The workflow supplies `CURRENT_PROJECT_VERSION` at build time and does not commit version bumps back to the repository. The `v*-build.*` tag namespace is reserved for this workflow.
+
+### Build the same unsigned IPA locally
+
+```sh
+BUILD_NUMBER=12 bash Scripts/BuildUnsignedIPA.sh
+```
+
+The IPA, checksum, and build log appear in `build/ipa-release/`, which is ignored by Git. Omit `BUILD_NUMBER` to use the project's existing build number. An optional first argument changes the output directory.
+
+This release is for sideloading: users must re-sign the IPA with their own account. It does not automatically submit to TestFlight or the App Store. Follow the signed archive process below for App Store distribution.
+
 ## Release configuration
 
 | Setting | Value |
