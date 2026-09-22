@@ -12,6 +12,7 @@ struct HomeView: View {
 
     @AppStorage("appColorMode") private var appColorModeRawValue = AppColorMode.system.rawValue
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.isRootSectionActive) private var isRootSectionActive
     @State private var viewModel = HomeViewModel()
@@ -41,31 +42,9 @@ struct HomeView: View {
                 .offset(x: 170, y: -290)
                 .accessibilityHidden(true)
 
-            ScrollView {
-                VStack(spacing: 34) {
-                    Spacer(minLength: 44)
-                    hero
-                    importControls
-
-                    if isImporting {
-                        importStatusView
-                            .padding(18)
-                            .appleGlass(cornerRadius: 22)
-                            .transition(.scale(scale: 0.96).combined(with: .opacity))
-                    }
-
-                    if !dynamicTypeSize.isAccessibilitySize {
-                        Label("You can also drop a file anywhere", systemImage: "arrow.down.doc")
-                            .font(.footnote)
-                            .foregroundStyle(.tertiary)
-                    }
-                    Spacer(minLength: 44)
-                }
-                .frame(maxWidth: constrainedWidth ? 560 : 680)
-                .frame(maxWidth: .infinity, minHeight: 620)
-                .padding(.horizontal, 24)
+            GeometryReader { proxy in
+                homeScrollView(availableSize: proxy.size)
             }
-            .scrollBounceBehavior(.basedOnSize)
         }
         .navigationTitle(showsContentTitle ? "Converter" : "")
         .navigationBarTitleDisplayMode(.large)
@@ -157,6 +136,41 @@ struct HomeView: View {
         .animation(.snappy(duration: 0.35), value: isImporting)
     }
 
+    private func homeScrollView(availableSize: CGSize) -> some View {
+        let maximumWidth: CGFloat = constrainedWidth ? 560 : 680
+        let visibleWidth = horizontalSizeClass == .compact
+            ? min(availableSize.width, UIScreen.main.bounds.width)
+            : availableSize.width
+        let contentWidth = min(max(visibleWidth - 64, 280), maximumWidth)
+        let contentHeight = max(availableSize.height, 620)
+
+        return ScrollView {
+            VStack(spacing: 34) {
+                Spacer(minLength: 44)
+                hero
+                importControls
+
+                if isImporting {
+                    importStatusView
+                        .padding(18)
+                        .appleGlass(cornerRadius: 22)
+                        .transition(.scale(scale: 0.96).combined(with: .opacity))
+                }
+
+                if horizontalSizeClass == .regular && !dynamicTypeSize.isAccessibilitySize {
+                    Label("You can also drop a file anywhere", systemImage: "arrow.down.doc")
+                        .font(.footnote)
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer(minLength: 44)
+            }
+            .frame(width: contentWidth)
+            .frame(minHeight: contentHeight)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
     private var hero: some View {
         VStack(spacing: 14) {
             Image(systemName: "arrow.triangle.2.circlepath")
@@ -197,12 +211,19 @@ struct HomeView: View {
             .accessibilityLabel("Import from Photos")
 
             AppleGlassControlGroup(spacing: 10) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 10) { secondaryImportControls }
+                if dynamicTypeSize.isAccessibilitySize {
                     VStack(spacing: 10) { secondaryImportControls }
+                } else {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
+                        spacing: 10
+                    ) {
+                        secondaryImportControls
+                    }
                 }
             }
         }
+        .padding(.horizontal, 12)
     }
 
     @ViewBuilder
@@ -220,8 +241,7 @@ struct HomeView: View {
             Haptics.impact(.light)
             Task { await importPasteboard() }
         } label: {
-            Label("Clipboard", systemImage: "doc.on.clipboard")
-                .frame(maxWidth: .infinity, minHeight: 28)
+            importControlLabel("Clipboard", systemImage: "doc.on.clipboard")
         }
         .appleGlassButton()
         .buttonBorderShape(.capsule)
@@ -241,13 +261,24 @@ struct HomeView: View {
             Haptics.impact(.light)
             action()
         } label: {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity, minHeight: 28)
+            importControlLabel(title, systemImage: systemImage)
         }
         .appleGlassButton()
         .buttonBorderShape(.capsule)
         .controlSize(.large)
         .disabled(isImporting)
+    }
+
+    private func importControlLabel(_ title: String, systemImage: String) -> some View {
+        VStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.body.weight(.semibold))
+            Text(title)
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, minHeight: 42)
     }
 
     @ViewBuilder
