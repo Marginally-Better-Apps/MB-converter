@@ -28,10 +28,10 @@ struct ProcessingView: View {
 
     var body: some View {
         ZStack {
-            Theme.background.ignoresSafeArea()
+            Color(uiColor: .systemBackground).ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: 30) {
                     statusHeader
                     progressCard
                     activityCard
@@ -39,7 +39,7 @@ struct ProcessingView: View {
                 .frame(maxWidth: 620)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 20)
-                .padding(.vertical, 28)
+                .padding(.vertical, 36)
             }
             .scrollBounceBehavior(.basedOnSize)
         }
@@ -88,9 +88,15 @@ struct ProcessingView: View {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 30, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Theme.tint)
+                .foregroundStyle(.tint)
                 .frame(width: 64, height: 64)
-                .background(Theme.secondaryFill, in: Circle())
+                .rotationEffect(.degrees(viewModel.isRunning && !reduceMotion ? 360 : 0))
+                .animation(
+                    viewModel.isRunning && !reduceMotion
+                        ? .linear(duration: 1.8).repeatForever(autoreverses: false)
+                        : .default,
+                    value: viewModel.isRunning
+                )
                 .accessibilityHidden(true)
 
             VStack(spacing: 5) {
@@ -146,8 +152,7 @@ struct ProcessingView: View {
                 .accessibilityLabel("Conversion in progress. Estimating time remaining.")
             }
         }
-        .padding(20)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 6)
     }
 
     private var activityCard: some View {
@@ -180,7 +185,7 @@ struct ProcessingView: View {
             )
         }
         .padding(.horizontal, 16)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .appleGlass(cornerRadius: 22)
     }
 
     private func activityRow(
@@ -216,20 +221,14 @@ struct ProcessingView: View {
                 path.removeLast()
             }
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 14))
+        .appleGlassButton()
+        .buttonBorderShape(.capsule)
         .controlSize(.large)
-        .tint(Theme.tint)
         .disabled(!viewModel.isRunning)
         .frame(maxWidth: 620)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-                .overlay(Theme.separator)
-        }
     }
 
     @MainActor

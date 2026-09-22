@@ -114,8 +114,8 @@ struct OutputConfigForm: View {
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.roundedRectangle(radius: 14))
+                    .appleGlassButton(prominent: true)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.large)
                     .tint(Theme.tint)
                     .accessibilityLabel("Convert")
@@ -123,8 +123,8 @@ struct OutputConfigForm: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Theme.groupedBackground)
-        .tint(Theme.tint)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .tint(.accentColor)
     }
 
     private var videoAudioQualitySection: some View {
@@ -148,8 +148,8 @@ struct OutputConfigForm: View {
                     accessibility: "Audio quality"
                 )
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 10))
+            .appleGlassButton()
+            .buttonBorderShape(.capsule)
             .disabled(isMenuInteractionDisabled)
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -184,8 +184,8 @@ struct OutputConfigForm: View {
                         accessibility: "Resolution"
                     )
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
+                .appleGlassButton()
+                .buttonBorderShape(.capsule)
                 .disabled(isMenuInteractionDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -262,8 +262,8 @@ struct OutputConfigForm: View {
                     accessibility: "FPS"
                 )
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 10))
+            .appleGlassButton()
+            .buttonBorderShape(.capsule)
             .disabled(isMenuInteractionDisabled)
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -285,7 +285,7 @@ struct OutputConfigForm: View {
                 .font(.subheadline.weight(.semibold))
                 .frame(minWidth: 42, minHeight: 42)
         }
-        .buttonStyle(.bordered)
+        .appleGlassButton()
         .buttonBorderShape(.circle)
         .tint(Theme.tint)
         .accessibilityLabel(label)

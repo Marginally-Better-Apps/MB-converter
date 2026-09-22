@@ -40,7 +40,7 @@ struct InputMetadataEditor: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Theme.groupedBackground)
+        .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(isRootSectionActive ? "Metadata" : "")
         .navigationBarTitleDisplayMode(.inline)
         .tint(Theme.tint)
@@ -59,9 +59,8 @@ struct InputMetadataEditor: View {
         HStack(spacing: 12) {
             Image(systemName: group.systemImage)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(Theme.tint)
+                .foregroundStyle(.tint)
                 .frame(width: 32, height: 32)
-                .background(Theme.secondaryFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(group.title)
@@ -86,7 +85,7 @@ struct InputMetadataEditor: View {
             ?? MetadataFieldGroup(kind: kind, indices: [])
 
         ZStack {
-            Theme.groupedBackground.ignoresSafeArea()
+            Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -105,10 +104,7 @@ struct InputMetadataEditor: View {
                     .tint(Theme.tint)
                     .disabled(group.indices.isEmpty)
                     .padding(16)
-                    .background(
-                        Theme.groupedSurface,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    )
+                    .appleGlass(cornerRadius: 20, interactive: true)
 
                     if kind == .location,
                        !group.indices.allSatisfy({ viewModel.metadataFieldRows[$0].isRemoved }),
@@ -126,19 +122,19 @@ struct InputMetadataEditor: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 24)
                     } else {
-                        LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: 260), spacing: 12, alignment: .top)],
-                            alignment: .leading,
-                            spacing: 12
-                        ) {
-                            ForEach(group.indices, id: \.self) { index in
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(group.indices.enumerated()), id: \.element) { offset, index in
                                 MetadataFieldCard(
                                     row: $viewModel.metadataFieldRows[index],
                                     focusedRowID: $focusedMetadataRowID,
                                     onUserEdit: userEditedField
                                 )
+                                if offset < group.indices.count - 1 {
+                                    Divider().padding(.leading, 16)
+                                }
                             }
                         }
+                        .appleGlass(cornerRadius: 20)
                     }
 
                     AddMetadataFieldMenu(
@@ -530,8 +526,8 @@ private struct AddMetadataFieldMenu: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .foregroundStyle(items.isEmpty ? Theme.textMuted : Theme.tint)
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 10))
+        .appleGlassButton()
+        .buttonBorderShape(.capsule)
         .tint(Theme.tint)
         .disabled(items.isEmpty || isInteractionDisabled)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -729,9 +725,9 @@ private struct MetadataFieldCard: View {
                 }
             }
         }
-        .padding(14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .sheet(isPresented: $isDatePickerPresented) {
             DateTimePickerSheet(
                 date: $pickerDate,
@@ -774,8 +770,8 @@ private struct MetadataFieldCard: View {
                     .frame(width: 32, height: 32)
             }
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 8))
+        .appleGlassButton()
+        .buttonBorderShape(.capsule)
         .tint(Theme.tint)
         .accessibilityLabel("Choose date")
     }
@@ -929,13 +925,8 @@ private struct MetadataLocationCard: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(Theme.textMuted)
         }
-        .padding(12)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Theme.accent.opacity(0.65), lineWidth: 1)
-        )
+        .padding(14)
+        .appleGlass(cornerRadius: 20)
         .sheet(isPresented: $isEditorPresented) {
             LocationEditorSheet(coordinate: $coordinate)
         }

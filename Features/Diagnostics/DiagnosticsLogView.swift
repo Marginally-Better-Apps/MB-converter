@@ -25,7 +25,7 @@ struct DiagnosticsLogView: View {
                     Section {
                         overviewRow
                     }
-                    .listRowBackground(Theme.surface)
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
 
                     ForEach(groupedErrors) { group in
                         Section(group.day.formatted(date: .complete, time: .omitted)) {
@@ -37,7 +37,7 @@ struct DiagnosticsLogView: View {
                                 }
                             }
                         }
-                        .listRowBackground(Theme.surface)
+                        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                     }
 
                     Section {
@@ -48,13 +48,13 @@ struct DiagnosticsLogView: View {
                         .font(.footnote)
                         .foregroundStyle(Theme.textMuted)
                     }
-                    .listRowBackground(Theme.surface)
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
             }
         }
-        .background(Theme.background)
+        .background(Color(uiColor: .systemGroupedBackground))
         .safeAreaInset(edge: .bottom) {
             if !errors.isEmpty {
                 actionBar
@@ -99,8 +99,8 @@ struct DiagnosticsLogView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 14))
+            .appleGlassButton()
+            .buttonBorderShape(.capsule)
             .controlSize(.large)
             .tint(Theme.tint)
             .accessibilityHint("Copies the complete diagnostic report to the clipboard.")
@@ -114,21 +114,16 @@ struct DiagnosticsLogView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 14))
+            .appleGlassButton()
+            .buttonBorderShape(.capsule)
             .controlSize(.large)
             .tint(Theme.tint)
             .accessibilityHint("Exports the complete diagnostic report as a text file.")
         }
-        .frame(maxWidth: 900)
+        .frame(maxWidth: 760)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-                .overlay(Theme.separator)
-        }
     }
 
     private var overviewRow: some View {

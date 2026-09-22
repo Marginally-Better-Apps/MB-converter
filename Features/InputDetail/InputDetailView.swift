@@ -28,21 +28,21 @@ struct InputDetailView: View {
         @Bindable var outputConfigViewModel = outputConfigViewModel
 
         ZStack {
-            Theme.background.ignoresSafeArea()
+            Color(uiColor: .systemBackground).ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: 28) {
                     previewAndMetadataCard(viewModel: outputConfigViewModel)
 
                     essentialOutputSection(viewModel: outputConfigViewModel)
 
                     editorLinks(viewModel: outputConfigViewModel)
                 }
-                .frame(maxWidth: 920)
+                .frame(maxWidth: 820)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 32)
             }
             .simultaneousGesture(
                 TapGesture().onEnded {
@@ -162,8 +162,6 @@ struct InputDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     @ViewBuilder
@@ -189,8 +187,8 @@ struct InputDetailView: View {
                     Label("Edit Media", systemImage: "crop.rotate")
                         .font(.subheadline.weight(.semibold))
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
+                .appleGlassButton()
+                .buttonBorderShape(.capsule)
                 .tint(Theme.tint)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .accessibilityLabel(viewModel.input.category == .video ? "Edit video" : "Edit image")
@@ -271,7 +269,6 @@ struct InputDetailView: View {
 
             if viewModel.shouldShowTargetSize {
                 Divider()
-                    .overlay(Theme.separator)
                 VStack(alignment: .leading, spacing: 12) {
                     Text(viewModel.targetControlTitle)
                         .font(.subheadline.weight(.semibold))
@@ -317,9 +314,8 @@ struct InputDetailView: View {
                     .foregroundStyle(Theme.textMuted)
             }
         }
-        .padding(16)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     @ViewBuilder
@@ -344,9 +340,7 @@ struct InputDetailView: View {
                     )
                 }
 
-                Divider()
-                    .padding(.leading, 56)
-                    .overlay(Theme.separator)
+                Divider().padding(.leading, 54)
             }
 
             NavigationLink {
@@ -363,16 +357,16 @@ struct InputDetailView: View {
             }
         }
         .buttonStyle(.plain)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(6)
+        .appleGlass(cornerRadius: 22)
     }
 
     private func editorLinkLabel(title: String, systemImage: String, detail: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(Theme.tint)
+                .foregroundStyle(.tint)
                 .frame(width: 32, height: 32)
-                .background(Theme.secondaryFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
@@ -446,17 +440,11 @@ struct InputDetailView: View {
                 .font(.headline)
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.roundedRectangle(radius: 14))
+        .appleGlassButton(prominent: true)
+        .buttonBorderShape(.capsule)
         .controlSize(.large)
-        .tint(Theme.tint)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-                .overlay(Theme.separator)
-        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
         .disabled(viewModel.isLoadingDiscoveredMetadata)
         .accessibilityHint("Starts the conversion using the selected settings.")
     }
