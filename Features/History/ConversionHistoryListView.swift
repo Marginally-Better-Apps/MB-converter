@@ -25,7 +25,7 @@ struct ConversionHistoryListView: View {
 
             Section {
                 historySummary
-                    .listRowBackground(Theme.surface)
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
             }
 
             if entries.isEmpty {
@@ -37,13 +37,13 @@ struct ConversionHistoryListView: View {
                     )
                     .foregroundStyle(Theme.text)
                     .frame(maxWidth: .infinity)
-                    .listRowBackground(Theme.surface)
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                 }
             } else {
                 Section("Conversions") {
                     ForEach(entries) { entry in
                         historyRow(entry: entry)
-                            .listRowBackground(Theme.surface)
+                            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
                                     Haptics.warning()
@@ -58,8 +58,8 @@ struct ConversionHistoryListView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Theme.background)
-        .tint(Theme.primary)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .tint(.accentColor)
         .navigationTitle(isRootSectionActive && !showsContentTitle ? "History" : "")
         .navigationBarTitleDisplayMode(.large)
         .onAppear {
@@ -111,12 +111,8 @@ struct ConversionHistoryListView: View {
             } icon: {
                 Image(systemName: store.isEnabled ? "externaldrive.fill" : "hourglass")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.primary)
+                    .foregroundStyle(.tint)
                     .frame(width: 32, height: 32)
-                    .background(
-                        Theme.secondary.opacity(0.2),
-                        in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    )
             }
             .labelStyle(.titleAndIcon)
 
@@ -125,7 +121,7 @@ struct ConversionHistoryListView: View {
             LabeledContent("Storage Used") {
                 Text(MetadataFormatter.bytes(storageBytes))
                     .fontWeight(.semibold)
-                    .foregroundStyle(Theme.primary)
+                        .foregroundStyle(.tint)
                     .monospacedDigit()
             }
             .foregroundStyle(Theme.text)
@@ -137,15 +133,11 @@ struct ConversionHistoryListView: View {
                 } label: {
                     Label("Clear History", systemImage: "trash")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.destructive)
+                        .foregroundStyle(.red)
                         .frame(maxWidth: .infinity, minHeight: 50)
-                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Theme.separator, lineWidth: 1)
-                        }
                 }
-                .buttonStyle(.plain)
+                .appleGlassButton()
+                .buttonBorderShape(.capsule)
             }
         }
         .padding(.vertical, 6)

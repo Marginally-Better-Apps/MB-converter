@@ -1,77 +1,79 @@
 import SwiftUI
 import UIKit
 
-/// App color tokens. Resolves automatically on light/dark trait changes.
-/// Inline hex values — no Asset Catalog setup needed.
+/// A compatibility bridge for older call sites. Every value maps directly to
+/// an Apple semantic color so the system owns contrast and appearance.
 enum Theme {
+    static let text = Color.primary
+    static let textMuted = Color.secondary
+    static let background = Color(uiColor: .systemBackground)
+    static let groupedBackground = Color(uiColor: .systemGroupedBackground)
+    static let surface = Color(uiColor: .secondarySystemBackground)
+    static let groupedSurface = Color(uiColor: .secondarySystemGroupedBackground)
+    static let disabledSurface = Color(uiColor: .tertiarySystemFill)
+    static let primary = Color.accentColor
+    static let secondary = Color(uiColor: .systemFill)
+    static let accent = Color(uiColor: .separator)
+    static let tint = Color.accentColor
+    static let secondaryFill = Color(uiColor: .secondarySystemFill)
+    static let separator = Color(uiColor: .separator)
+    static let disabledFill = Color(uiColor: .tertiarySystemFill)
+    static let destructive = Color.red
+}
 
-    // Light hex            // Dark hex
-    static let text       = dynamic(light: 0x050b0f, dark: 0xf0f6fa)
-    static let background = dynamic(light: 0xeff6fb, dark: 0x0B1622)
-    static let primary    = dynamic(light: 0x003a5c, dark: 0xa3ddff)
-    static let secondary  = dynamic(light: 0x7fc7f0, dark: 0x0f5680)
-    /// In dark mode this is INTENTIONALLY darker than background — use for
-    /// dividers, card borders, disabled states. For actionable accents in dark
-    /// mode, use `Theme.primary`.
-    static let accent     = dynamic(light: 0x3cb2f6, dark: 0x081d2a)
-
-    // MARK: - Surface helpers
-
-    /// Slightly elevated surface for cards, derived from background.
-    static var surface: Color {
-        dynamic(light: 0xffffff, dark: 0x152233)
+extension View {
+    /// Uses native Liquid Glass on iOS 26 and a system material on earlier releases.
+    @ViewBuilder
+    func appleGlass(cornerRadius: CGFloat = 24, interactive: Bool = false) -> some View {
+        if #available(iOS 26.0, *) {
+            if interactive {
+                self.glassEffect(.regular.interactive(), in: .rect(cornerRadius: cornerRadius))
+            } else {
+                self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+            }
+        } else {
+            self
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
+                }
+        }
     }
 
-    /// Flat, recessed surface used to make unavailable controls visually distinct.
-    static var disabledSurface: Color {
-        dynamic(light: 0xdbe3e8, dark: 0x0a1119)
-    }
-
-    /// Subtle text for secondary labels.
-    static var textMuted: Color {
-        dynamic(light: 0x4a5660, dark: 0x9aa9b8)
-    }
-
-    // MARK: - Semantic roles
-
-    /// The app-wide interaction tint. Keeping this semantic alias makes it
-    /// harder for decorative blues to accidentally become actionable colors.
-    static var tint: Color { primary }
-
-    /// Background used behind grouped lists and forms.
-    static var groupedBackground: Color { background }
-
-    /// Elevated content surface used for list rows and media summaries.
-    static var groupedSurface: Color { surface }
-
-    /// Quiet fill for icon wells, selection backgrounds, and secondary actions.
-    static var secondaryFill: Color { secondary.opacity(0.22) }
-
-    /// Separators should remain subtle in both appearances.
-    static var separator: Color { textMuted.opacity(0.18) }
-
-    /// Disabled controls retain enough contrast without looking actionable.
-    static var disabledFill: Color { textMuted.opacity(0.16) }
-
-    static var destructive: Color { .red }
-
-    // MARK: - Construction
-
-    private static func dynamic(light: Int, dark: Int) -> Color {
-        Color(UIColor { trait in
-            let hex = trait.userInterfaceStyle == .dark ? dark : light
-            return UIColor.fromHex(hex)
-        })
+    @ViewBuilder
+    func appleGlassButton(prominent: Bool = false) -> some View {
+        if #available(iOS 26.0, *) {
+            if prominent {
+                self.buttonStyle(.glassProminent)
+            } else {
+                self.buttonStyle(.glass)
+            }
+        } else if prominent {
+            self.buttonStyle(.borderedProminent)
+        } else {
+            self.buttonStyle(.bordered)
+        }
     }
 }
 
-private extension UIColor {
-    static func fromHex(_ hex: Int) -> UIColor {
-        UIColor(
-            red:   CGFloat((hex >> 16) & 0xff) / 255.0,
-            green: CGFloat((hex >>  8) & 0xff) / 255.0,
-            blue:  CGFloat( hex        & 0xff) / 255.0,
-            alpha: 1
-        )
+struct AppleGlassControlGroup<Content: View>: View {
+    let spacing: CGFloat
+    @ViewBuilder let content: Content
+
+    init(spacing: CGFloat = 10, @ViewBuilder content: () -> Content) {
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) {
+                content
+            }
+        } else {
+            content
+        }
     }
 }

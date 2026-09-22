@@ -31,15 +31,15 @@ struct ResultView: View {
 
     var body: some View {
         ZStack {
-            Theme.background.ignoresSafeArea()
+            Color(uiColor: .systemBackground).ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 18) {
+                VStack(spacing: 28) {
                     successHeader
                     outputCard
                     comparisonCard
                 }
-                .frame(maxWidth: 900)
+                .frame(maxWidth: 760)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 24)
@@ -60,8 +60,7 @@ struct ResultView: View {
                     }
                     .padding(.horizontal, 22)
                     .padding(.vertical, 18)
-                    .background(Theme.groupedSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .appleGlass(cornerRadius: 18)
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("Copying converted file")
                 }
@@ -162,8 +161,8 @@ struct ResultView: View {
                 } label: {
                     Label("Rename", systemImage: "pencil")
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
+                .appleGlassButton()
+                .buttonBorderShape(.capsule)
                 .controlSize(.small)
                 .tint(Theme.tint)
                 .accessibilityLabel("Rename output file")
@@ -180,8 +179,7 @@ struct ResultView: View {
 
             responsiveOutputContent
         }
-        .padding(20)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 4)
     }
 
     private var responsiveOutputContent: some View {
@@ -257,8 +255,8 @@ struct ResultView: View {
                 }
             }
         }
-        .padding(20)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(18)
+        .appleGlass(cornerRadius: 24)
         .accessibilityElement(children: .contain)
     }
 
@@ -302,11 +300,10 @@ struct ResultView: View {
             } label: {
                 Label("Share", systemImage: "square.and.arrow.up")
                     .font(.headline)
-                    .foregroundStyle(Theme.background)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.roundedRectangle(radius: 14))
+            .appleGlassButton(prominent: true)
+            .buttonBorderShape(.capsule)
             .controlSize(.large)
             .tint(Theme.tint)
             .accessibilityLabel("Share converted file")
@@ -314,15 +311,10 @@ struct ResultView: View {
             secondaryActions
         }
         .disabled(viewModel.isCopyingToPasteboard)
-        .frame(maxWidth: 900)
+        .frame(maxWidth: 760)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-                .overlay(Theme.separator)
-        }
     }
 
     @ViewBuilder
@@ -357,8 +349,8 @@ struct ResultView: View {
             Label("Copy", systemImage: "doc.on.doc")
                 .frame(maxWidth: .infinity, minHeight: 24)
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 14))
+        .appleGlassButton()
+        .buttonBorderShape(.capsule)
         .controlSize(.large)
         .tint(Theme.tint)
         .accessibilityLabel("Copy file to clipboard")
@@ -379,8 +371,8 @@ struct ResultView: View {
             Label("Done", systemImage: "checkmark")
                 .frame(maxWidth: .infinity, minHeight: 24)
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 14))
+        .appleGlassButton()
+        .buttonBorderShape(.capsule)
         .controlSize(.large)
         .tint(Theme.tint)
         .accessibilityLabel("Done")

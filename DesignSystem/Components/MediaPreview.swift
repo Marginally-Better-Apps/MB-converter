@@ -392,12 +392,7 @@ struct CropEditorView: View {
                 onUserGestureEnded: { syncTextFromLive() }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.surface.opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Theme.accent, lineWidth: 1)
-            }
+            .appleGlass(cornerRadius: 18)
             .padding(.horizontal, 20)
             .padding(.top, 12)
             .padding(.bottom, 10)
@@ -846,12 +841,7 @@ private struct PreviewChrome: ViewModifier {
     func body(content: Content) -> some View {
         if enabled {
             content
-                .background(Theme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Theme.accent, lineWidth: 1)
-                )
+                .appleGlass(cornerRadius: 24)
         } else {
             content
         }

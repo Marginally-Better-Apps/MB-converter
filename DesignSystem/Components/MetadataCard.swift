@@ -44,14 +44,8 @@ struct MetadataCard: View {
                 }
             }
         }
-        .padding(18)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Theme.accent, lineWidth: 1)
-        )
     }
 
     init(title: String = "Metadata", media: MediaFile) {

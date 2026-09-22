@@ -18,21 +18,21 @@ struct TargetSizeSlider: View {
                     if showsRemuxBadge {
                         Text("Remux")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.primary)
+                            .foregroundStyle(.tint)
                         Button {
                             Haptics.impact(.light)
                             isRemuxInfoPresented = true
                         } label: {
                             Image(systemName: "info.circle")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(Theme.textMuted)
+                            .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("What is remux?")
                     } else {
                         Text(valueLabel ?? MetadataFormatter.bytes(targetBytes))
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.primary)
+                            .foregroundStyle(.tint)
                     }
                 }
 
@@ -40,7 +40,7 @@ struct TargetSizeSlider: View {
 
                 Text(minimumLabel ?? "Min: \(MetadataFormatter.bytes(minimumSizeBytes))")
                     .font(.caption)
-                    .foregroundStyle(Theme.textMuted)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.trailing)
             }
 
@@ -53,13 +53,13 @@ struct TargetSizeSlider: View {
                     }
                 }
             )
-            .tint(Theme.primary)
+            .tint(.accentColor)
             .accessibilityLabel(accessibilityLabel)
 
             if let estimatedLabel, !estimatedLabel.isEmpty {
                 Text(estimatedLabel)
                     .font(.caption)
-                    .foregroundStyle(Theme.textMuted)
+                    .foregroundStyle(.secondary)
             }
         }
         .alert("What is remux?", isPresented: $isRemuxInfoPresented) {

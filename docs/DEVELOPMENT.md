@@ -82,11 +82,15 @@ The app offers MP4 (H.264/HEVC), MOV, M4A, AAC, WAV, JPEG, PNG, HEIC, WebP, and 
 | `App/` | App entry point, navigation, appearance, privacy manifest |
 | `Assets.xcassets/` | App icon and assets |
 | `Core/` | Conversion, metadata inspection, format compatibility, imports, history, diagnostics, models |
-| `DesignSystem/` | Theme, haptics, reusable controls |
+| `DesignSystem/` | System appearance bridge, haptics, reusable controls |
 | `Features/` | Import, editing, conversion, results, history, and diagnostics screens |
 | `Scripts/` | Build-time removal of unsupported framework architectures |
 | `Converter.xcodeproj/` | Project, shared scheme, dependency lockfile |
 | `docs/` | Build/release guides, listing copy, original screenshots |
+
+## Appearance
+
+The interface uses system typography, semantic colors, native controls, and system spacing. iOS 26 uses Liquid Glass for floating controls and action groups. iOS 17 and 18 use the matching system material fallback. `DesignSystem/Theme.swift` only bridges older call sites to Apple semantic colors and contains no app palette.
 
 ## Storage and diagnostics
 

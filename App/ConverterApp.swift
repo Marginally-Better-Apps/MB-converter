@@ -95,13 +95,11 @@ struct ConverterRootView: View {
                 ideal: dynamicTypeSize.isAccessibilitySize ? 300 : 240,
                 max: dynamicTypeSize.isAccessibilitySize ? 360 : 300
             )
-            .tint(Theme.tint)
-            .scrollContentBackground(.hidden)
-            .background(Theme.groupedBackground)
+            .tint(.accentColor)
         } detail: {
             adaptiveDetail
         }
-        .tint(Theme.tint)
+        .tint(.accentColor)
         .preferredColorScheme(AppColorMode(rawValue: appColorModeRawValue)?.colorScheme)
         .onAppear {
             adaptNavigation(to: horizontalSizeClass)

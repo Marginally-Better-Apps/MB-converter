@@ -36,12 +36,11 @@ struct FormatPicker: View {
                     .font(.caption.weight(.semibold))
             }
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Theme.tint)
-            .padding(.horizontal, 4)
-            .frame(minHeight: 42)
+            .padding(.horizontal, 6)
+            .frame(minHeight: 38)
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 10))
+        .appleGlassButton()
+        .buttonBorderShape(.capsule)
         .disabled(isInteractionDisabled)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -60,7 +59,11 @@ struct FormatPicker: View {
             Haptics.selection()
             selection = format
         } label: {
-            Text(format.displayName)
+            if format == selection {
+                Label(format.displayName, systemImage: "checkmark")
+            } else {
+                Text(format.displayName)
+            }
         }
     }
 }
