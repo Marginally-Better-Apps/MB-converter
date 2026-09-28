@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import PhotosUI
 import SwiftUI
@@ -13,12 +14,14 @@ struct HomeView: View {
 
     @AppStorage("appColorMode") private var appColorModeRawValue = AppColorMode.system.rawValue
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.isRootSectionActive) private var isRootSectionActive
     @State private var viewModel = HomeViewModel()
-    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var selectedImageItem: PhotosPickerItem?
+    @State private var selectedVideoItem: PhotosPickerItem?
     @State private var isFileImporterPresented = false
     @State private var isLinkImportPresented = false
     @State private var linkURLText = ""
@@ -38,94 +41,49 @@ struct HomeView: View {
         ZStack {
             homeBackground
 
-            ZStack(alignment: .topLeading) {
-                homeHeader
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        homeHeader
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                VStack(alignment: .leading, spacing: 24) {
-                    LazyVGrid(columns: importGridColumns, spacing: 14) {
-                        PhotosPicker(
-                            selection: $selectedPhotoItem,
-                            matching: .any(of: [.images, .videos]),
-                            preferredItemEncoding: .current
-                        ) {
-                            importSourceCard(
-                                "Photos",
-                                subtitle: "Choose a photo or video",
-                                systemImage: "photo.on.rectangle.angled"
-                            )
-                        }
-                        .buttonStyle(HomeImportCardButtonStyle())
-                        .simultaneousGesture(TapGesture().onEnded { Haptics.impact(.light) })
-                        .disabled(isImporting)
-                        .accessibilityLabel("Import from Photos")
+                        homeIntroduction
+                            .padding(.top, 34)
 
-                        Button {
-                            Haptics.impact(.light)
-                            isFileImporterPresented = true
-                        } label: {
-                            importSourceCard(
-                                "Files",
-                                subtitle: "Browse device or cloud storage",
-                                systemImage: "folder"
-                            )
-                        }
-                        .buttonStyle(HomeImportCardButtonStyle())
-                        .disabled(isImporting)
-                        .accessibilityLabel("Import from Files")
+                        VStack(spacing: 14) {
+                            primaryImportControls
+                            secondaryImportControls
 
-                        Button {
-                            Haptics.impact(.light)
-                            linkURLText = ""
-                            isLinkImportPresented = true
-                        } label: {
-                            importSourceCard(
-                                "From Link",
-                                subtitle: "Download a file up to 150 MB",
-                                systemImage: "link"
-                            )
+                            if isImporting {
+                                importStatusCard
+                                    .transition(
+                                        accessibilityReduceMotion
+                                            ? .opacity
+                                            : .move(edge: .bottom).combined(with: .opacity)
+                                    )
+                            }
                         }
-                        .buttonStyle(HomeImportCardButtonStyle())
-                        .disabled(isImporting)
-                        .accessibilityLabel("Import file from web link")
-                        .accessibilityHint("Downloads a supported media file up to 150 megabytes.")
+                        .padding(.top, 20)
 
-                        Button {
-                            Haptics.impact(.light)
-                            Task { await importPasteboard() }
-                        } label: {
-                            importSourceCard(
-                                "Clipboard",
-                                subtitle: clipboardSubtitle,
-                                systemImage: "doc.on.clipboard"
-                            )
+                        if horizontalSizeClass == .regular {
+                            Spacer(minLength: 28)
+                            homeDropHint
                         }
-                        .buttonStyle(HomeImportCardButtonStyle())
-                        .disabled(viewModel.pasteboardImportLabel == nil || isImporting)
-                        .accessibilityLabel(
-                            viewModel.pasteboardImportLabel.map { "Paste \($0) from clipboard" } ?? "Paste from clipboard"
-                            )
+
+                        Spacer(minLength: 24)
+
+                        homeFooter
+                            .padding(.bottom, 12)
                     }
-
-                    if isImporting {
-                        importStatusCard
-                            .transition(
-                                accessibilityReduceMotion
-                                    ? .opacity
-                                    : .move(edge: .bottom).combined(with: .opacity)
-                            )
-                    }
+                    .padding(.top, 20)
+                    .frame(minHeight: geometry.size.height, alignment: .top)
+                    .frame(maxWidth: constrainedWidth ? 560 : 600)
+                    .padding(.horizontal, 24)
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .frame(
-                maxWidth: constrainedWidth ? 640 : 760,
-                maxHeight: .infinity,
-                alignment: .topLeading
-            )
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(
                 accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2),
                 value: isImporting
@@ -141,11 +99,18 @@ struct HomeView: View {
         ) { result in
             handleFileImporter(result)
         }
-        .onChange(of: selectedPhotoItem) { _, item in
+        .onChange(of: selectedImageItem) { _, item in
             guard let item else { return }
             Task {
-                await importPhoto(item)
-                selectedPhotoItem = nil
+                await importPhotoLibraryItem(item)
+                selectedImageItem = nil
+            }
+        }
+        .onChange(of: selectedVideoItem) { _, item in
+            guard let item else { return }
+            Task {
+                await importPhotoLibraryItem(item)
+                selectedVideoItem = nil
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -201,40 +166,129 @@ struct HomeView: View {
         } message: {
             Text("The file must be a supported format and 150 MB or smaller. Use a direct link to the file when possible.")
         }
-        .sheet(isPresented: $isSettingsPresented) {
+        .navigationDestination(isPresented: $isSettingsPresented) {
             settingsView
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
         }
     }
 
     // MARK: - Import controls
 
-    private var homeBackground: some View {
-        ZStack {
-            Theme.background
+    private var primaryImportControls: some View {
+        LazyVGrid(columns: importGridColumns, spacing: 16) {
+            PhotosPicker(
+                selection: $selectedImageItem,
+                matching: .images,
+                preferredItemEncoding: .current
+            ) {
+                HomeImportSourceCard(
+                    title: "Photos",
+                    subtitle: "Choose an image",
+                    systemImage: "photo.on.rectangle.angled"
+                )
+            }
+            .simultaneousGesture(TapGesture().onEnded { Haptics.impact(.light) })
+            .accessibilityLabel("Import an image from Photos")
 
-            LinearGradient(
-                colors: [
-                    Theme.secondary.opacity(colorScheme == .dark ? 0.16 : 0.2),
-                    Theme.background.opacity(0.45),
-                    Theme.background
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            PhotosPicker(
+                selection: $selectedVideoItem,
+                matching: .videos,
+                preferredItemEncoding: .current
+            ) {
+                HomeImportSourceCard(
+                    title: "Videos",
+                    subtitle: "Choose a video",
+                    systemImage: "video"
+                )
+            }
+            .simultaneousGesture(TapGesture().onEnded { Haptics.impact(.light) })
+            .accessibilityLabel("Import a video from Photos")
+        }
+        .buttonStyle(HomeImportCardButtonStyle())
+        .disabled(isImporting)
+    }
 
-            RadialGradient(
-                colors: [
-                    Theme.primary.opacity(colorScheme == .dark ? 0.1 : 0.055),
-                    .clear
-                ],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 360
+    private var secondaryImportControls: some View {
+        VStack(spacing: 0) {
+            Button {
+                Haptics.impact(.light)
+                isFileImporterPresented = true
+            } label: {
+                HomeImportSourceRow(
+                    title: "Files",
+                    subtitle: "Browse your device or cloud",
+                    systemImage: "folder"
+                )
+            }
+            .disabled(isImporting)
+            .accessibilityLabel("Import from Files")
+
+            Rectangle()
+                .fill(Theme.Home.separator)
+                .frame(height: 0.5)
+                .padding(.leading, 64)
+                .padding(.trailing, 24)
+                .accessibilityHidden(true)
+
+            Button {
+                Haptics.impact(.light)
+                linkURLText = ""
+                isLinkImportPresented = true
+            } label: {
+                HomeImportSourceRow(
+                    title: "From Link",
+                    subtitle: "Download a media file",
+                    systemImage: "link"
+                )
+            }
+            .disabled(isImporting)
+            .accessibilityLabel("Import file from web link")
+            .accessibilityHint("Downloads a supported media file up to 150 megabytes.")
+
+            Rectangle()
+                .fill(Theme.Home.separator)
+                .frame(height: 0.5)
+                .padding(.leading, 64)
+                .padding(.trailing, 24)
+                .accessibilityHidden(true)
+
+            Button {
+                Haptics.impact(.light)
+                Task { await importPasteboard() }
+            } label: {
+                HomeImportSourceRow(
+                    title: "Clipboard",
+                    subtitle: pasteboardSubtitle,
+                    systemImage: "doc.on.clipboard",
+                    thumbnail: viewModel.pasteboardPreviewThumbnail,
+                    keepsRowContentsOnOneLine: true
+                )
+            }
+            .disabled(viewModel.pasteboardImportLabel == nil || isImporting)
+            .accessibilityLabel(
+                viewModel.pasteboardImportLabel.map { "Paste \($0) from clipboard" } ?? "Paste from clipboard"
             )
         }
-        .ignoresSafeArea()
+        .buttonStyle(HomeImportCardButtonStyle())
+        .background(Theme.Home.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(
+                    Theme.Home.controlBorder,
+                    lineWidth: 1.5
+                )
+        }
+        .shadow(
+            color: colorScheme == .dark ? .black.opacity(0.22) : Theme.primary.opacity(0.09),
+            radius: 22,
+            x: 0,
+            y: 12
+        )
+    }
+
+    private var homeBackground: some View {
+        Theme.Home.background
+            .ignoresSafeArea()
     }
 
     @ViewBuilder
@@ -245,25 +299,91 @@ struct HomeView: View {
                 homeHeaderActions
             }
         } else {
-            HStack(alignment: .center, spacing: 12) {
-                homeTitle
-                Spacer(minLength: 8)
-                homeHeaderActions
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) {
+                    homeTitle
+                        .fixedSize()
+                    Spacer(minLength: 8)
+                    homeHeaderActions
+                }
+
+                VStack(alignment: .leading, spacing: 16) {
+                    homeTitle
+                    homeHeaderActions
+                }
             }
         }
     }
 
     private var homeTitle: some View {
         Text("MB Converter")
-            .font(.largeTitle.bold())
+            .font(.system(.largeTitle, design: .default, weight: .semibold))
+            .tracking(-1.2)
             .foregroundStyle(Theme.text)
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
+            .fixedSize(horizontal: false, vertical: true)
             .accessibilityAddTraits(.isHeader)
     }
 
+    private var homeIntroduction: some View {
+        VStack(alignment: .center, spacing: 7) {
+            if !dynamicTypeSize.isAccessibilitySize {
+                Text("START A CONVERSION")
+                    .font(.caption.weight(.bold))
+                    .tracking(1.5)
+                    .hidden()
+                    .accessibilityHidden(true)
+            }
+
+            Text("Choose a source")
+                .font(.system(.title2, design: .default, weight: .semibold))
+                .foregroundStyle(Theme.text)
+                .accessibilityAddTraits(.isHeader)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private var homeDropHint: some View {
+        VStack(spacing: 7) {
+            Image(systemName: "square.and.arrow.down")
+                .font(.system(size: 25, weight: .light))
+                .foregroundStyle(Theme.primary)
+                .accessibilityHidden(true)
+
+            Text("Drag a file here")
+                .font(.headline)
+                .foregroundStyle(Theme.text)
+
+            Text("Drop a file from Files to import it.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.textMuted)
+        }
+        .frame(maxWidth: .infinity, minHeight: 118)
+        .padding(.vertical, 12)
+        .background(
+            Theme.Home.surface,
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(
+                    Theme.Home.controlBorder,
+                    style: StrokeStyle(lineWidth: 1.5, dash: [7, 7])
+                )
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var homeFooter: some View {
+        Text("Marginally Better Converter · Version \(bundleVersion)")
+            .font(.caption2)
+            .foregroundStyle(Theme.textMuted)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("Marginally Better Converter, version \(bundleVersion)")
+    }
+
     private var homeHeaderActions: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             if showsHistoryToolbar {
                 Button {
                     Haptics.impact(.light)
@@ -287,20 +407,20 @@ struct HomeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Open settings")
         }
-        .font(.title3.weight(.semibold))
+        .font(.system(size: 18, weight: .medium))
         .foregroundStyle(Theme.primary)
         .padding(4)
-        .background(
-            Theme.surface.opacity(colorScheme == .dark ? 0.72 : 0.82),
-            in: Capsule()
-        )
+        .background {
+            Capsule()
+                .fill(Theme.Home.surface)
+        }
         .overlay {
             Capsule()
-                .stroke(Theme.primary.opacity(colorScheme == .dark ? 0.22 : 0.1), lineWidth: 1)
+                .strokeBorder(Theme.Home.controlBorder, lineWidth: 1.5)
         }
         .shadow(
-            color: Color.black.opacity(colorScheme == .dark ? 0 : 0.055),
-            radius: 10,
+            color: colorScheme == .dark ? .black.opacity(0.18) : Theme.primary.opacity(0.09),
+            radius: 16,
             x: 0,
             y: 5
         )
@@ -311,38 +431,19 @@ struct HomeView: View {
             return [GridItem(.flexible())]
         }
         return [
-            GridItem(.flexible(), spacing: 14),
-            GridItem(.flexible(), spacing: 14)
+            GridItem(.flexible(), spacing: 16),
+            GridItem(.flexible(), spacing: 16)
         ]
-    }
-
-    private var clipboardSubtitle: String {
-        if let type = viewModel.pasteboardImportLabel {
-            return "Paste \(type) from the clipboard"
-        }
-        return "No supported media is available"
-    }
-
-    private func importSourceCard(
-        _ title: String,
-        subtitle: String,
-        systemImage: String
-    ) -> some View {
-        HomeImportSourceCard(
-            title: title,
-            subtitle: subtitle,
-            systemImage: systemImage
-        )
     }
 
     private var importStatusCard: some View {
         importStatusView
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .background(Theme.Home.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Theme.separator, lineWidth: 1)
+                    .strokeBorder(Theme.Home.controlBorder, lineWidth: 1.5)
             }
             .shadow(
                 color: Color.black.opacity(colorScheme == .dark ? 0 : 0.07),
@@ -369,6 +470,22 @@ struct HomeView: View {
 
     private var isImporting: Bool {
         viewModel.isImporting || previewImportProgress != nil
+    }
+
+    private var pasteboardSubtitle: String {
+        guard let label = viewModel.pasteboardImportLabel else {
+            return "No supported media copied"
+        }
+
+        let format = viewModel.pasteboardImportFileExtension ?? label
+        var details = [format]
+        if let fileSizeBytes = viewModel.pasteboardFileSizeBytes {
+            details.append(ByteCountFormatter.string(fromByteCount: fileSizeBytes, countStyle: .file).lowercased())
+        }
+        if let duration = viewModel.pasteboardDuration {
+            details.append(MetadataFormatter.durationText(duration))
+        }
+        return details.joined(separator: " • ")
     }
 
     private struct DownloadProgressPrompt: View {
@@ -441,7 +558,7 @@ struct HomeView: View {
         }
     }
 
-    private func importPhoto(_ item: PhotosPickerItem) async {
+    private func importPhotoLibraryItem(_ item: PhotosPickerItem) async {
         if let media = await viewModel.importFromPhotos(item) {
             path.append(.inputDetail(media))
         }
@@ -466,138 +583,142 @@ struct HomeView: View {
     }
 
     private var settingsView: some View {
-        NavigationStack {
-            Form {
-                Section("Appearance") {
-                    if dynamicTypeSize.isAccessibilitySize {
-                        Picker("Appearance", selection: $themeSelection) {
-                            ForEach(ThemeSelection.allCases) { option in
-                                Text(option.title).tag(option)
-                            }
+        Form {
+            Section("Appearance") {
+                if dynamicTypeSize.isAccessibilitySize {
+                    PopoverDropdown(
+                        title: themeSelection.title,
+                        accessibilityLabel: "Appearance",
+                        options: ThemeSelection.allCases,
+                        optionTitle: { $0.title },
+                        isSelected: { $0 == themeSelection },
+                        onSelect: { themeSelection = $0 }
+                    )
+                } else {
+                    Picker("Appearance", selection: $themeSelection) {
+                        ForEach(ThemeSelection.allCases) { option in
+                            Text(option.title).tag(option)
                         }
-                        .pickerStyle(.menu)
-                    } else {
-                        Picker("Appearance", selection: $themeSelection) {
-                            ForEach(ThemeSelection.allCases) { option in
-                                Text(option.title).tag(option)
-                            }
-                        }
-                        .pickerStyle(.segmented)
                     }
-                }
-                .listRowBackground(Theme.surface)
-
-                Section("History") {
-                    Toggle("Save conversion history", isOn: conversionHistoryEnabledBinding)
-                }
-                .listRowBackground(Theme.surface)
-
-                Section {
-                    NavigationLink {
-                        DiagnosticsLogView()
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: diagnosticsErrorCount == 0
-                                  ? "checkmark.circle"
-                                  : "exclamationmark.triangle.fill")
-                                .foregroundStyle(diagnosticsErrorCount == 0 ? Theme.primary : Theme.destructive)
-                                .frame(width: 28)
-
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Error Log")
-                                    .foregroundStyle(Theme.text)
-                                Text(diagnosticsSummary)
-                                    .font(.subheadline)
-                                    .foregroundStyle(Theme.textMuted)
-                            }
-
-                            Spacer(minLength: 8)
-                            if diagnosticsErrorCount > 0 {
-                                Text(String(diagnosticsErrorCount))
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Theme.destructive, in: Capsule())
-                            }
-                        }
-                        .padding(.vertical, 3)
-                    }
-                    .accessibilityHint("Opens recorded errors with conversion context and technical details.")
-                } header: {
-                    Text("Diagnostics")
-                } footer: {
-                    Text("Errors are saved across launches and can be reviewed, copied, or exported.")
-                }
-                .listRowBackground(Theme.surface)
-
-                Section("App") {
-                    LabeledContent("Name") {
-                        Text("Marginally Better Converter")
-                            .foregroundStyle(Theme.textMuted)
-                    }
-                    LabeledContent("Version") {
-                        Text(bundleVersion)
-                            .foregroundStyle(Theme.textMuted)
-                    }
-                    LabeledContent("Build") {
-                        Text(bundleBuild)
-                            .foregroundStyle(Theme.textMuted)
-                    }
-                    Button {
-                        Haptics.impact(.light)
-                        if let url = URL(string: "https://github.com/Marginally-Better-Apps/MB-converter") {
-                            openURL(url)
-                        }
-                    } label: {
-                        Label("View on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
-                    }
-                }
-                .listRowBackground(Theme.surface)
-            }
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
-            .tint(Theme.primary)
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        Haptics.impact(.light)
-                        isSettingsPresented = false
-                    }
-                    .fontWeight(.semibold)
+                    .pickerStyle(.segmented)
                 }
             }
-            .preferredColorScheme(themeSelection.colorScheme)
-            .alert("Switch to session-only history?", isPresented: $isConfirmDisableSavedHistoryPresented) {
-                Button("Cancel", role: .cancel) {}
-                Button("Switch", role: .destructive) {
+            .listRowBackground(Theme.surface)
+
+            Section("History") {
+                Toggle("Save conversion history", isOn: conversionHistoryEnabledBinding)
+            }
+            .listRowBackground(Theme.surface)
+
+            Section {
+                NavigationLink {
+                    DiagnosticsLogView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: diagnosticsErrorCount == 0
+                              ? "checkmark.circle"
+                              : "exclamationmark.triangle.fill")
+                            .foregroundStyle(diagnosticsErrorCount == 0 ? Theme.primary : Theme.destructive)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Error Log")
+                                .foregroundStyle(Theme.text)
+                            Text(diagnosticsSummary)
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.textMuted)
+                        }
+
+                        Spacer(minLength: 8)
+                        if diagnosticsErrorCount > 0 {
+                            Text(String(diagnosticsErrorCount))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Theme.destructive, in: Capsule())
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
+                .accessibilityHint("Opens recorded errors with conversion context and technical details.")
+
+                Button("Clear Error Log", role: .destructive) {
                     Haptics.warning()
-                    ConversionHistoryStore.shared.clearPersistedHistory()
-                    conversionHistoryEnabled = false
-                    ConversionHistoryStore.shared.refreshForCurrentSettings()
+                    DiagnosticsLog.shared.clearErrors()
+                    refreshDiagnosticsSummary()
                 }
-            } message: {
-                Text(
-                    "Turning off saved history removes every saved conversion from this device at once. "
-                    + "Afterward, History only keeps items from this session until you quit and reopen the app."
-                )
+                .disabled(diagnosticsErrorCount == 0)
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text("Errors are saved across launches and can be reviewed, copied, or exported.")
             }
-            .onAppear {
-                themeSelection = resolvedThemeSelection
-                refreshDiagnosticsSummary()
-            }
-            .onChange(of: themeSelection) { _, selection in
-                let newValue = selection.rawValue
-                if appColorModeRawValue != newValue {
-                    Haptics.selection()
-                    appColorModeRawValue = newValue
+            .listRowBackground(Theme.surface)
+
+            Section("App") {
+                NavigationLink {
+                    OpenSourceLicensesView()
+                } label: {
+                    Text("Open Source Licenses")
+                }
+                LabeledContent("Name") {
+                    Text("Marginally Better Converter")
+                        .foregroundStyle(Theme.textMuted)
+                }
+                LabeledContent("Version") {
+                    Text(bundleVersion)
+                        .foregroundStyle(Theme.textMuted)
+                }
+                LabeledContent("Build") {
+                    Text(bundleBuild)
+                        .foregroundStyle(Theme.textMuted)
+                }
+                Button {
+                    Haptics.impact(.light)
+                    if let url = URL(string: "https://github.com/Marginally-Better-Apps/MB-converter") {
+                        openURL(url)
+                    }
+                } label: {
+                    Label("View on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                 }
             }
-            .onChange(of: appColorModeRawValue) { _, _ in
-                themeSelection = resolvedThemeSelection
+            .listRowBackground(Theme.surface)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
+        .tint(Theme.primary)
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .preferredColorScheme(themeSelection.colorScheme)
+        .alert("Switch to session-only history?", isPresented: $isConfirmDisableSavedHistoryPresented) {
+            Button("Cancel", role: .cancel) {}
+            Button("Switch", role: .destructive) {
+                Haptics.warning()
+                ConversionHistoryStore.shared.clearPersistedHistory()
+                conversionHistoryEnabled = false
+                ConversionHistoryStore.shared.refreshForCurrentSettings()
             }
+        } message: {
+            Text(
+                "Turning off saved history removes every saved conversion from this device at once. "
+                + "Afterward, History only keeps items from this session until you quit and reopen the app."
+            )
+        }
+        .onAppear {
+            themeSelection = resolvedThemeSelection
+            refreshDiagnosticsSummary()
+        }
+        .onChange(of: themeSelection) { _, selection in
+            let newValue = selection.rawValue
+            if appColorModeRawValue != newValue {
+                Haptics.selection()
+                appColorModeRawValue = newValue
+            }
+        }
+        .onChange(of: appColorModeRawValue) { _, _ in
+            themeSelection = resolvedThemeSelection
         }
     }
 
@@ -697,91 +818,215 @@ private struct HomeImportSourceCard: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.isEnabled) private var isEnabled
+    @ScaledMetric(relativeTo: .title2) private var iconSize = 27.0
+
+    private var resolvedIconSize: CGFloat {
+        // Keep the icon compact when accessibility text needs more room.
+        dynamicTypeSize.isAccessibilitySize ? 27 : iconSize
+    }
 
     var body: some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
-                HStack(alignment: .top, spacing: 16) {
-                    iconWell
-                    cardCopy
-                    Spacer(minLength: 0)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 14) {
-                    Spacer(minLength: 0)
-                    iconWell
-                    cardCopy
-                    Spacer(minLength: 0)
-                }
-            }
-        }
-        .padding(18)
-        .frame(
-            maxWidth: .infinity,
-            minHeight: dynamicTypeSize.isAccessibilitySize ? 116 : 180,
-            alignment: .topLeading
-        )
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(isEnabled ? Theme.surface : Theme.disabledSurface)
-                .overlay {
-                    if isEnabled {
-                        LinearGradient(
-                            colors: [
-                                Theme.secondary.opacity(0.16),
-                                .clear
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        icon
+                        cardCopy
+                        Spacer(minLength: 0)
+                    }
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        icon
+                        cardCopy
                     }
                 }
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    icon
+                    Spacer(minLength: 18)
+                    cardCopy
+                }
+                .frame(maxWidth: .infinity, minHeight: 136, alignment: .leading)
+            }
+        }
+        .padding(20)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: dynamicTypeSize.isAccessibilitySize ? 100 : nil,
+            alignment: .leading
+        )
+        .background {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(isEnabled ? Theme.Home.surface : Theme.disabledSurface)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(
-                    isEnabled
-                        ? Theme.primary.opacity(colorScheme == .dark ? 0.48 : 0.3)
-                        : Theme.textMuted.opacity(colorScheme == .dark ? 0.24 : 0.34),
-                    lineWidth: isEnabled ? 1.5 : 1
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(
+                    isEnabled ? Theme.Home.controlBorder : Theme.Home.separator,
+                    lineWidth: 1.5
                 )
         }
         .shadow(
-            color: Color.black.opacity(
-                isEnabled ? (colorScheme == .dark ? 0.24 : 0.12) : 0
-            ),
-            radius: 14,
+            color: (colorScheme == .dark ? Color.black : Theme.primary)
+                .opacity(isEnabled ? 0.16 : 0.02),
+            radius: 24,
             x: 0,
-            y: 7
+            y: 16
         )
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(
+            color: Theme.primary.opacity(isEnabled ? 0.06 : 0),
+            radius: 4,
+            x: 0,
+            y: 3
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
 
-    private var iconWell: some View {
+    private var icon: some View {
         Image(systemName: systemImage)
-            .font(.system(size: 21, weight: .semibold))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(isEnabled ? Theme.primary : Theme.textMuted.opacity(0.62))
-            .frame(width: 48, height: 48)
-            .background(
-                isEnabled ? Theme.secondaryFill : Theme.background.opacity(0.82),
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-            )
+            .font(.system(size: resolvedIconSize, weight: .regular))
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(isEnabled ? Theme.Home.iconForeground : Theme.textMuted)
+            .frame(width: resolvedIconSize * 2.1, height: resolvedIconSize * 2.1)
+            .background {
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .fill(isEnabled ? Theme.primary : Theme.disabledFill)
+                    .shadow(color: Theme.primary.opacity(isEnabled ? 0.1 : 0), radius: 10, y: 5)
+            }
+            .accessibilityHidden(true)
     }
 
     private var cardCopy: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.headline)
-                .foregroundStyle(isEnabled ? Theme.text : Theme.textMuted.opacity(0.72))
+                .font(.system(.title3, design: .default, weight: .semibold))
+                .foregroundStyle(isEnabled ? Theme.text : Theme.textMuted)
 
             Text(subtitle)
                 .font(.subheadline)
-                .foregroundStyle(Theme.textMuted.opacity(isEnabled ? 1 : 0.62))
-                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(Theme.textMuted)
         }
+        .fixedSize(horizontal: false, vertical: true)
         .multilineTextAlignment(.leading)
+    }
+}
+
+private struct HomeImportSourceRow: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    var badgeText: String? = nil
+    var thumbnail: UIImage? = nil
+    var keepsRowContentsOnOneLine = false
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        rowContents
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, keepsRowContentsOnOneLine ? 10 : 15)
+            .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+            .background(isEnabled ? Color.clear : Theme.disabledSurface)
+            .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var rowContents: some View {
+        if keepsRowContentsOnOneLine {
+            HStack(spacing: 16) {
+                icon
+                titleLabel.fixedSize(horizontal: true, vertical: true)
+                Spacer(minLength: 8)
+                formatBadge
+                thumbnailView
+                disclosure
+            }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    icon
+                    titleLabel.fixedSize()
+                    Spacer(minLength: 8)
+                    formatBadge
+                    thumbnailView
+                    disclosure
+                }
+
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        icon
+                        Spacer()
+                        disclosure
+                    }
+                    titleLabel
+                    formatBadge
+                    thumbnailView
+                }
+            }
+        }
+    }
+
+    private var icon: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 21, weight: .regular))
+            .foregroundStyle(isEnabled ? Theme.primary : Theme.textMuted)
+            .frame(width: 24)
+            .accessibilityHidden(true)
+    }
+
+    private var titleLabel: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(isEnabled ? Theme.text : Theme.textMuted)
+
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(Theme.textMuted)
+                .lineLimit(1)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var disclosure: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isEnabled ? Theme.primary : Theme.textMuted)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var thumbnailView: some View {
+        if let thumbnail {
+            Image(uiImage: thumbnail)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Theme.Home.controlBorder.opacity(0.55), lineWidth: 1)
+                }
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private var formatBadge: some View {
+        if let badgeText {
+            Text(badgeText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(isEnabled ? Theme.primary : Theme.textMuted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Theme.secondaryFill, in: Capsule())
+                .overlay {
+                    Capsule().strokeBorder(Theme.primary.opacity(0.12), lineWidth: 0.5)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityHidden(true)
+        }
     }
 }
 
@@ -817,6 +1062,21 @@ private struct HomeImportCardButtonStyle: ButtonStyle {
         )
     }
     .environment(\.horizontalSizeClass, .regular)
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Home · Accessibility", traits: .fixedLayout(width: 375, height: 812)) {
+    NavigationStack {
+        HomeView(path: .constant([]))
+    }
+    .environment(\.dynamicTypeSize, .accessibility5)
+    .preferredColorScheme(.light)
+}
+
+#Preview("Home · Landscape", traits: .fixedLayout(width: 844, height: 390)) {
+    NavigationStack {
+        HomeView(path: .constant([]))
+    }
     .preferredColorScheme(.dark)
 }
 

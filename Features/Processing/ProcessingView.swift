@@ -8,7 +8,8 @@ struct ProcessingView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isRootSectionActive) private var isRootSectionActive
-    @State private var viewModel = ProcessingViewModel()
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var viewModel: ProcessingViewModel
     @State private var processingBeganAt = Date()
 
     private let minimumVisibleProcessingDuration: TimeInterval = 0.45
@@ -17,12 +18,13 @@ struct ProcessingView: View {
         input: MediaFile,
         config: ConversionConfig,
         path: Binding<[AppRoute]>,
+        session: ProcessingViewModel? = nil,
         previewViewModel: ProcessingViewModel? = nil
     ) {
         self.input = input
         self.config = config
         self._path = path
-        self._viewModel = State(initialValue: previewViewModel ?? ProcessingViewModel())
+        self._viewModel = State(initialValue: previewViewModel ?? session ?? ProcessingViewModel())
         self.startsConversionAutomatically = previewViewModel == nil
     }
 
@@ -35,6 +37,10 @@ struct ProcessingView: View {
                     statusHeader
                     progressCard
                     activityCard
+                    Text(viewModel.backgroundMode.description)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.textMuted)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: 620)
                 .frame(maxWidth: .infinity)
@@ -52,19 +58,19 @@ struct ProcessingView: View {
         .task {
             guard startsConversionAutomatically else { return }
             processingBeganAt = Date()
-            viewModel.start(input: input, config: config) { result in
-                Task {
-                    await showResult(result)
-                }
-            }
+            viewModel.start(input: input, config: config)
         }
-        .alert("Conversion Failed", isPresented: Binding(
-            get: { viewModel.errorMessage != nil },
-            set: { if !$0 { viewModel.errorMessage = nil } }
+        .task(id: scenePhase == .active ? viewModel.result?.id : nil) {
+            guard scenePhase == .active, let result = viewModel.result else { return }
+            await showResult(result)
+        }
+        .alert(viewModel.isInterrupted ? "Conversion interrupted" : "Conversion Failed", isPresented: Binding(
+            get: { scenePhase == .active && viewModel.errorMessage != nil },
+            set: { if !$0 && scenePhase == .active { viewModel.errorMessage = nil } }
         )) {
             Button("Back to Settings") {
                 Haptics.impact(.light)
-                viewModel.errorMessage = nil
+                viewModel.dismissAttempt()
                 if !path.isEmpty {
                     path.removeLast()
                 }
@@ -72,11 +78,8 @@ struct ProcessingView: View {
             Button("Retry") {
                 Haptics.impact(.medium)
                 viewModel.errorMessage = nil
-                viewModel.retry(input: input, config: config) { result in
-                    Task {
-                        await showResult(result)
-                    }
-                }
+                processingBeganAt = Date()
+                viewModel.retry(input: input, config: config)
             }
         } message: {
             Text(viewModel.errorMessage ?? "Please try again.")
@@ -153,6 +156,16 @@ struct ProcessingView: View {
     private var activityCard: some View {
         VStack(spacing: 0) {
             activityRow(
+                title: "Running on",
+                systemImage: "cpu",
+                value: viewModel.processingBackend
+            )
+
+            Divider()
+                .overlay(Theme.separator)
+                .padding(.leading, 32)
+
+            activityRow(
                 title: "Elapsed",
                 systemImage: "clock",
                 value: viewModel.elapsedText
@@ -194,7 +207,7 @@ struct ProcessingView: View {
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(Theme.textMuted)
                 .multilineTextAlignment(alignsValueLeading ? .leading : .trailing)
-                .fixedSize(horizontal: alignsValueLeading, vertical: false)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(
                     maxWidth: alignsValueLeading ? .infinity : nil,
                     alignment: .trailing
@@ -211,7 +224,7 @@ struct ProcessingView: View {
     private var cancelAction: some View {
         Button("Cancel Conversion", role: .cancel) {
             Haptics.warning()
-            viewModel.cancel()
+            viewModel.dismissAttempt()
             if !path.isEmpty {
                 path.removeLast()
             }
@@ -240,30 +253,25 @@ struct ProcessingView: View {
             try? await Task.sleep(for: .seconds(remaining))
         }
 
-        guard let last = path.last, case .processing = last else { return }
+        guard !Task.isCancelled, scenePhase == .active,
+              viewModel.input == input, viewModel.config == config,
+              viewModel.result?.id == result.id,
+              let last = path.last, case .processing(let currentInput, let currentConfig) = last,
+              currentInput == input, currentConfig == config else { return }
         Haptics.success()
 
-        // A push (append) is what gets the system navigation transition. Replacing the last
-        // route in place usually does not. Push Result on top, then drop Processing underneath
-        // in a follow-up update so the stack is […, inputDetail, result] (not […, result] in place).
+        // Replace Processing in one update. Pushing Result and then removing
+        // Processing during that push can leave stale navigation snapshots.
         if reduceMotion {
-            path.append(.result(input, config, result, fromHistory: false))
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                path[path.count - 1] = .result(input, config, result, fromHistory: false)
+            }
         } else {
             withAnimation {
-                path.append(.result(input, config, result, fromHistory: false))
+                path[path.count - 1] = .result(input, config, result, fromHistory: false)
             }
-        }
-        ConversionHistoryStore.shared.record(input: input, config: config, result: result)
-
-        await Task.yield()
-
-        guard path.count >= 2 else { return }
-        guard case .processing = path[path.count - 2] else { return }
-
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        _ = withTransaction(transaction) {
-            path.remove(at: path.count - 2)
         }
     }
 
@@ -278,6 +286,7 @@ struct ProcessingView: View {
         model.showTwoPassProgress = true
         model.progressIsDeterminate = true
         model.isRunning = true
+        model.processingBackend = "VideoToolbox · H.264 hardware\nDecode: CPU · Filters: CPU"
         model.liveStats = FFmpegEncodingDisplayStats(
             frame: 197,
             fps: 14.9,

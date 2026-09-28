@@ -2,8 +2,12 @@ import SwiftUI
 
 @main
 struct ConverterApp: App {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var conversionSession = ProcessingViewModel()
+
 
     init() {
+        ConversionNotifications.shared.install()
         DiagnosticsLog.shared.beginSession()
         FFmpegRuntimeInfo.logSummary()
         TempStorage.cleanAll()
@@ -13,7 +17,10 @@ struct ConverterApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ConverterRootView()
+            ConverterRootView(session: conversionSession)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            conversionSession.setBackgrounded(phase == .background)
         }
     }
 }
@@ -58,6 +65,12 @@ extension EnvironmentValues {
 }
 
 struct ConverterRootView: View {
+    @State private var session: ProcessingViewModel
+
+    init(session: ProcessingViewModel? = nil) {
+        _session = State(initialValue: session ?? ProcessingViewModel())
+    }
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var convertPath: [AppRoute] = []
@@ -68,6 +81,40 @@ struct ConverterRootView: View {
     @AppStorage("appColorMode") private var appColorModeRawValue = AppColorMode.system.rawValue
 
     var body: some View {
+        Group {
+            if horizontalSizeClass == .regular {
+                splitNavigation
+            } else {
+                // A compact layout has no sidebar to reveal when Done pops to root.
+                adaptiveDetail
+            }
+        }
+        .tint(Theme.tint)
+        .preferredColorScheme(AppColorMode(rawValue: appColorModeRawValue)?.colorScheme)
+        .onAppear {
+            adaptNavigation(to: horizontalSizeClass)
+        }
+        .onChange(of: horizontalSizeClass) { _, newValue in
+            adaptNavigation(to: newValue)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .conversionWarningOpened)) { notification in
+            guard let id = notification.object as? UUID, id == session.attemptID,
+                  let input = session.input, let config = session.config else { return }
+            selectedSection = .convert
+            preferredCompactColumn = .detail
+            // Usually the existing screen is still on the stack. A notification
+            // can also restore it after a navigation/layout reconstruction.
+            if !convertPath.contains(where: { if case .processing = $0 { return true }; return false }) {
+                if let result = session.result {
+                    convertPath = [.inputDetail(input), .result(input, config, result, fromHistory: false)]
+                } else {
+                    convertPath = [.inputDetail(input), .processing(input, config)]
+                }
+            }
+        }
+    }
+
+    private var splitNavigation: some View {
         NavigationSplitView(
             columnVisibility: $columnVisibility,
             preferredCompactColumn: $preferredCompactColumn
@@ -101,14 +148,6 @@ struct ConverterRootView: View {
         } detail: {
             adaptiveDetail
         }
-        .tint(Theme.tint)
-        .preferredColorScheme(AppColorMode(rawValue: appColorModeRawValue)?.colorScheme)
-        .onAppear {
-            adaptNavigation(to: horizontalSizeClass)
-        }
-        .onChange(of: horizontalSizeClass) { _, newValue in
-            adaptNavigation(to: newValue)
-        }
     }
 
     private var isConversionRunning: Bool {
@@ -139,19 +178,23 @@ struct ConverterRootView: View {
             .accessibilityHidden(selectedSection == .history)
             .zIndex(selectedSection == .history ? 0 : 1)
 
-            NavigationStack(path: $historyPath) {
-                ConversionHistoryListView(path: $historyPath, showsContentTitle: true)
-                    .navigationDestination(for: AppRoute.self) { route in
-                        destination(for: route, path: $historyPath) {
-                            showConvertRoot()
+            // Compact layouts push History onto convertPath. Keeping a second,
+            // invisible stack here lets it compete for the same navigation bar.
+            if horizontalSizeClass == .regular {
+                NavigationStack(path: $historyPath) {
+                    ConversionHistoryListView(path: $historyPath)
+                        .navigationDestination(for: AppRoute.self) { route in
+                            destination(for: route, path: $historyPath) {
+                                showConvertRoot()
+                            }
                         }
-                    }
+                }
+                .environment(\.isRootSectionActive, selectedSection == .history)
+                .opacity(selectedSection == .history ? 1 : 0)
+                .allowsHitTesting(selectedSection == .history)
+                .accessibilityHidden(selectedSection != .history)
+                .zIndex(selectedSection == .history ? 1 : 0)
             }
-            .environment(\.isRootSectionActive, selectedSection == .history)
-            .opacity(selectedSection == .history ? 1 : 0)
-            .allowsHitTesting(selectedSection == .history)
-            .accessibilityHidden(selectedSection != .history)
-            .zIndex(selectedSection == .history ? 1 : 0)
         }
         .navigationBarBackButtonHidden(horizontalSizeClass != .regular)
     }
@@ -179,6 +222,7 @@ struct ConverterRootView: View {
     }
 
     private func showConvertRoot() {
+        session.dismissAttempt()
         convertPath.removeAll()
         historyPath.removeAll()
         selectedSection = .convert
@@ -200,7 +244,7 @@ struct ConverterRootView: View {
         case .inputDetail(let media):
             InputDetailView(media: media, path: path)
         case .processing(let media, let config):
-            ProcessingView(input: media, config: config, path: path)
+            ProcessingView(input: media, config: config, path: path, session: session)
         case .result(let media, let config, let result, let fromHistory):
             ResultView(
                 input: media,

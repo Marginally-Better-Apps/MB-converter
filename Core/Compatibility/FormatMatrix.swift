@@ -17,18 +17,18 @@ enum FormatMatrix {
     private static let supportedVideoFilenameExtensionSet = Set(supportedVideoFilenameExtensions)
     private static let supportedAudioFilenameExtensionSet = Set(supportedAudioFilenameExtensions)
 
-    /// Outputs allowed for each input category (v1 set).
+    /// Candidate outputs, filtered against the encoders and muxers in this app build.
     static func allowedOutputs(for category: MediaCategory) -> [OutputFormat] {
         let formats: [OutputFormat] = switch category {
         case .video:
             [
                 // Same-category
-                .mp4_h264, .mp4_hevc, .mov,
+                .mp4_h264, .mp4_hevc, .mov, .webm,
                 // Audio extraction
-                .m4a, .wav, .aac
+                .m4a, .mp3, .wav, .aac, .flac, .ogg, .opus
             ]
         case .audio:
-            [.m4a, .wav, .aac]
+            [.m4a, .mp3, .wav, .aac, .flac, .ogg, .opus]
         case .image:
             [.jpg, .png, .heic, .webpImage, .tiff]
         case .animatedImage:

@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ConversionHistoryListView: View {
     @Binding var path: [AppRoute]
-    var showsContentTitle = false
     /// Allows deterministic previews without mutating the shared history store.
     var previewEntries: [ConversionHistoryEntry]? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -13,16 +12,6 @@ struct ConversionHistoryListView: View {
 
     var body: some View {
         List {
-            if showsContentTitle {
-                Text("History")
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(Theme.text)
-                    .accessibilityAddTraits(.isHeader)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-
             Section {
                 historySummary
                     .listRowBackground(Theme.surface)
@@ -60,8 +49,9 @@ struct ConversionHistoryListView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .tint(Theme.primary)
-        .navigationTitle(isRootSectionActive && !showsContentTitle ? "History" : "")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationTitle(isRootSectionActive ? "History" : "")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .onAppear {
             guard previewEntries == nil else { return }
             store = ConversionHistoryStore.shared
@@ -130,7 +120,7 @@ struct ConversionHistoryListView: View {
             }
             .foregroundStyle(Theme.text)
 
-            if !entries.isEmpty {
+            if store.isEnabled && !entries.isEmpty {
                 Button(role: .destructive) {
                     Haptics.warning()
                     isClearAllConfirming = true

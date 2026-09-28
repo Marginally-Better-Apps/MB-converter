@@ -19,25 +19,35 @@ enum CodecCapability {
     }
 
     static func encoderName(for format: OutputFormat) -> String? {
+        let encoder: String
+        let muxer: String
         switch format {
-        case .mp4_h264, .mov:
-            return "h264_videotoolbox"
+        case .mp4_h264:
+            (encoder, muxer) = ("h264_videotoolbox", "mp4")
+        case .mov:
+            (encoder, muxer) = ("h264_videotoolbox", "mov")
         case .mp4_hevc:
-            return "hevc_videotoolbox"
+            (encoder, muxer) = ("hevc_videotoolbox", "mp4")
         case .webm:
-            return runtimeHasExternalLibrary("libvpx") ? "libvpx-vp9" : nil
+            // WebM output includes Opus audio when the input has an audio track.
+            guard FFmpegRuntimeInfo.hasEncoder("libopus") else { return nil }
+            (encoder, muxer) = ("libvpx-vp9", "webm")
         case .mp3:
-            return runtimeHasExternalLibrary("libmp3lame") ? "libmp3lame" : nil
-        case .m4a, .aac:
-            return "aac"
+            (encoder, muxer) = ("libmp3lame", "mp3")
+        case .m4a:
+            (encoder, muxer) = ("aac", "mp4")
+        case .aac:
+            (encoder, muxer) = ("aac", "adts")
         case .wav:
-            return "pcm_s16le"
+            (encoder, muxer) = ("pcm_s16le", "wav")
         case .flac:
-            return "flac"
+            (encoder, muxer) = ("flac", "flac")
         case .ogg:
-            return runtimeHasExternalLibrary("libvorbis") ? "libvorbis" : nil
+            (encoder, muxer) = ("libvorbis", "ogg")
         case .opus:
-            return runtimeHasExternalLibrary("libopus") ? "libopus" : "opus"
+            (encoder, muxer) = ("libopus", "ogg")
+        // Still-image conversion uses ImageIO/Core Image and its separate WebP library.
+        // Those paths must not disappear when FFmpeg excludes an image encoder.
         case .jpg:
             return "mjpeg"
         case .png:
@@ -49,8 +59,10 @@ enum CodecCapability {
         case .tiff:
             return "tiff"
         case .gif:
-            return "gif"
+            (encoder, muxer) = ("gif", "gif")
         }
+        return FFmpegRuntimeInfo.hasEncoder(encoder) && FFmpegRuntimeInfo.hasMuxer(muxer)
+            ? encoder : nil
     }
 
     static func unsupportedReason(for format: OutputFormat) -> String? {
@@ -58,11 +70,13 @@ enum CodecCapability {
 
         switch format {
         case .webm:
-            return "WebM video output needs the libvpx encoder, which is not included in the bundled FFmpegKit min package."
+            return "WebM output requires the VP9 and Opus encoders and WebM muxer in the bundled FFmpeg runtime."
         case .mp3:
-            return "MP3 output needs the libmp3lame encoder, which is not included in the bundled FFmpegKit min package."
+            return "MP3 output requires the LAME encoder and MP3 muxer in the bundled FFmpeg runtime."
         case .ogg:
-            return "OGG/Vorbis output needs the libvorbis encoder, which is not included in the bundled FFmpegKit min package."
+            return "OGG output requires the Vorbis encoder and Ogg muxer in the bundled FFmpeg runtime."
+        case .opus:
+            return "Opus output requires the libopus encoder and Ogg muxer in the bundled FFmpeg runtime."
         default:
             return "\(format.displayName) output is not available in the bundled FFmpeg runtime."
         }
@@ -81,10 +95,13 @@ enum CodecCapability {
 
     static func decodeIssue(videoCodec: String?) -> DecodeIssue? {
         guard let codec = normalizedCodec(videoCodec), !codec.isEmpty else { return nil }
-        if av1CodecIDs.contains(codec) || codec.hasPrefix("av01") {
+        // FFmpeg's native "av1" decoder uses hardware frames. This adapter's
+        // filter pipeline explicitly selects the bundled dav1d software decoder.
+        if (av1CodecIDs.contains(codec) || codec.hasPrefix("av01")),
+           !FFmpegRuntimeInfo.hasDecoder("libdav1d") {
             return DecodeIssue(
                 codecLabel: displayCodecLabel(videoCodec),
-                reason: "AV1 video is not decodable by the bundled FFmpegKit min package."
+                reason: "The dav1d AV1 decoder is not included in the bundled FFmpeg runtime."
             )
         }
         return nil
@@ -95,7 +112,7 @@ enum CodecCapability {
         if unsupportedAudioCodecIDs.contains(codec) {
             return DecodeIssue(
                 codecLabel: displayCodecLabel(audioCodec),
-                reason: "\(displayCodecLabel(audioCodec)) audio is not decodable by the bundled FFmpegKit min package."
+                reason: "\(displayCodecLabel(audioCodec)) audio is not decodable by the bundled FFmpeg runtime."
             )
         }
         return nil
@@ -103,10 +120,6 @@ enum CodecCapability {
 
     private static let av1CodecIDs: Set<String> = ["av1", "av01"]
     private static let unsupportedAudioCodecIDs: Set<String> = []
-
-    private static func runtimeHasExternalLibrary(_ name: String) -> Bool {
-        FFmpegRuntimeInfo.current.hasExternalLibrary(name)
-    }
 
     private static func normalizedCodec(_ codec: String?) -> String? {
         codec?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

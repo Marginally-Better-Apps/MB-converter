@@ -4,14 +4,15 @@
 
 Convert and compress photos, videos, and audio on your iPhone or iPad. Choose formats, resize files, and share the results. Free and open source.
 
-## Description (1221/4,000 characters)
+## Description (1428/4,000 characters)
 
 Convert and compress photos, videos, and audio on your iPhone or iPad with MB Converter. Change formats, make files smaller, and get your media ready to share.
 
 CONVERT YOUR MEDIA
 - Save images as JPEG, PNG, HEIC, WebP, or TIFF.
-- Export video as MP4 with H.264 or HEVC, or as MOV.
-- Convert audio to M4A, AAC, or WAV.
+- Export video as MP4 with H.264 or HEVC, MOV, or WebM with VP9/Opus.
+- Convert audio to MP3, FLAC, Ogg/Vorbis, Opus, M4A, AAC, or WAV.
+- Import AV1 video and preview more formats with automatic compatibility conversion.
 - Extract audio from videos.
 - Turn animated GIFs into videos or save a still frame.
 
@@ -19,6 +20,7 @@ CONTROL THE OUTPUT
 - Choose a target file size for supported formats.
 - Adjust resolution, frame rate, and audio settings where available.
 - Crop and rotate images and videos.
+- Trim supported videos. Trim audio and adjust volume, speed, and channels.
 - Review, edit, or remove metadata before exporting.
 
 IMPORT AND SHARE
@@ -30,6 +32,15 @@ MADE FOR IPHONE AND IPAD
 Use a layout that adapts to your device, with light and dark appearances. Media conversion runs on your device, with no account required.
 
 MB Converter is free and open source.
+
+## What's New in Version 1.1
+
+- More export formats: MP3, FLAC, Ogg/Vorbis, Opus, and WebM, plus AV1 video import.
+- New audio editing: trim, adjust volume and speed, and choose channels with a preview of your edits.
+- Video trimming and improved playback for more media formats.
+- Improved clipboard and link imports, with waveform thumbnails for audio.
+- Background conversion when iOS permits, with progress and interruption handling.
+- Faster WebP encoding, clearer PNG sizing, improved video color handling, and refreshed editing and conversion screens.
 
 ## Keywords (98/100 bytes; ASCII)
 
@@ -45,7 +56,7 @@ https://github.com/Marginally-Better-Apps/MB-converter
 
 ## Version
 
-1.0
+1.1
 
 ## Copyright
 
@@ -54,4 +65,3 @@ Pending: 2026 followed by the confirmed copyright owner's name. The current repo
 ## Reference
 
 Field requirements: https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information/
-

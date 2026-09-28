@@ -9,10 +9,47 @@ struct FFmpegEncodingDisplayStats: Equatable, Sendable {
     var timeMilliseconds: Int64?
     var throughputBitrate: String?
     var speed: String?
+    /// Execution backend updates also travel through this callback, without timing fields.
+    var processingBackend: String?
+    /// Native image encoders report stages and progress instead of video FPS/speed.
+    var activity: String?
 
     var timeSeconds: Double? {
         guard let timeMilliseconds else { return nil }
         return Double(timeMilliseconds) / 1000.0
+    }
+}
+
+enum ConversionBackendDescription {
+    static func encoder(_ name: String) -> String {
+        if name == "copy" { return "Stream copy · No re-encoding" }
+        if name.contains("videotoolbox") { return "VideoToolbox · \(name.hasPrefix("hevc") ? "HEVC" : "H.264")" }
+        return "CPU · \(name)"
+    }
+
+    static func command(arguments: [String]) -> String? {
+        // Prefer the video encoder when the command also encodes audio.
+        for option in ["-c:v", "-c", "-c:a"] {
+            if let index = arguments.lastIndex(of: option), index + 1 < arguments.count {
+                return encoder(arguments[index + 1])
+            }
+        }
+        return nil
+    }
+
+    static func pipeline(logLine: String) -> String? {
+        let line = logLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if line.hasPrefix("MBF_RETRY ") { return "Retrying · CPU decoding and filtering" }
+        guard line.hasPrefix("Video pipeline: decode="),
+              let decodeEnd = line.range(of: " filter="),
+              let filterEnd = line.range(of: " encoder="),
+              let encoderEnd = line.range(of: " input=") else { return nil }
+        let decode = String(line[line.index(line.startIndex, offsetBy: "Video pipeline: decode=".count)..<decodeEnd.lowerBound])
+        let filter = String(line[decodeEnd.upperBound..<filterEnd.lowerBound])
+        let encoding = String(line[filterEnd.upperBound..<encoderEnd.lowerBound])
+        guard let name = encoding.split(separator: " ").first else { return nil }
+        let hardware = encoding.contains("(hardware required)") ? " hardware" : ""
+        return "\(encoder(String(name)))\(hardware)\nDecode: \(decode.hasPrefix("VideoToolbox") ? "VideoToolbox" : decode) · Filters: \(filter)"
     }
 }
 

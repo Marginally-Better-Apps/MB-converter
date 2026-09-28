@@ -3,96 +3,92 @@ import ImageIO
 import CoreGraphics
 import UniformTypeIdentifiers
 import libwebp
+import Accelerate
 
 #if canImport(MobileCoreServices)
 import MobileCoreServices
 #endif
 
-/// Converts still images using ImageIO + CoreImage.
-/// For lossy targets, performs an 8-iteration binary search on quality to hit target size.
+/// Converts still images using ImageIO and libwebp, with an FFmpeg decode fallback.
+/// Uses quality search for size targets and a single encode for WebP quality mode.
 final class ImageConverter: Converter {
 
+    private let cancellationLock = NSLock()
     private var cancelled = false
+    private let decodeRunner = FFmpegCommandRunner()
 
     func cancel() {
+        cancellationLock.lock()
         cancelled = true
+        cancellationLock.unlock()
+        decodeRunner.cancel()
+    }
+
+    private func checkCancellation() throws {
+        try Task.checkCancellation()
+        cancellationLock.lock()
+        let stopped = cancelled
+        cancellationLock.unlock()
+        if stopped { throw ConversionError.cancelled }
     }
 
     func convert(
         input: MediaFile,
         config: ConversionConfig,
         progress: @escaping @Sendable (Double) -> Void,
-        encodingStats _: (@Sendable (FFmpegEncodingDisplayStats) -> Void)? = nil
+        encodingStats: (@Sendable (FFmpegEncodingDisplayStats) -> Void)? = nil
     ) async throws -> ConversionResult {
-        cancelled = false
+        try checkCancellation()
+        encodingStats?(FFmpegEncodingDisplayStats(processingBackend:
+            config.outputFormat == .webpImage ? "CPU · libwebp" : "ImageIO · System managed"
+        ))
+        encodingStats?(FFmpegEncodingDisplayStats(activity: "Decoding image…"))
         progress(0.05)
 
         guard config.outputFormat.category == .image else {
             throw ConversionError.unsupportedConversion
         }
 
-        guard let source = CGImageSourceCreateWithURL(input.url as CFURL, nil) else {
-            throw ConversionError.invalidInput("Couldn't read image")
+        let decoded = try await withReadableSource(at: input.url) { source in
+            try decodeForConversion(source: source, input: input, config: config)
         }
-
-        let sourceDimensions = try sourceImageDimensions(from: source)
-        let editingSourceDimensions = config.mediaRotation.applied(to: sourceDimensions)
-        var commandConfig = config
-        if config.operationMode == .autoTarget, config.outputFormat.supportsTargetSize {
-            let plan = AutoTargetPlanner.imagePlan(
-                input: Self.planningInput(
-                    input: input,
-                    cropRegion: config.cropRegion,
-                    rotation: config.mediaRotation
-                ),
-                outputFormat: config.outputFormat,
-                targetBytes: config.targetSizeBytes ?? input.sizeOnDisk,
-                lockedDimensions: config.targetDimensions,
-                lockPolicy: config.autoTargetLockPolicy
-            )
-            commandConfig.targetDimensions = plan.targetDimensions
-        }
-
-        // 1. Decode at target-ish size when downscaling to avoid paying full HEIC decode cost.
-        // Cropping needs exact source pixels first, so that path decodes full-size then scales after crop.
-        var workingImage: CGImage
-        if config.cropRegion == nil,
-           let target = commandConfig.targetDimensions,
-           target.width < editingSourceDimensions.width || target.height < editingSourceDimensions.height {
-            let maxPixel = Int(ceil(max(target.width, target.height)))
-            workingImage = try decodeThumbnail(source: source, maxPixelSize: maxPixel)
-        } else {
-            guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-                throw ConversionError.invalidInput("Couldn't read image")
-            }
-            workingImage = cgImage
-        }
+        var workingImage = decoded.image
+        let commandConfig = decoded.config
+        let editingSourceDimensions = config.mediaRotation.applied(to: decoded.sourceDimensions)
 
         workingImage = try rotatedImage(workingImage, rotation: commandConfig.mediaRotation)
+        if commandConfig.isMirrored {
+            workingImage = try mirroredImage(workingImage)
+        }
 
         if let crop = commandConfig.cropRegion?.clamped(to: editingSourceDimensions) {
             workingImage = try croppedImage(workingImage, to: crop)
         }
 
-        if config.cropRegion != nil,
+        if config.cropRegion != nil || config.outputFormat == .png,
            let target = commandConfig.targetDimensions,
            (target.width < CGFloat(workingImage.width) || target.height < CGFloat(workingImage.height)) {
             workingImage = try resizedImage(workingImage, to: target)
         }
         progress(0.3)
-        if cancelled { throw ConversionError.cancelled }
+        try checkCancellation()
 
         let utType = utType(for: config.outputFormat)
         let outputURL = TempStorage.url(for: config.outputFormat)
+        var succeeded = false
+        defer { if !succeeded { try? FileManager.default.removeItem(at: outputURL) } }
 
         // 2. Encode (with target search if applicable)
         let data: Data
         if utType == .webP {
             let quality = max(0, min(1, commandConfig.imageQuality ?? 0.82))
-            data = try encode(image: workingImage, utType: utType, quality: quality, metadataPolicy: commandConfig.metadata)
+            data = try encodeWebPWithLibWebP(
+                image: workingImage, quality: quality, progress: progress, encodingStats: encodingStats
+            )
             progress(0.95)
         } else if let targetBytes = commandConfig.targetSizeBytes,
            commandConfig.outputFormat.supportsTargetSize {
+            encodingStats?(FFmpegEncodingDisplayStats(activity: "Encoding image…"))
             data = try encodeWithTarget(
                 image: workingImage,
                 utType: utType,
@@ -102,16 +98,22 @@ final class ImageConverter: Converter {
             )
         } else {
             // No target or lossless — encode at high quality
+            encodingStats?(FFmpegEncodingDisplayStats(activity: "Encoding image…"))
             data = try encode(image: workingImage, utType: utType, quality: 0.92, metadataPolicy: commandConfig.metadata)
             progress(0.95)
         }
 
+        try checkCancellation()
+        encodingStats?(FFmpegEncodingDisplayStats(encodedSize: "\(data.count)B", activity: "Saving image…"))
         try data.write(to: outputURL, options: .atomic)
+        try checkCancellation()
         progress(1.0)
+        try checkCancellation()
 
         let attrs = try FileManager.default.attributesOfItem(atPath: outputURL.path)
         let size = (attrs[.size] as? Int64) ?? Int64(data.count)
 
+        succeeded = true
         return ConversionResult(
             url: outputURL,
             outputFormat: config.outputFormat,
@@ -122,15 +124,80 @@ final class ImageConverter: Converter {
 
     // MARK: - Encoding
 
+    struct PNGSizeBaseline: Sendable {
+        let bytes: Int64
+        let dimensions: CGSize
+    }
+
+    /// One full-size encode supplies the pixel-ratio estimate. Retain only its
+    /// byte count, never the source raster or encoded output.
+    func measurePNGBaseline(input: MediaFile, config: ConversionConfig) throws -> PNGSizeBaseline {
+        try checkCancellation()
+        guard let source = CGImageSourceCreateWithURL(input.url as CFURL, nil) else {
+            throw ConversionError.invalidInput("Couldn't read image")
+        }
+        return try measurePNGBaseline(source: source, config: config)
+    }
+
+    func measurePNGBaselineWithFallback(input: MediaFile, config: ConversionConfig) async throws -> PNGSizeBaseline {
+        let image = try await withReadableSource(at: input.url) { source in
+            guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                throw ConversionError.invalidInput("Couldn't read image")
+            }
+            return image
+        }
+        return try measurePNGBaseline(image: image, config: config)
+    }
+
+    private func measurePNGBaseline(source: CGImageSource, config: ConversionConfig) throws -> PNGSizeBaseline {
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw ConversionError.invalidInput("Couldn't read image")
+        }
+        return try measurePNGBaseline(image: image, config: config)
+    }
+
+    private func measurePNGBaseline(image: CGImage, config: ConversionConfig) throws -> PNGSizeBaseline {
+        try autoreleasepool {
+            try checkCancellation()
+            var image = try rotatedImage(image, rotation: config.mediaRotation)
+            if config.isMirrored {
+                image = try mirroredImage(image)
+            }
+            if let crop = config.cropRegion?.clamped(to: CGSize(width: image.width, height: image.height)) {
+                image = try croppedImage(image, to: crop)
+            }
+            try checkCancellation()
+            let bytes = try measurePNG(image: image, metadata: config.metadata)
+            try checkCancellation()
+            return PNGSizeBaseline(bytes: bytes, dimensions: CGSize(width: image.width, height: image.height))
+        }
+    }
+
+    private final class PNGByteCounter { var count: Int64 = 0 }
+
+    /// Count the baseline PNG stream without retaining its compressed bytes.
+    private func measurePNG(image: CGImage, metadata: MetadataExportPolicy) throws -> Int64 {
+        let counter = PNGByteCounter()
+        var callbacks = CGDataConsumerCallbacks(putBytes: { context, _, count in
+            guard let context else { return 0 }
+            Unmanaged<PNGByteCounter>.fromOpaque(context).takeUnretainedValue().count += Int64(count)
+            return count
+        }, releaseConsumer: nil)
+        guard let consumer = CGDataConsumer(info: Unmanaged.passUnretained(counter).toOpaque(), cbks: &callbacks),
+              let destination = CGImageDestinationCreateWithDataConsumer(consumer, UTType.png.identifier as CFString, 1, nil)
+        else { throw ConversionError.engineFailed("Couldn't create PNG measurement destination") }
+        return try withExtendedLifetime(counter) {
+            try write(image: image, destination: destination, quality: 1, metadataPolicy: metadata)
+            return counter.count
+        }
+    }
+
     private func encode(
         image: CGImage,
         utType: UTType,
         quality: Double,
         metadataPolicy: MetadataExportPolicy
     ) throws -> Data {
-        if utType == .webP {
-            return try encodeWebPWithLibWebP(image: image, quality: quality)
-        }
         let data = NSMutableData()
         let dest = CGImageDestinationCreateWithData(
             data as CFMutableData,
@@ -141,6 +208,12 @@ final class ImageConverter: Converter {
         guard let dest else {
             throw ConversionError.engineFailed("Couldn't create image destination")
         }
+        try write(image: image, destination: dest, quality: quality, metadataPolicy: metadataPolicy)
+        return data as Data
+    }
+
+    private func write(image: CGImage, destination: CGImageDestination, quality: Double,
+                       metadataPolicy: MetadataExportPolicy) throws {
         var options: [CFString: Any] = [
             kCGImageDestinationLossyCompressionQuality: quality,
             kCGImageDestinationEmbedThumbnail: false
@@ -150,12 +223,11 @@ final class ImageConverter: Converter {
                 options[k] = v
             }
         }
-        CGImageDestinationAddImage(dest, image, options as CFDictionary)
-        let finalized = CGImageDestinationFinalize(dest)
+        CGImageDestinationAddImage(destination, image, options as CFDictionary)
+        let finalized = CGImageDestinationFinalize(destination)
         guard finalized else {
             throw ConversionError.engineFailed("Encode failed")
         }
-        return data as Data
     }
 
     /// Binary-search the quality coefficient to land at-or-just-under `targetBytes`.
@@ -173,7 +245,7 @@ final class ImageConverter: Converter {
         let iterations = 12
 
         for i in 0..<iterations {
-            if cancelled { throw ConversionError.cancelled }
+            try checkCancellation()
             let q = (lo + hi) / 2.0
             let data = try encode(image: image, utType: utType, quality: q, metadataPolicy: metadataPolicy)
 
@@ -232,48 +304,60 @@ final class ImageConverter: Converter {
         return string
     }
 
-    private struct WebPBGRARaster {
-        let width: Int
-        let height: Int
-        let bytesPerRow: Int
-        let bgra: Data
-    }
+    // MARK: - WebP encoding
 
-    /// Single rasterization for WebP: target-size search used to repeat this ~8× per image (very slow on large photos).
-    private func rasterizeBGRAForWebP(image: CGImage) throws -> WebPBGRARaster {
+    /// Draw into the encoder-owned BGRA storage (ARGB words on little-endian Apple CPUs).
+    /// This also materializes ImageIO's potentially lazy HEIC decode, without a second raster.
+    private func prepareWebPPicture(image: CGImage, picture: inout WebPPicture) throws {
         let width = image.width
         let height = image.height
-        let bytesPerRow = width * 4
-        let byteCount = bytesPerRow * height
-        var bgra = Data(count: byteCount)
-
-        let rasterized: Bool = bgra.withUnsafeMutableBytes { raw in
-            guard let base = raw.baseAddress else { return false }
-            guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return false }
-            guard let ctx = CGContext(
-                data: base,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: bytesPerRow,
-                space: space,
-                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-            ) else { return false }
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
-            return true
+        guard width > 0, height > 0, width <= WEBP_MAX_DIMENSION, height <= WEBP_MAX_DIMENSION else {
+            throw ConversionError.invalidInput("WebP supports images up to \(WEBP_MAX_DIMENSION) pixels per side. Choose a smaller resolution.")
         }
-        guard rasterized else {
-            throw ConversionError.engineFailed("Couldn't rasterize image for WebP")
+        picture.use_argb = 1
+        picture.width = Int32(width)
+        picture.height = Int32(height)
+        guard WebPPictureAlloc(&picture) != 0, let pixels = picture.argb else {
+            throw ConversionError.engineFailed("Couldn't allocate pixels for WebP")
         }
-        return WebPBGRARaster(width: width, height: height, bytesPerRow: bytesPerRow, bgra: bgra)
+        let bytesPerRow = Int(picture.argb_stride) * MemoryLayout<UInt32>.stride
+        // Keep the context's lifetime inside this scope before editing its backing pixels.
+        do {
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let context = CGContext(
+                    data: pixels, width: width, height: height, bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow, space: space,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+                  ) else {
+                throw ConversionError.engineFailed("Couldn't rasterize image for WebP")
+            }
+            context.setBlendMode(.copy)
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        try checkCancellation()
+        // Core Graphics produces premultiplied colors; libwebp requires straight alpha.
+        // RGBA's vImage operation works for BGRA too: both have alpha in the last byte.
+        if WebPPictureHasTransparency(&picture) != 0 {
+            var buffer = vImage_Buffer(data: pixels, height: vImagePixelCount(height),
+                                       width: vImagePixelCount(width), rowBytes: bytesPerRow)
+            var destination = buffer
+            let result = vImageUnpremultiplyData_RGBA8888(&buffer, &destination, vImage_Flags(kvImageNoFlags))
+            guard result == kvImageNoError else {
+                throw ConversionError.engineFailed("Couldn't prepare WebP transparency (code \(result))")
+            }
+        }
+        try checkCancellation()
     }
 
-    private func encodeWebPFromRaster(_ raster: WebPBGRARaster, quality: Double) throws -> Data {
+    private func encodeWebPImage(
+        _ image: CGImage, quality: Double, progress: @escaping (Double) -> Void
+    ) throws -> Data {
         var config = WebPConfig()
         let qualityPercent = Float(max(0, min(100, quality * 100)))
         guard WebPConfigPreset(&config, WEBP_PRESET_PHOTO, qualityPercent) != 0 else {
             throw ConversionError.engineFailed("WebP encoder config init failed")
         }
+        // Method 2 failed the size/quality gates; see docs/validation/webp-encoding.md.
         config.method = 3
         config.thread_level = 1
         guard WebPValidateConfig(&config) != 0 else {
@@ -285,9 +369,7 @@ final class ImageConverter: Converter {
             throw ConversionError.engineFailed("WebP picture init failed")
         }
         defer { WebPPictureFree(&picture) }
-        picture.use_argb = 1
-        picture.width = Int32(raster.width)
-        picture.height = Int32(raster.height)
+        try prepareWebPPicture(image: image, picture: &picture)
 
         let writerPtr = UnsafeMutablePointer<WebPMemoryWriter>.allocate(capacity: 1)
         writerPtr.initialize(to: WebPMemoryWriter())
@@ -298,34 +380,123 @@ final class ImageConverter: Converter {
             writerPtr.deallocate()
         }
 
-        let encoded: Data = try raster.bgra.withUnsafeBytes { raw in
-            guard let base = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                throw ConversionError.engineFailed("WebP raster buffer unavailable")
+        let context = WebPProgressContext { percent in
+            do {
+                try self.checkCancellation()
+                progress(Double(percent) / 100)
+                // Cancellation may have been requested by the progress consumer.
+                try self.checkCancellation()
+                return true
+            } catch {
+                return false
             }
-            guard WebPPictureImportBGRA(&picture, base, Int32(raster.bytesPerRow)) != 0 else {
-                throw ConversionError.engineFailed("WebP picture import failed")
-            }
-
-            picture.writer = WebPMemoryWrite
-            picture.custom_ptr = UnsafeMutableRawPointer(writerPtr)
-            guard WebPEncode(&config, &picture) != 0 else {
-                throw ConversionError.engineFailed("WebP encode failed")
-            }
-            guard let mem = writerPtr.pointee.mem, writerPtr.pointee.size > 0 else {
-                throw ConversionError.engineFailed("WebP encode produced no data")
-            }
-            return Data(bytes: mem, count: writerPtr.pointee.size)
         }
-        return encoded
+        picture.progress_hook = { percent, picture in
+            guard let opaque = picture?.pointee.user_data else { return 0 }
+            return Unmanaged<WebPProgressContext>.fromOpaque(opaque).takeUnretainedValue().report(percent) ? 1 : 0
+        }
+        picture.user_data = Unmanaged.passUnretained(context).toOpaque()
+        picture.writer = WebPMemoryWrite
+        picture.custom_ptr = UnsafeMutableRawPointer(writerPtr)
+        progress(0)
+        try checkCancellation()
+        // The C callback borrows this context only for the synchronous encode.
+        let encoded = withExtendedLifetime(context) { WebPEncode(&config, &picture) }
+        try checkCancellation()
+        guard encoded != 0 else {
+            if picture.error_code == VP8_ENC_ERROR_USER_ABORT { throw ConversionError.cancelled }
+            throw ConversionError.engineFailed("WebP encode failed (code \(picture.error_code.rawValue))")
+        }
+        guard let mem = writerPtr.pointee.mem, writerPtr.pointee.size > 0 else {
+            throw ConversionError.engineFailed("WebP encode produced no data")
+        }
+        return Data(bytes: mem, count: writerPtr.pointee.size)
     }
 
-    /// ffmpeg-kit **min** builds omit WebP muxers/encoders; use libwebp directly (SDWebImage/libwebp-Xcode).
-    private func encodeWebPWithLibWebP(image: CGImage, quality: Double) throws -> Data {
-        let raster = try rasterizeBGRAForWebP(image: image)
-        return try encodeWebPFromRaster(raster, quality: quality)
+    private final class WebPProgressContext {
+        let report: (Int32) -> Bool
+        init(report: @escaping (Int32) -> Bool) { self.report = report }
+    }
+
+    private func encodeWebPWithLibWebP(
+        image: CGImage, quality: Double,
+        progress: @escaping @Sendable (Double) -> Void,
+        encodingStats: (@Sendable (FFmpegEncodingDisplayStats) -> Void)?
+    ) throws -> Data {
+        encodingStats?(FFmpegEncodingDisplayStats(activity: "Preparing pixels…"))
+        try checkCancellation()
+        return try encodeWebPImage(image, quality: quality) { fraction in
+            encodingStats?(FFmpegEncodingDisplayStats(activity: "Encoding WebP · \(Int((fraction * 100).rounded()))%"))
+            progress(min(0.95, 0.4 + fraction * 0.55))
+        }
     }
 
     // MARK: - Decode
+
+    private struct DecodedImage {
+        let image: CGImage
+        let sourceDimensions: CGSize
+        let config: ConversionConfig
+    }
+
+    private func decodeForConversion(
+        source: CGImageSource, input: MediaFile, config: ConversionConfig
+    ) throws -> DecodedImage {
+        let sourceDimensions = try sourceImageDimensions(from: source)
+        let editingSourceDimensions = config.mediaRotation.applied(to: sourceDimensions)
+        var commandConfig = config
+        if config.operationMode == .autoTarget, config.outputFormat.supportsTargetSize {
+            let plan = AutoTargetPlanner.imagePlan(
+                input: Self.planningInput(
+                    input: input,
+                    cropRegion: config.cropRegion,
+                    rotation: config.mediaRotation
+                ),
+                outputFormat: config.outputFormat,
+                targetBytes: config.targetSizeBytes ?? input.sizeOnDisk,
+                lockedDimensions: config.targetDimensions,
+                lockPolicy: config.autoTargetLockPolicy
+            )
+            commandConfig.targetDimensions = plan.targetDimensions
+        }
+
+        // 1. Decode at target-ish size when downscaling to avoid paying full HEIC decode cost.
+        // Cropping needs exact source pixels first, so that path decodes full-size then scales after crop.
+        let workingImage: CGImage
+        if config.cropRegion == nil,
+           let target = commandConfig.targetDimensions,
+           target.width < editingSourceDimensions.width || target.height < editingSourceDimensions.height {
+            // Leave PNG a pixel of headroom so thumbnail rounding can be trimmed to the selected dimensions.
+            let maxPixel = Int(ceil(max(target.width, target.height))) + (config.outputFormat == .png ? 1 : 0)
+            workingImage = try decodeThumbnail(source: source, maxPixelSize: maxPixel)
+        } else {
+            guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                throw ConversionError.invalidInput("Couldn't read image")
+            }
+            workingImage = cgImage
+        }
+
+        return DecodedImage(image: workingImage, sourceDimensions: sourceDimensions, config: commandConfig)
+    }
+
+    /// Only the decode operation is retried; encoding failures retain their original error.
+    /// The intermediary is full resolution and never replaces the source metadata policy.
+    private func withReadableSource<T>(
+        at url: URL, decode: (CGImageSource) throws -> T
+    ) async throws -> T {
+        try checkCancellation()
+        if let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
+            do { return try decode(source) }
+            catch { try checkCancellation() }
+        }
+        let decodedURL = try await MediaPreviewRenderer.renderFirstFrame(sourceURL: url, runner: decodeRunner)
+        defer { try? FileManager.default.removeItem(at: decodedURL) }
+        try checkCancellation()
+        guard let source = CGImageSourceCreateWithURL(decodedURL as CFURL, nil) else {
+            throw ConversionError.invalidInput("Couldn't read image")
+        }
+        return try decode(source)
+    }
 
     private func sourceImageDimensions(from source: CGImageSource) throws -> CGSize {
         guard
@@ -344,10 +515,17 @@ final class ImageConverter: Converter {
             kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixelSize),
             kCGImageSourceShouldCacheImmediately: true
         ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            throw ConversionError.engineFailed("Thumbnail decode failed")
+        if let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+            return image
         }
-        return image
+        // Some large HEICs cannot use ImageIO's thumbnail decode at aggressive
+        // downscales, even though their full-resolution image is readable.
+        try checkCancellation()
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw ConversionError.engineFailed("Image decode failed")
+        }
+        let scale = min(1, CGFloat(max(1, maxPixelSize)) / CGFloat(max(image.width, image.height)))
+        return try resizedImage(image, to: CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale))
     }
 
     private func croppedImage(_ image: CGImage, to crop: CropRegion) throws -> CGImage {
@@ -401,6 +579,30 @@ final class ImageConverter: Converter {
             throw ConversionError.engineFailed("Image rotation failed")
         }
         return rotated
+    }
+
+    private func mirroredImage(_ image: CGImage) throws -> CGImage {
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil,
+                width: image.width,
+                height: image.height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else {
+            throw ConversionError.engineFailed("Couldn't create image mirror context")
+        }
+
+        context.translateBy(x: CGFloat(image.width), y: 0)
+        context.scaleBy(x: -1, y: 1)
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard let mirrored = context.makeImage() else {
+            throw ConversionError.engineFailed("Image mirror failed")
+        }
+        return mirrored
     }
 
     private func resizedImage(_ image: CGImage, to target: CGSize) throws -> CGImage {

@@ -7,6 +7,7 @@ enum ImportError: LocalizedError {
     case fileTooLarge(limitBytes: Int64)
     case invalidRemoteURL
     case couldNotDetermineRemoteFileType
+    case remoteResponseNotMedia
     case networkFailed(String)
     case codecNotDecodable(codecLabel: String, reason: String)
 
@@ -24,6 +25,8 @@ enum ImportError: LocalizedError {
             "Enter a valid http or https link."
         case .couldNotDetermineRemoteFileType:
             "Could not tell the file type from the link or server response. Try a URL whose path ends with a supported extension (for example .mp4)."
+        case .remoteResponseNotMedia:
+            "Download failed: The link returned a web page or text response instead of a media file. Use a direct link to the file."
         case .networkFailed(let message):
             "Download failed: \(message)"
         case .codecNotDecodable(let codecLabel, let reason):

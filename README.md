@@ -6,7 +6,7 @@
 
 ## Get MB Converter
 
-[Join the beta on TestFlight](https://testflight.apple.com/join/FEA9U9HB).
+[Download MB Converter on the App Store](https://apps.apple.com/us/app/mb-converter/id6763943720).
 
 Requires **iOS 17 or later** or **iPadOS 17 or later**.
 
@@ -14,7 +14,7 @@ Requires **iOS 17 or later** or **iPadOS 17 or later**.
 
 - **Convert files:** change image, video, and audio formats, extract audio from videos, or turn a GIF into a video or still image.
 - **Control file size:** choose a target size for supported formats and adjust resolution, frame rate, or audio settings where available.
-- **Make quick edits:** crop and rotate images and videos, and review, edit, or remove metadata before exporting.
+- **Make quick edits:** crop and rotate images and videos; trim supported videos; trim audio and adjust its volume, speed, or channels; and review, edit, or remove metadata before exporting.
 - **Import your way:** choose Photos or Files, paste a supported image from the clipboard, or download media from a direct link. Link imports support files up to 150 MB.
 - **Save the result:** preview your conversion, compare file sizes, rename it, and save or share it with the system share sheet.
 - **Keep useful conversions:** revisit History during your session, or enable saved history to keep conversions across app launches.
@@ -37,11 +37,11 @@ Requires **iOS 17 or later** or **iPadOS 17 or later**.
 | Media | Common input formats | Save as |
 | --- | --- | --- |
 | Photos | JPEG, PNG, HEIC, WebP, AVIF, TIFF | JPEG, PNG, HEIC, WebP, TIFF |
-| Video | MP4, MOV, M4V, MKV, WebM, AVI, and more | MP4 (H.264 or HEVC), MOV; M4A, AAC, or WAV for audio extraction |
-| Audio | MP3, M4A, WAV, AAC, FLAC, OGG, Opus, ALAC | M4A, AAC, WAV |
+| Video | MP4, MOV, M4V, MKV, WebM, AVI, AV1-encoded video, and more | MP4 (H.264 or HEVC), MOV, WebM (VP9/Opus); supported audio formats for extraction |
+| Audio | MP3, M4A, WAV, AAC, FLAC, OGG, Opus, ALAC | MP3, FLAC, OGG/Vorbis, Opus, M4A, AAC, WAV |
 | Animated GIFs | GIF | MP4 (H.264 or HEVC), or a still JPEG, PNG, HEIC, or TIFF |
 
-Compatibility depends on the encoding inside the file and your device. AV1 video is currently unsupported. Target sizes are estimates; some formats and settings may produce larger files.
+Compatibility depends on the encoding inside the file and your device. AV1 input is supported; AV1 output is not offered. Previews use FFmpeg when native decoding is unavailable: thumbnails load automatically, and tapping Play prepares a compatible temporary copy with progress and cancellation. The original file stays unchanged. Target sizes are estimates; some formats and settings may produce larger files.
 
 ## Your files stay under your control
 
@@ -53,6 +53,6 @@ Read the [Privacy Policy](PRIVACY.md) for details about local storage, diagnosti
 
 [Report a problem or request a feature](https://github.com/Marginally-Better-Apps/MB-converter/issues). Include your device, iOS version, and the input and output formats. If you share an error report from Settings, review it first: it can include file names, paths, and media details.
 
-Want to build and run the app yourself? Follow the [build guide](docs/DEVELOPMENT.md).
+Want to build and run the app yourself? Follow the [build guide](docs/DEVELOPMENT.md). See the [changelog](CHANGELOG.md) for version 1.1 changes.
 
 Explore more apps at [Marginally Better](https://marginally-better.app).

@@ -1,0 +1,217 @@
+backgroundJobs=10 backgroundSeconds=10.991563458333076
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.336s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.433s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.428s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.415s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.424s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.420s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.432s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.422s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.426s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.419s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.418s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.421s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.435s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.431s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.432s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.434s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.421s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.437s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.423s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.426s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.427s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.428s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.427s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.429s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.511s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.431s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.451s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.578s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.566s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.566s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.726s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=0.818s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=1.208s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=1.540s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=1.652s attempts=1
+Video acceleration policy: CPU decoding/filtering; device/path not performance-qualified
+Dolby Vision: using compatible base layer; dynamic metadata is not re-encoded
+Video filters (CPU): transpose=clock,scale=540:960,format=pix_fmts=p010le
+Stream 0: hevc -> hevc_videotoolbox
+Video pipeline: decode=CPU filter=CPU encoder=hevc_videotoolbox (hardware required) input=yuv420p10le output=p010le color=preserve HDR Main10
+Conversion elapsed=1.547s attempts=1

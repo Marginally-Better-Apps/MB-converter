@@ -6,6 +6,7 @@ enum ImportStorage {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("imports", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        TempStorage.allowAccessWhileLocked(at: dir)
         return dir
     }
 
@@ -32,6 +33,7 @@ enum ImportStorage {
 
         do {
             try FileManager.default.copyItem(at: sourceURL, to: outputURL)
+            TempStorage.allowAccessWhileLocked(at: outputURL)
             return outputURL
         } catch {
             try? FileManager.default.removeItem(at: outputURL)

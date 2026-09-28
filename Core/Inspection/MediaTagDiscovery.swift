@@ -2,10 +2,6 @@ import Foundation
 import ImageIO
 import CoreGraphics
 
-#if canImport(ffmpegkit)
-import ffmpegkit
-#endif
-
 /// Discovered tags for the metadata editor (container or still-image EXIF family).
 struct DiscoveredMetadataTag: Identifiable, Hashable, Sendable {
     let id: String
@@ -14,7 +10,7 @@ struct DiscoveredMetadataTag: Identifiable, Hashable, Sendable {
     /// Raw key name as written to FFmpeg or ImageIO (`ARTIST`, `Model`, `DateTime`, …).
     let tagKey: String
     let kind: Kind
-    /// From ffprobe `StreamInformation.getType()` (`"video"`, `"audio"`, …); only for stream-tagged fields.
+    /// FFmpeg stream type (`"video"`, `"audio"`, …); only for stream-tagged fields.
     var ffprobeStreamType: String? = nil
     /// Synthetic low-level rows default to removed so they do not write empty structural tags.
     var defaultIsRemoved = false
@@ -34,13 +30,9 @@ enum MediaTagDiscovery {
                 discoverImageTags(at: media.url)
             }.value
         case .video, .audio, .animatedImage:
-            #if canImport(ffmpegkit)
             return await Task.detached(priority: .userInitiated) {
                 discoverFfprobeTags(at: media.url)
             }.value
-            #else
-            return []
-            #endif
         }
     }
 
@@ -196,16 +188,14 @@ enum MediaTagDiscovery {
         return "Embedded thumbnail"
     }
 
-    // MARK: - FFprobe (FFmpegKit)
+    // MARK: - FFmpeg container metadata
 
-    #if canImport(ffmpegkit)
     private static func discoverFfprobeTags(at url: URL) -> [DiscoveredMetadataTag] {
-        let session = FFprobeKit.getMediaInformation(url.path, withTimeout: 15_000)
-        guard let info = session?.getMediaInformation() else { return [] }
+        guard let info = FFmpegMediaProbe.probe(at: url) else { return [] }
 
         var tags: [DiscoveredMetadataTag] = []
 
-        if let formatTags = tagDictionary(from: info.getTags()) {
+        if let formatTags = info.format?.tags {
             for (key, value) in formatTags.sorted(by: { $0.key < $1.key }) {
                 if shouldSkipFfprobeKey(key) { continue }
                 let id = "fmt:\(key)"
@@ -221,18 +211,11 @@ enum MediaTagDiscovery {
             }
         }
 
-        let streams = info.getStreams() ?? []
-        for item in streams {
-            guard let stream = item as? StreamInformation else { continue }
-            let index: Int
-            if let n = stream.getIndex() {
-                index = n.intValue
-            } else {
-                index = 0
-            }
-            let typeLabel = (stream.getType() ?? "?").uppercased()
-            let mediaType = stream.getType()?.lowercased()
-            guard let streamTags = tagDictionary(from: stream.getTags()) else { continue }
+        for (offset, stream) in info.streams.enumerated() {
+            let index = stream.index ?? offset
+            let typeLabel = (stream.codecType ?? "?").uppercased()
+            let mediaType = stream.codecType?.lowercased()
+            let streamTags = stream.tags
             for (key, value) in streamTags.sorted(by: { $0.key < $1.key }) {
                 if shouldSkipFfprobeKey(key) { continue }
                 let id = "stm:\(index):\(key)"
@@ -281,26 +264,4 @@ enum MediaTagDiscovery {
         key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    private static func tagDictionary(from raw: Any?) -> [String: String]? {
-        guard let raw else { return nil }
-        if let d = raw as? [String: String] {
-            return d
-        }
-        if let d = raw as? [String: Any] {
-            var out: [String: String] = [:]
-            for (k, v) in d {
-                if let s = metadataString(v) { out[k] = s }
-            }
-            return out
-        }
-        if let d = raw as? NSDictionary {
-            var out: [String: String] = [:]
-            for case let (k, v) as (String, Any) in d {
-                if let s = metadataString(v) { out[k] = s }
-            }
-            return out
-        }
-        return nil
-    }
-    #endif
 }

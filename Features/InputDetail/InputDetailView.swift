@@ -8,10 +8,19 @@ struct InputDetailView: View {
     @Environment(\.isRootSectionActive) private var isRootSectionActive
     @State private var viewModel: InputDetailViewModel
     @State private var outputConfigViewModel: OutputConfigViewModel
-    @State private var isScrollInteracting = false
     @State private var isShowingCropEditor = false
+    @State private var isShowingAudioEditor = false
     @State private var isDiscardConfirmationPresented = false
+    @State private var trimmedMediaURL: URL?
+    @State private var selectedEditor: Editor?
     @State private var cachedRun: CachedRun?
+
+    private enum Editor: String, Identifiable {
+        case advancedOutput
+        case metadata
+
+        var id: String { rawValue }
+    }
 
     private struct CachedRun {
         let config: ConversionConfig
@@ -49,33 +58,34 @@ struct InputDetailView: View {
                     dismissKeyboard()
                 }
             )
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 2)
-                    .onChanged { _ in
-                        if !isScrollInteracting {
-                            isScrollInteracting = true
-                        }
-                    }
-                    .onEnded { _ in
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                            isScrollInteracting = false
-                        }
-                    }
-            )
             .scrollDismissesKeyboard(.interactively)
             .scrollBounceBehavior(.basedOnSize)
         }
         .safeAreaInset(edge: .bottom) {
             convertActionBar(viewModel: outputConfigViewModel)
         }
-        .task {
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { gesture in
+                    // Reserve back navigation for a deliberate swipe from the
+                    // left edge so scrolling and output sliders keep working.
+                    guard gesture.startLocation.x <= 24,
+                          gesture.translation.width >= 80,
+                          gesture.translation.width > abs(gesture.translation.height) * 1.5 else { return }
+                    requestDiscardConfirmation()
+                }
+        )
+        .task(id: outputConfigViewModel.input.url) {
             await outputConfigViewModel.loadDiscoveredMetadataIfNeeded()
+        }
+        .task(id: outputConfigViewModel.pngBaselineRequest) {
+            await outputConfigViewModel.preparePNGBaseline()
         }
         .onChange(of: path) { _, newPath in
             guard let last = newPath.last else { return }
             guard case .result(let media, let config, let result, let fromHistory) = last,
                   !fromHistory,
-                  media == viewModel.media else { return }
+                  media.id == viewModel.media.id else { return }
 
             // Keep only the newest run output for this input flow.
             if let previous = cachedRun, previous.result.url != result.url {
@@ -94,15 +104,38 @@ struct InputDetailView: View {
             }
         }
         .sheet(isPresented: $isShowingCropEditor) {
-            if let dimensions = viewModel.media.dimensions {
+            if let dimensions = outputConfigViewModel.input.dimensions {
                 CropEditorView(
-                    url: viewModel.media.url,
-                    category: viewModel.media.category,
+                    url: outputConfigViewModel.input.url,
+                    category: outputConfigViewModel.input.category,
                     sourceDimensions: dimensions,
                     cropRegion: $outputConfigViewModel.cropRegion,
-                    mediaRotation: $outputConfigViewModel.mediaRotation
+                    mediaRotation: $outputConfigViewModel.mediaRotation,
+                    isMirrored: $outputConfigViewModel.isMirrored,
+                    showsVideoAudioControls: outputConfigViewModel.selectedFormat.category == .video
+                        && outputConfigViewModel.input.audioCodec != nil,
+                    audioEdits: $outputConfigViewModel.audioEdits,
+                    onTrimVideo: { [outputConfigViewModel] sourceURL, range in
+                        let ownedURL = try await outputConfigViewModel.trimVideo(sourceURL: sourceURL) {
+                            try await VideoTrimmer.trimmedMedia(sourceURL: sourceURL, range: range)
+                        }
+                        let previousTrimmedURL = trimmedMediaURL
+                        invalidateCachedRun()
+                        trimmedMediaURL = ownedURL
+                        if let previousTrimmedURL {
+                            try? FileManager.default.removeItem(at: previousTrimmedURL)
+                        }
+                    }
                 )
                 .presentationDetents([.large])
+            }
+        }
+        .sheet(isPresented: $isShowingAudioEditor) {
+            if let duration = outputConfigViewModel.input.duration, duration.isFinite, duration > 0 {
+                AudioEditorView(url: outputConfigViewModel.input.url,
+                                filename: outputConfigViewModel.input.originalFilename, duration: duration,
+                                settings: $outputConfigViewModel.audioEdits)
+                    .presentationDetents([.large])
             }
         }
         .onDisappear {
@@ -110,28 +143,44 @@ struct InputDetailView: View {
             // (for example, back to Home). Drop the cached output.
             guard !path.contains(where: Self.isInputDetailRoute(for: viewModel.media)) else { return }
             invalidateCachedRun()
+            if let trimmedMediaURL {
+                try? FileManager.default.removeItem(at: trimmedMediaURL)
+                self.trimmedMediaURL = nil
+            }
         }
-        .navigationTitle(isRootSectionActive ? "Convert" : "")
+        .navigationTitle(isRootSectionActive ? viewModel.media.originalFilename : "")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
+        .toolbar(.visible, for: .navigationBar)
         .toolbar {
-            if isRootSectionActive {
+            if isRootSectionActive && selectedEditor == nil {
+                ToolbarItem(placement: .principal) {
+                    Text(viewModel.media.originalFilename)
+                        .font(.headline)
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .accessibilityAddTraits(.isHeader)
+                }
+
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        Haptics.impact(.light)
-                        isDiscardConfirmationPresented = true
-                    } label: {
+                    Button(action: requestDiscardConfirmation) {
                         Image(systemName: "chevron.left")
                             .font(.headline.weight(.semibold))
+                            .foregroundStyle(Theme.tint)
                     }
                     .accessibilityLabel("Back to main page")
                 }
             }
         }
         .background(
-            ConvertInteractivePopGestureDisabler()
+            ConvertBackNavigationGuard(isActive: selectedEditor == nil)
                 .frame(width: 0, height: 0)
         )
+        .navigationDestination(item: $selectedEditor) { editor in
+            editorDestination(editor)
+                .tint(Theme.tint)
+        }
         .alert("Discard this conversion?", isPresented: $isDiscardConfirmationPresented) {
             Button("Keep Editing", role: .cancel) {
                 Haptics.impact(.light)
@@ -153,55 +202,113 @@ struct InputDetailView: View {
                     metadataSummaryColumn
                 }
             } else {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
                     previewColumn(viewModel: viewModel)
-                    Divider()
-                        .overlay(Theme.separator)
-                    metadataSummaryColumn
+                    VStack(alignment: .leading, spacing: 8) {
+                        Divider()
+                            .overlay(Theme.separator)
+                        metadataSummaryColumn
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
         .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     @ViewBuilder
     private func previewColumn(viewModel: OutputConfigViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             MediaPreview(
                 url: viewModel.input.url,
-                category: viewModel.input.category,
+                category: viewModel.isAudioOutput ? .audio : viewModel.input.category,
                 compact: true,
                 showsChrome: false,
                 showsMediaBorder: true,
                 sourceDimensions: viewModel.input.dimensions,
                 displayCropRect: viewModel.cropRectForDisplay,
-                mediaRotation: viewModel.mediaRotation
+                mediaRotation: viewModel.mediaRotation,
+                isMirrored: viewModel.isMirrored,
+                isInteractive: !viewModel.shouldShowAudioEditor,
+                preferredHeight: 280
             )
-            .frame(maxWidth: .infinity)
+            .frame(
+                minWidth: usesSideBySidePreviewLayout ? 280 : nil,
+                idealWidth: usesSideBySidePreviewLayout ? 360 : nil,
+                maxWidth: usesSideBySidePreviewLayout ? 420 : .infinity,
+                alignment: .topLeading
+            )
+            .overlay {
+                if viewModel.shouldShowAudioEditor {
+                    Button {
+                        isShowingAudioEditor = true
+                    } label: {
+                        Color.clear.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Preview and edit audio")
+                    .overlay(alignment: .topTrailing) {
+                        editMediaButton(viewModel: viewModel).padding(8)
+                    }
+                } else if viewModel.shouldShowCrop, let dimensions = viewModel.input.dimensions {
+                    GeometryReader { proxy in
+                        let displayedSize = viewModel.mediaRotation.applied(to: dimensions)
+                        let bounds = CGRect(origin: .zero, size: proxy.size).insetBy(dx: 2, dy: 2)
+                        let scale = min(
+                            bounds.width / max(displayedSize.width, 1),
+                            bounds.height / max(displayedSize.height, 1)
+                        )
+                        let width = displayedSize.width * scale
+                        let height = displayedSize.height * scale
 
-            if viewModel.shouldShowCrop {
-                Button {
-                    Haptics.impact(.light)
-                    isShowingCropEditor = true
-                } label: {
-                    Label("Edit Media", systemImage: "crop.rotate")
-                        .font(.subheadline.weight(.semibold))
+                        editMediaButton(viewModel: viewModel)
+                            .padding(8)
+                            .frame(width: width, height: height, alignment: .topTrailing)
+                            .position(x: bounds.midX, y: bounds.midY)
+                    }
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
-                .tint(Theme.tint)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .accessibilityLabel(viewModel.input.category == .video ? "Edit video" : "Edit image")
+            }
+            if viewModel.isAudioOutput, !viewModel.audioEdits.isIdentity,
+               let duration = viewModel.audioOutputDuration {
+                Text("Edited audio · \(VideoTrimTimeline.timestamp(duration)) · \(Int((viewModel.audioEdits.volume * 100).rounded()))% · \(String(format: "%.2f×", viewModel.audioEdits.speed)) · \(viewModel.audioEdits.channels.label)")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textMuted)
+            } else if viewModel.input.category == .video,
+                      viewModel.input.audioCodec != nil,
+                      viewModel.selectedFormat.category == .video,
+                      !viewModel.audioEdits.videoTrackIsIdentity {
+                Text("Edited video audio · \(Int((viewModel.audioEdits.volume * 100).rounded()))% · \(viewModel.audioEdits.channels.label)")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textMuted)
             }
         }
-        .frame(
-            minWidth: usesSideBySidePreviewLayout ? 240 : nil,
-            idealWidth: usesSideBySidePreviewLayout ? 300 : nil,
-            maxWidth: usesSideBySidePreviewLayout ? 360 : .infinity,
-            alignment: .topLeading
-        )
+    }
+
+    @ViewBuilder
+    private func editMediaButton(viewModel: OutputConfigViewModel) -> some View {
+        if viewModel.shouldShowCrop || viewModel.shouldShowAudioEditor {
+            Button("Edit") {
+                Haptics.impact(.light)
+                if viewModel.shouldShowAudioEditor { isShowingAudioEditor = true }
+                else { isShowingCropEditor = true }
+            }
+            .font(.subheadline.weight(.semibold))
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.roundedRectangle(radius: 10))
+            .tint(Theme.tint)
+            .fixedSize()
+            .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Theme.tint, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 3)
+            .accessibilityLabel(viewModel.shouldShowAudioEditor ? "Edit audio" : (viewModel.input.category == .video ? "Edit video" : "Edit image"))
+        }
     }
 
     private var usesSideBySidePreviewLayout: Bool {
@@ -210,11 +317,17 @@ struct InputDetailView: View {
 
     private var metadataSummaryColumn: some View {
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 140), alignment: .leading)],
+            columns: Array(
+                repeating: GridItem(.flexible(), spacing: 12, alignment: .leading),
+                count: 3
+            ),
             alignment: .leading,
             spacing: 14
         ) {
-            ForEach(MetadataFormatter.summaryRows(for: viewModel.media)) { row in
+            ForEach(MetadataFormatter.summaryRows(
+                for: outputConfigViewModel.input,
+                durationBeforeTrim: outputConfigViewModel.durationBeforeTrim
+            )) { row in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(row.label)
                         .font(.caption)
@@ -230,10 +343,6 @@ struct InputDetailView: View {
 
     private func essentialOutputSection(viewModel: OutputConfigViewModel) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Output")
-                .font(.headline)
-                .foregroundStyle(Theme.text)
-
             Group {
                 if dynamicTypeSize.isAccessibilitySize {
                     VStack(alignment: .leading, spacing: 10) {
@@ -242,7 +351,6 @@ struct InputDetailView: View {
                         FormatPicker(
                             formats: viewModel.formats,
                             inputCategory: viewModel.input.category,
-                            isInteractionDisabled: isScrollInteracting,
                             selection: Binding(
                                 get: { viewModel.selectedFormat },
                                 set: { viewModel.selectedFormat = $0 }
@@ -258,7 +366,6 @@ struct InputDetailView: View {
                         FormatPicker(
                             formats: viewModel.formats,
                             inputCategory: viewModel.input.category,
-                            isInteractionDisabled: isScrollInteracting,
                             selection: Binding(
                                 get: { viewModel.selectedFormat },
                                 set: { viewModel.selectedFormat = $0 }
@@ -269,13 +376,19 @@ struct InputDetailView: View {
                 }
             }
 
-            if viewModel.shouldShowTargetSize {
+            if viewModel.shouldShowPNGDimensions {
+                Divider().overlay(Theme.separator)
+                PNGDimensionsSlider(viewModel: viewModel)
+            } else if viewModel.shouldShowTargetSize {
                 Divider()
                     .overlay(Theme.separator)
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(viewModel.targetControlTitle)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.text)
+                    TargetSizeHeader(
+                        title: viewModel.targetControlTitle,
+                        suggestedMegabytes: viewModel.suggestedTargetSizesMB,
+                        targetSizeBytes: viewModel.targetSizeBytes,
+                        onSelect: viewModel.applyTargetSizeSuggestion
+                    )
                     TargetSizeSlider(
                         sourceSizeBytes: viewModel.targetSizeSliderReferenceBytes,
                         minimumSizeBytes: viewModel.targetMinimumSizeBytes,
@@ -326,16 +439,8 @@ struct InputDetailView: View {
     private func editorLinks(viewModel: OutputConfigViewModel) -> some View {
         VStack(spacing: 0) {
             if hasAdvancedOutputOptions(viewModel) {
-                NavigationLink {
-                    OutputConfigForm(
-                        viewModel: viewModel,
-                        isMenuInteractionDisabled: false,
-                        showsPrimaryControls: false,
-                        showsConvertButton: false,
-                        onConvert: {}
-                    )
-                    .navigationTitle(isRootSectionActive ? "Advanced Output" : "")
-                    .navigationBarTitleDisplayMode(.inline)
+                Button {
+                    selectedEditor = .advancedOutput
                 } label: {
                     editorLinkLabel(
                         title: "Advanced Output",
@@ -349,11 +454,8 @@ struct InputDetailView: View {
                     .overlay(Theme.separator)
             }
 
-            NavigationLink {
-                InputMetadataEditor(
-                    viewModel: viewModel,
-                    isMenuInteractionDisabled: false
-                )
+            Button {
+                selectedEditor = .metadata
             } label: {
                 editorLinkLabel(
                     title: "Metadata",
@@ -364,6 +466,31 @@ struct InputDetailView: View {
         }
         .buttonStyle(.plain)
         .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func editorDestination(_ editor: Editor) -> some View {
+        switch editor {
+        case .advancedOutput:
+            OutputConfigForm(
+                viewModel: outputConfigViewModel,
+                isMenuInteractionDisabled: false,
+                showsPrimaryControls: false,
+                showsConvertButton: false,
+                onConvert: {}
+            )
+            .navigationTitle(isRootSectionActive ? "Advanced Output" : "")
+            .navigationBarTitleDisplayMode(.inline)
+            .modifier(ConversionEditorNavigation(backTitle: "Convert") {
+                selectedEditor = nil
+            })
+        case .metadata:
+            InputMetadataEditor(
+                viewModel: outputConfigViewModel,
+                isMenuInteractionDisabled: false,
+                onBack: { selectedEditor = nil }
+            )
+        }
     }
 
     private func editorLinkLabel(title: String, systemImage: String, detail: String) -> some View {
@@ -421,7 +548,7 @@ struct InputDetailView: View {
             values.append(viewModel.videoAudioQualitySelectionLabel)
         }
         if viewModel.shouldShowSinglePassVideoTargetToggle {
-            values.append(viewModel.usesSinglePassVideoTargetEncode ? "Fast encode" : "Two-pass target")
+            values.append(viewModel.usesTwoPassVideoEncoding ? "Two-pass target" : "Single-pass target")
         }
         return values.isEmpty ? "Additional encoding controls" : values.joined(separator: " · ")
     }
@@ -457,12 +584,14 @@ struct InputDetailView: View {
             Divider()
                 .overlay(Theme.separator)
         }
-        .disabled(viewModel.isLoadingDiscoveredMetadata)
-        .accessibilityHint("Starts the conversion using the selected settings.")
+        .disabled(!viewModel.canConvert)
+        .accessibilityHint(viewModel.canConvert
+            ? "Starts the conversion using the selected settings."
+            : "Change an output setting to convert this file.")
     }
 
     private func handleConvertTap(viewModel: OutputConfigViewModel) {
-        guard !viewModel.isLoadingDiscoveredMetadata else { return }
+        guard viewModel.canConvert else { return }
         let config = viewModel.makeConfig()
         if let cachedRun,
            cachedRun.config == config,
@@ -480,10 +609,20 @@ struct InputDetailView: View {
         self.cachedRun = nil
     }
 
+    private func requestDiscardConfirmation() {
+        guard isRootSectionActive, selectedEditor == nil, !isDiscardConfirmationPresented else { return }
+        Haptics.impact(.light)
+        isDiscardConfirmationPresented = true
+    }
+
     private func discardConversion() {
         Haptics.warning()
         invalidateCachedRun()
         try? FileManager.default.removeItem(at: viewModel.media.url)
+        if let trimmedMediaURL {
+            try? FileManager.default.removeItem(at: trimmedMediaURL)
+            self.trimmedMediaURL = nil
+        }
         if !path.isEmpty {
             path.removeLast()
         }
@@ -492,34 +631,114 @@ struct InputDetailView: View {
     private static func isInputDetailRoute(for media: MediaFile) -> (AppRoute) -> Bool {
         { route in
             if case .inputDetail(let routeMedia) = route {
-                return routeMedia == media
+                return routeMedia.id == media.id
             }
             return false
         }
     }
 }
 
-private struct ConvertInteractivePopGestureDisabler: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> ConvertInteractivePopGestureViewController {
-        ConvertInteractivePopGestureViewController()
+/// Editor back actions only clear their own presentation binding, preserving
+/// the Convert route and its shared output settings for export.
+struct ConversionEditorNavigation: ViewModifier {
+    @Environment(\.isRootSectionActive) private var isRootSectionActive
+    var isActive = true
+    let backTitle: String
+    let onBack: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .navigationBarBackButtonHidden()
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20)
+                    .onEnded { gesture in
+                        // Only the left edge navigates back; horizontal sliders
+                        // and vertical scrolling remain available elsewhere.
+                        guard isRootSectionActive, isActive,
+                              gesture.startLocation.x <= 24,
+                              gesture.translation.width >= 80,
+                              gesture.translation.width > abs(gesture.translation.height) * 1.5 else { return }
+                        goBack()
+                    }
+            )
+            .toolbar {
+                if isRootSectionActive && isActive {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: goBack) {
+                            Image(systemName: "chevron.left")
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(Theme.tint)
+                        }
+                        .accessibilityLabel("Back to \(backTitle)")
+                    }
+                }
+            }
+            .background(
+                ConvertBackNavigationGuard(isActive: isActive)
+                    .frame(width: 0, height: 0)
+            )
+    }
+
+    private func goBack() {
+        Haptics.impact(.light)
+        onBack()
+    }
+}
+
+struct ConvertBackNavigationGuard: UIViewControllerRepresentable {
+    var isActive = true
+
+    func makeUIViewController(context: Context) -> ConvertBackNavigationViewController {
+        ConvertBackNavigationViewController()
     }
 
     func updateUIViewController(
-        _ uiViewController: ConvertInteractivePopGestureViewController,
+        _ uiViewController: ConvertBackNavigationViewController,
         context: Context
-    ) {}
+    ) {
+        uiViewController.isActive = isActive
+        uiViewController.updateBackNavigation()
+    }
 }
 
-private final class ConvertInteractivePopGestureViewController: UIViewController {
+final class ConvertBackNavigationViewController: UIViewController {
+    var isActive = true
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        updateBackNavigation()
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        navigationController?.interactivePopGestureRecognizer?.isEnabled = false
+        updateBackNavigation()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateBackNavigation()
+    }
+
+    func updateBackNavigation() {
+        guard isActive, let navigationController else { return }
+        var owner = parent
+        while let current = owner, current.parent !== navigationController {
+            owner = current.parent
+        }
+        guard let owner, navigationController.topViewController === owner else { return }
+
+        // Also hide UIKit's automatic arrow on the hosting controller. It can
+        // reappear alongside the SwiftUI button and pop the outer Convert route.
+        if !owner.navigationItem.hidesBackButton {
+            owner.navigationItem.setHidesBackButton(true, animated: false)
+        }
+        // Editor swipes run the same state change as the custom Back button.
+        navigationController.interactivePopGestureRecognizer?.isEnabled = false
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        // The guarded Convert screen itself cannot be swiped away, but native
-        // edge-swipe navigation remains available in editors pushed above it.
+        // Let the next screen choose its own back-swipe behavior.
         navigationController?.interactivePopGestureRecognizer?.isEnabled = true
     }
 }
