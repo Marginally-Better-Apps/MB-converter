@@ -2,7 +2,7 @@ name: Validate conversions
 on:
   pull_request:
   push:
-    branches: ['feat/**', 'story/**']
+    branches: ['main']
 concurrency:
   group: conversion-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
