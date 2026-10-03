@@ -49,6 +49,10 @@ enum PNGViewModelTests {
         model.imageEnhancement.removeBackground = true
         model.selectedFormat = .jpg
         try require(!model.makeConfig().imageEnhancement.removeBackground, "Opaque formats clear background-removal settings")
+        model.selectedFormat = .zip
+        try require(!model.shouldShowCrop && !model.shouldShowMetadataEditor, "Archive export hides edits that cannot alter packed bytes")
+        model.selectedFormat = .pdf
+        try require(!model.shouldShowCrop && !model.shouldShowMetadataEditor, "Document wrapping hides media-only editing controls")
         print("PNG dimension slider and baseline invalidation passed")
     }
 

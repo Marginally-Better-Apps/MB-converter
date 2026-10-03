@@ -580,8 +580,13 @@ final class OutputConfigViewModel {
 
     var shouldShowCrop: Bool {
         (input.category == .image || input.category == .video)
-            && selectedFormat.category != .audio
+            && [.image, .video].contains(selectedFormat.category)
             && input.dimensions != nil
+    }
+
+    var shouldShowMetadataEditor: Bool {
+        [.image, .audio, .video, .animatedImage].contains(input.category)
+            && [.image, .audio, .video, .animatedImage].contains(selectedFormat.category)
     }
 
     /// Crop shown in the convert preview; hidden when uncropped/full-frame.

@@ -58,6 +58,29 @@ import UniformTypeIdentifiers
         defer { try? FileManager.default.removeItem(at: recognized.url) }
         let recognizedText = try String(contentsOf: recognized.url, encoding: .utf8)
         precondition(recognizedText.contains("Hello conversion"), "Scanned PDF OCR must recover actual text")
+        for (name, body) in [
+            ("negative-spaces", "<text:s text:c=\"-1\"/>"),
+            ("expanded-spaces", String(repeating: "<text:s text:c=\"1000\"/>", count: 17_000))
+        ] {
+            let xmlURL = root.appendingPathComponent("\(name).xml")
+            try Data("<office:document-content xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\"><text:p>\(body)</text:p></office:document-content>".utf8).write(to: xmlURL)
+            let odt = root.appendingPathComponent("\(name).odt")
+            try FileArchive.zip([.init(name: "content.xml", url: xmlURL)], to: odt)
+            do {
+                let output = try await DocumentConverter().convert(input: media(odt, category: .document), config: .init(outputFormat: .txt), progress: { _ in }, encodingStats: nil)
+                try? FileManager.default.removeItem(at: output.url)
+                fatalError("Malformed or expanding ODT spaces must be rejected")
+            } catch ConversionError.invalidInput { }
+        }
+        let expandingText = root.appendingPathComponent("paragraphs.txt")
+        try Data(String(repeating: "\n", count: 1_000_000).utf8).write(to: expandingText)
+        for format in [OutputFormat.docx, .odt] {
+            do {
+                let output = try await DocumentConverter().convert(input: media(expandingText, category: .document), config: .init(outputFormat: format), progress: { _ in }, encodingStats: nil)
+                try? FileManager.default.removeItem(at: output.url)
+                fatalError("Document paragraph expansion must be bounded before construction")
+            } catch ConversionError.invalidInput { }
+        }
         let gzip = root.appendingPathComponent("original.gz")
         try FileArchive.deflateFile(source, to: gzip)
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip"); process.arguments = ["-dc", gzip.path]
@@ -79,6 +102,13 @@ import UniformTypeIdentifiers
         let parsed = try DataConverter.parse(String(contentsOf: tsv.url, encoding: .utf8), delimiter: "\t")
         precondition(parsed[1].contains("café, one"))
         do { _ = try DataConverter.parse("a,b\n\"unclosed", delimiter: ","); fatalError("Malformed CSV accepted") } catch ConversionError.invalidInput { }
+        let expandingCSV = root.appendingPathComponent("expanding.csv")
+        try Data((String(repeating: "k", count: 8192) + "\n" + String(repeating: "value\n", count: 10_000)).utf8).write(to: expandingCSV)
+        do {
+            let expanded = try await DataConverter().convert(input: media(expandingCSV, category: .data), config: .init(outputFormat: .json), progress: { _ in }, encodingStats: nil)
+            try? FileManager.default.removeItem(at: expanded.url)
+            fatalError("JSON header expansion must be bounded before serialization")
+        } catch ConversionError.invalidInput { }
         let zip = root.appendingPathComponent("files.zip")
         try FileArchive.zip([.init(name: "original.txt", url: source)], to: zip)
         let restored = try FileArchive.read("original.txt", from: zip)

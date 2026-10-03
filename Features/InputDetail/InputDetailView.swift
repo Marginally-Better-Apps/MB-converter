@@ -248,9 +248,9 @@ struct InputDetailView: View {
                 showsChrome: false,
                 showsMediaBorder: true,
                 sourceDimensions: viewModel.input.dimensions,
-                displayCropRect: viewModel.cropRectForDisplay,
-                mediaRotation: viewModel.mediaRotation,
-                isMirrored: viewModel.isMirrored,
+                displayCropRect: viewModel.shouldShowCrop ? viewModel.cropRectForDisplay : nil,
+                mediaRotation: viewModel.shouldShowCrop ? viewModel.mediaRotation : .none,
+                isMirrored: viewModel.shouldShowCrop && viewModel.isMirrored,
                 isInteractive: !viewModel.shouldShowAudioEditor,
                 preferredHeight: 280
             )
@@ -470,7 +470,7 @@ struct InputDetailView: View {
                     .overlay(Theme.separator)
             }
 
-            if [.image, .video, .audio, .animatedImage].contains(viewModel.input.category) {
+            if viewModel.shouldShowMetadataEditor {
                 Button {
                     selectedEditor = .metadata
                 } label: {

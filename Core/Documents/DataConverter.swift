@@ -42,6 +42,20 @@ final class DataConverter: Converter {
             guard let headers = rows.first, !headers.isEmpty, Set(headers).count == headers.count, !headers.contains("") else {
                 throw ConversionError.invalidInput("JSON export requires unique, nonempty column names")
             }
+            // Long column names repeat in every JSON object; bound expansion
+            // before Foundation allocates dictionaries or the serialized buffer.
+            let limit = 64 * 1024 * 1024
+            let repeated = headers.reduce(0) { $0 + Self.jsonStringBytes($1) + 16 }
+            var estimated = 4 + (repeated + 16) * (rows.count - 1)
+            guard estimated <= limit else { throw ConversionError.invalidInput("JSON output would exceed 64 MB; split this data file") }
+            for row in rows.dropFirst() {
+                guard row.count == headers.count else { throw ConversionError.invalidInput("Rows have different column counts") }
+                for value in row {
+                    estimated += Self.jsonStringBytes(value)
+                    guard estimated <= limit else { throw ConversionError.invalidInput("JSON output would exceed 64 MB; split this data file") }
+                }
+                try check()
+            }
             let objects = try rows.dropFirst().map { row -> [String: String] in
                 guard row.count == headers.count else { throw ConversionError.invalidInput("Rows have different column counts") }
                 return Dictionary(uniqueKeysWithValues: zip(headers, row))
@@ -98,6 +112,14 @@ final class DataConverter: Converter {
         if !endedRow && (!field.isEmpty || !row.isEmpty || afterQuote) { try finishField(); rows.append(row) }
         guard !rows.isEmpty else { throw ConversionError.invalidInput("Empty data file") }
         return rows
+    }
+    private static func jsonStringBytes(_ string: String) -> Int {
+        string.unicodeScalars.reduce(2) { count, scalar in
+            let value = scalar.value
+            if value < 32 || value == 0x2028 || value == 0x2029 { return count + 6 }
+            if value == 34 || value == 92 || value == 47 { return count + 2 }
+            return count + (value <= 0x7f ? 1 : value <= 0x7ff ? 2 : value <= 0xffff ? 3 : 4)
+        }
     }
     private static func quote(_ value: String, delimiter: Character) -> String {
         if value.contains(delimiter) || value.contains("\"") || value.contains("\n") || value.contains("\r") {

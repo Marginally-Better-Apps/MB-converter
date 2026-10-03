@@ -216,6 +216,21 @@ final class DocumentConverter: Converter {
         case .html:
             try Data("<!doctype html><html><head><meta charset=\"utf-8\"></head><body><pre>\(xml(text.string))</pre></body></html>".utf8).write(to: url, options: .atomic)
         case .docx, .odt:
+            // Bound escaped text and paragraph markup before building XML strings.
+            let paragraphBytes = format == .docx ? 64 : 17
+            var xmlBytes = 1024 + paragraphBytes
+            for byte in text.string.utf8 {
+                switch byte {
+                case 10: xmlBytes += paragraphBytes
+                case 38: xmlBytes += 5
+                case 60, 62: xmlBytes += 4
+                case 34: xmlBytes += 6
+                default: xmlBytes += 1
+                }
+                guard xmlBytes <= 16 * 1024 * 1024 else {
+                    throw ConversionError.invalidInput("Document XML would exceed 16 MB; split this document")
+                }
+            }
             let work = url.deletingLastPathComponent().appendingPathComponent(UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: work) }
@@ -391,19 +406,27 @@ final class DocumentConverter: Converter {
 private final class DocumentXMLText: NSObject, XMLParserDelegate {
     var text = ""
     private var textDepth = 0
+    private var byteCount = 0
+    private func append(_ string: String, parser: XMLParser) {
+        byteCount += string.utf8.count
+        guard byteCount <= 16 * 1024 * 1024 else { parser.abortParsing(); return }
+        text += string
+    }
     func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName qName: String?, attributes: [String: String]) {
         if name == "w:t" || name == "text:p" || name == "text:h" { textDepth += 1 }
-        if name == "w:tab" || name == "text:tab" { text += "\t" }
-        if name == "w:br" || name == "text:line-break" { text += "\n" }
-        if name == "text:s" { text += String(repeating: " ", count: min(1000, Int(attributes["text:c"] ?? "1") ?? 1)) }
+        if name == "w:tab" || name == "text:tab" { append("\t", parser: parser) }
+        if name == "w:br" || name == "text:line-break" { append("\n", parser: parser) }
+        if name == "text:s" {
+            guard let count = Int(attributes["text:c"] ?? "1"), count > 0 else { parser.abortParsing(); return }
+            append(String(repeating: " ", count: min(1000, count)), parser: parser)
+        }
     }
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if textDepth > 0 { text += string }
-        if text.utf8.count > 16 * 1024 * 1024 { parser.abortParsing() }
+        if textDepth > 0 { append(string, parser: parser) }
     }
     func parser(_ parser: XMLParser, didEndElement name: String, namespaceURI: String?, qualifiedName qName: String?) {
         if name == "w:t" || name == "text:p" || name == "text:h" { textDepth -= 1 }
-        if name == "w:p" || name == "text:p" || name == "text:h" { text += "\n" }
+        if name == "w:p" || name == "text:p" || name == "text:h" { append("\n", parser: parser) }
     }
 }
 
