@@ -46,6 +46,9 @@ enum PNGViewModelTests {
         await model.preparePNGBaseline()
         model.selectedFormat = .heic
         try require(model.pngBaselineRequest == nil && model.shouldShowTargetSize, "Other formats retain size controls")
+        model.imageEnhancement.removeBackground = true
+        model.selectedFormat = .jpg
+        try require(!model.makeConfig().imageEnhancement.removeBackground, "Opaque formats clear background-removal settings")
         print("PNG dimension slider and baseline invalidation passed")
     }
 

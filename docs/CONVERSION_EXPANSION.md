@@ -1,6 +1,6 @@
 # On-device conversion expansion
 
-The app offers 40 output choices across media, documents, data, and archives. Actual choices follow the input category and installed native encoders. Common image choices come first; older formats are in a separate group.
+The app offers up to 39 output choices across media, documents, data, and archives. Actual choices follow the input category and installed native encoders. Common image choices come first; older formats are in a separate group.
 
 ## Conversion engines
 

@@ -90,6 +90,9 @@ final class OutputConfigViewModel {
             if selectedFormat.category != .video {
                 usesSinglePassVideoTargetEncode = false
             }
+            if ![.png, .heic, .webpImage, .tiff].contains(selectedFormat) {
+                imageEnhancement.removeBackground = false
+            }
             clampTargetFractionToMinimum()
             refreshAutoTargetSelections()
         }
