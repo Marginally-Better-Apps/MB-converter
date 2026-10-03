@@ -47,12 +47,14 @@ final class DocumentConverter: Converter {
             defer { try? FileManager.default.removeItem(at: work) }
             var exports: [FileArchive.Entry] = []
             for (index, page) in pages.enumerated() {
-                try check()
-                let image = try raster(page, dpi: config.document.rasterDPI, rotation: config.document.rotation)
-                let url = pages.count == 1 ? output : work.appendingPathComponent("page-\(index + 1).\(config.outputFormat.fileExtension)")
-                try writeImage(image, to: url, format: config.outputFormat)
-                exports.append(.init(name: url.lastPathComponent, url: url))
-                progress(0.05 + 0.85 * Double(index + 1) / Double(pages.count))
+                try autoreleasepool {
+                    try check()
+                    let image = try raster(page, dpi: config.document.rasterDPI, rotation: config.document.rotation)
+                    let url = pages.count == 1 ? output : work.appendingPathComponent("page-\(index + 1).\(config.outputFormat.fileExtension)")
+                    try writeImage(image, to: url, format: config.outputFormat)
+                    exports.append(.init(name: url.lastPathComponent, url: url))
+                    progress(0.05 + 0.85 * Double(index + 1) / Double(pages.count))
+                }
             }
             if pages.count > 1 {
                 let zip = output.deletingPathExtension().appendingPathExtension("zip")
@@ -158,15 +160,17 @@ final class DocumentConverter: Converter {
             defer { withExtendedLifetime(document) {} }
             var byteCount = 0
             for page in pages {
-                try check()
-                var text = page.string ?? ""
-                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && settings.recognizeText {
-                    text = try recognize(raster(page, dpi: 144, rotation: settings.rotation))
-                }
-                chunks.append(text)
-                byteCount += text.utf8.count
-                guard byteCount <= 16 * 1024 * 1024 else {
-                    throw ConversionError.invalidInput("Extracted document text is too large")
+                try autoreleasepool {
+                    try check()
+                    var text = page.string ?? ""
+                    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && settings.recognizeText {
+                        text = try recognize(raster(page, dpi: 144, rotation: settings.rotation))
+                    }
+                    chunks.append(text)
+                    byteCount += text.utf8.count
+                    guard byteCount <= 16 * 1024 * 1024 else {
+                        throw ConversionError.invalidInput("Extracted document text is too large")
+                    }
                 }
             }
             return styled(chunks.joined(separator: "\n\n"))
@@ -340,27 +344,29 @@ final class DocumentConverter: Converter {
         guard let context = CGContext(output as CFURL, mediaBox: &first, nil) else { throw ConversionError.engineFailed("Couldn't create PDF") }
         defer { context.closePDF() }
         for (index, page) in pages.enumerated() {
-            try check()
-            let original = page.bounds(for: .mediaBox)
-            let bounds = CGRect(origin: .zero, size: settings.rotation.applied(to: original.size))
-            var pageBounds = bounds
-            let box = withUnsafeBytes(of: &pageBounds) { Data($0) } as CFData
-            context.beginPDFPage([kCGPDFContextMediaBox: box] as CFDictionary)
-            if settings.compress {
-                let image = try raster(page, dpi: 110, rotation: settings.rotation)
-                // Reopen the JPEG so the PDF writer can embed a compressed image stream.
-                let jpeg = NSMutableData()
-                if let destination = CGImageDestinationCreateWithData(jpeg, UTType.jpeg.identifier as CFString, 1, nil) {
-                    CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.65] as CFDictionary)
-                    if CGImageDestinationFinalize(destination), let source = CGImageSourceCreateWithData(jpeg, nil), let decoded = CGImageSourceCreateImageAtIndex(source, 0, nil) {
-                        context.draw(decoded, in: bounds)
+            try autoreleasepool {
+                try check()
+                let original = page.bounds(for: .mediaBox)
+                let bounds = CGRect(origin: .zero, size: settings.rotation.applied(to: original.size))
+                var pageBounds = bounds
+                let box = withUnsafeBytes(of: &pageBounds) { Data($0) } as CFData
+                context.beginPDFPage([kCGPDFContextMediaBox: box] as CFDictionary)
+                if settings.compress {
+                    let image = try raster(page, dpi: 110, rotation: settings.rotation)
+                    // Reopen the JPEG so the PDF writer can embed a compressed image stream.
+                    let jpeg = NSMutableData()
+                    if let destination = CGImageDestinationCreateWithData(jpeg, UTType.jpeg.identifier as CFString, 1, nil) {
+                        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.65] as CFDictionary)
+                        if CGImageDestinationFinalize(destination), let source = CGImageSourceCreateWithData(jpeg, nil), let decoded = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+                            context.draw(decoded, in: bounds)
+                        } else { throw ConversionError.engineFailed("Couldn't compress PDF page") }
                     } else { throw ConversionError.engineFailed("Couldn't compress PDF page") }
-                } else { throw ConversionError.engineFailed("Couldn't compress PDF page") }
-            } else {
-                context.saveGState(); apply(settings.rotation, context: context, bounds: original)
-                page.draw(with: .mediaBox, to: context); context.restoreGState()
+                } else {
+                    context.saveGState(); apply(settings.rotation, context: context, bounds: original)
+                    page.draw(with: .mediaBox, to: context); context.restoreGState()
+                }
+                context.endPDFPage(); progress(0.05 + 0.9 * Double(index + 1) / Double(pages.count))
             }
-            context.endPDFPage(); progress(0.05 + 0.9 * Double(index + 1) / Double(pages.count))
         }
     }
 

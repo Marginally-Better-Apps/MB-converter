@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shlex
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,6 +25,14 @@ def main():
         "-isysroot", sdk, "-O2", "-DWEBP_USE_THREAD", "-I", str(package / "libwebp"),
         "-dM", "-E", "-x", "c", "-"], input='#include "src/dsp/cpu.h"\n', text=True)
     assert "#define WEBP_USE_NEON" in macros and "#define WEBP_USE_THREAD" in macros
+    # Verify the public Swift API as well as C source integrity. An empty cached
+    # umbrella module can otherwise hide a damaged source-sync header tree.
+    with tempfile.TemporaryDirectory(prefix="mb-webp-api-") as temporary:
+        fixture = Path(temporary) / "API.swift"
+        fixture.write_text("import libwebp\nvar config = WebPConfig()\nvar picture = WebPPicture()\nlet preset = WEBP_PRESET_PHOTO\n")
+        subprocess.run(["xcrun", "swiftc", "-typecheck", "-target", "arm64-apple-ios17.0", "-sdk", sdk,
+                        "-I", str(package / "include"), "-module-cache-path", str(Path(temporary) / "modules"),
+                        str(fixture)], check=True)
     print(f"libwebp {provenance['version']}: source hashes verified; ARM64 NEON and threading enabled")
     if args.derived_data:
         for configuration in ["Debug", "Release"]:

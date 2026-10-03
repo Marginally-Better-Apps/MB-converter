@@ -5,6 +5,7 @@ let package = Package(
     name: "MBWebP",
     platforms: [.iOS(.v17), .macOS(.v13)],
     products: [.library(name: "libwebp", targets: ["libwebp"])],
+    // Regular public headers and an explicit module map survive remote source sync.
     targets: [
         .target(
             name: "libwebp",
