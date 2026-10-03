@@ -11,6 +11,10 @@ struct OutputConfigForm: View {
 
     var body: some View {
         Form {
+            if showsPrimaryControls, viewModel.shouldShowPNGDimensions {
+                Section { PNGDimensionsSlider(viewModel: viewModel) }
+            }
+
             if showsPrimaryControls, viewModel.shouldShowTargetSize, !viewModel.isAudioOutput {
                 Section {
                     targetSizeSection
@@ -27,9 +31,9 @@ struct OutputConfigForm: View {
                             FormatPicker(
                                 formats: viewModel.formats,
                                 inputCategory: viewModel.input.category,
-                                isInteractionDisabled: isMenuInteractionDisabled,
                                 selection: $viewModel.selectedFormat
                             )
+                            .disabled(isMenuInteractionDisabled)
                         }
                     }
 
@@ -95,7 +99,7 @@ struct OutputConfigForm: View {
                             .foregroundStyle(Theme.textMuted)
                     }
                 }
-            } else if showsPrimaryControls, let note = viewModel.losslessNote {
+            } else if showsPrimaryControls, !viewModel.shouldShowPNGDimensions, let note = viewModel.losslessNote {
                 Section("Target Size") {
                     Text(note)
                         .font(.subheadline)
@@ -118,6 +122,7 @@ struct OutputConfigForm: View {
                     .buttonBorderShape(.roundedRectangle(radius: 14))
                     .controlSize(.large)
                     .tint(Theme.tint)
+                    .disabled(!viewModel.canConvert)
                     .accessibilityLabel("Convert")
                 }
             }
@@ -125,6 +130,8 @@ struct OutputConfigForm: View {
         .scrollContentBackground(.hidden)
         .background(Theme.groupedBackground)
         .tint(Theme.tint)
+        .task { await viewModel.loadDiscoveredMetadataIfNeeded() }
+        .task(id: viewModel.pngBaselineRequest) { await viewModel.preparePNGBaseline() }
     }
 
     private var videoAudioQualitySection: some View {
@@ -133,23 +140,14 @@ struct OutputConfigForm: View {
             : AnyLayout(HStackLayout(spacing: 10))
 
         return layout {
-            Menu {
-                ForEach(viewModel.videoAudioQualityOptions) { preset in
-                    Button {
-                        Haptics.selection()
-                        viewModel.videoOutputAudioQuality = preset
-                    } label: {
-                        Text(preset == .auto ? viewModel.videoAudioSourceLabel : preset.label)
-                    }
-                }
-            } label: {
-                bubbleLabel(
-                    text: viewModel.videoAudioQualitySelectionLabel,
-                    accessibility: "Audio quality"
-                )
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 10))
+            PopoverDropdown(
+                title: viewModel.videoAudioQualitySelectionLabel,
+                accessibilityLabel: "Audio quality",
+                options: viewModel.videoAudioQualityOptions,
+                optionTitle: { $0 == .auto ? viewModel.videoAudioSourceLabel : $0.label },
+                isSelected: { $0 == viewModel.videoOutputAudioQuality },
+                onSelect: { viewModel.videoOutputAudioQuality = $0 }
+            )
             .disabled(isMenuInteractionDisabled)
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -169,23 +167,14 @@ struct OutputConfigForm: View {
                 : AnyLayout(HStackLayout(spacing: 10))
 
             layout {
-                Menu {
-                    ForEach(viewModel.resolutionOptions) { option in
-                        Button {
-                            Haptics.selection()
-                            viewModel.selectResolution(option)
-                        } label: {
-                            Text(option.label)
-                        }
-                    }
-                } label: {
-                    bubbleLabel(
-                        text: viewModel.resolutionOptions.first(where: { $0.id == viewModel.selectedResolutionID })?.label ?? "Resolution",
-                        accessibility: "Resolution"
-                    )
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
+                PopoverDropdown(
+                    title: viewModel.resolutionOptions.first(where: { $0.id == viewModel.selectedResolutionID })?.label ?? "Resolution",
+                    accessibilityLabel: "Resolution",
+                    options: viewModel.resolutionOptions,
+                    optionTitle: { $0.label },
+                    isSelected: { $0.id == viewModel.selectedResolutionID },
+                    onSelect: { viewModel.selectResolution($0) }
+                )
                 .disabled(isMenuInteractionDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -247,23 +236,14 @@ struct OutputConfigForm: View {
             : AnyLayout(HStackLayout(spacing: 10))
 
         return layout {
-            Menu {
-                ForEach(viewModel.fpsOptions) { option in
-                    Button {
-                        Haptics.selection()
-                        viewModel.selectedFPS = option.value
-                    } label: {
-                        Text(option.label)
-                    }
-                }
-            } label: {
-                bubbleLabel(
-                    text: viewModel.fpsOptions.first(where: { $0.value == viewModel.selectedFPS })?.label ?? "Original",
-                    accessibility: "FPS"
-                )
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 10))
+            PopoverDropdown(
+                title: viewModel.fpsOptions.first(where: { $0.value == viewModel.selectedFPS })?.label ?? "Original",
+                accessibilityLabel: "FPS",
+                options: viewModel.fpsOptions,
+                optionTitle: { $0.label },
+                isSelected: { $0.value == viewModel.selectedFPS },
+                onSelect: { viewModel.selectedFPS = $0.value }
+            )
             .disabled(isMenuInteractionDisabled)
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -292,47 +272,18 @@ struct OutputConfigForm: View {
         .accessibilityValue(isLocked.wrappedValue ? "Locked" : "Unlocked")
     }
 
-    private func bubbleLabel(text: String, accessibility: String) -> some View {
-        HStack(spacing: 8) {
-            Text(text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.semibold))
-        }
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(Theme.tint)
-        .padding(.horizontal, 4)
-        .frame(minHeight: 42)
-        .accessibilityLabel(accessibility)
-    }
-
     private var targetSizeSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Group {
-                if dynamicTypeSize.isAccessibilitySize {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(viewModel.targetControlTitle)
-                            .font(.title3.bold())
-                            .foregroundStyle(Theme.text)
+            TargetSizeHeader(
+                title: viewModel.targetControlTitle,
+                suggestedMegabytes: viewModel.suggestedTargetSizesMB,
+                targetSizeBytes: viewModel.targetSizeBytes,
+                titleFont: .title3.bold(),
+                onSelect: viewModel.applyTargetSizeSuggestion
+            )
 
-                        if viewModel.shouldShowSinglePassVideoTargetToggle {
-                            singlePassVideoTargetToggle
-                        }
-                    }
-                } else {
-                    HStack(alignment: .center, spacing: 12) {
-                        Text(viewModel.targetControlTitle)
-                            .font(.title3.bold())
-                            .foregroundStyle(Theme.text)
-
-                        Spacer()
-
-                        if viewModel.shouldShowSinglePassVideoTargetToggle {
-                            singlePassVideoTargetToggle
-                        }
-                    }
-                }
+            if viewModel.shouldShowSinglePassVideoTargetToggle {
+                singlePassVideoTargetToggle
             }
 
             VStack(alignment: .leading, spacing: 12) {
@@ -351,18 +302,18 @@ struct OutputConfigForm: View {
     }
 
     private var singlePassVideoTargetToggle: some View {
-        Toggle("Fast", isOn: Binding(
-            get: { viewModel.usesSinglePassVideoTargetEncode },
+        Toggle("Two-pass", isOn: Binding(
+            get: { viewModel.usesTwoPassVideoEncoding },
             set: { newValue in
                 Haptics.impact(.light)
-                viewModel.usesSinglePassVideoTargetEncode = newValue
+                viewModel.usesSinglePassVideoTargetEncode = !newValue
             }
         ))
         .font(.footnote.weight(.semibold))
         .toggleStyle(.switch)
         .tint(Theme.tint)
-        .accessibilityLabel("Use single-pass target encode")
-        .accessibilityValue(viewModel.usesSinglePassVideoTargetEncode ? "On" : "Off")
+        .accessibilityLabel("Use two-pass target encode")
+        .accessibilityValue(viewModel.usesTwoPassVideoEncoding ? "On" : "Off")
     }
 
     private func optionRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -382,7 +333,7 @@ struct OutputConfigForm: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.text)
                         .frame(width: 96, alignment: .leading)
-                        .padding(.top, 10)
+                        .frame(minHeight: 44, alignment: .leading)
 
                     content()
                         .frame(maxWidth: .infinity, alignment: .leading)

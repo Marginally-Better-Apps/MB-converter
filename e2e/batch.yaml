@@ -1,0 +1,11 @@
+appId: com.marginallybetter.converter
+---
+- launchApp:
+    clearState: true
+    arguments:
+      uitest-fixtures: true
+      uitest-batch: true
+- assertVisible: "Batch"
+- assertVisible: "2 files"
+- tapOn: "Merge PDFs"
+- assertVisible: "Share 1 files"

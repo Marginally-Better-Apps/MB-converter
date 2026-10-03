@@ -7,11 +7,11 @@ struct ResultView: View {
     @Binding var path: [AppRoute]
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.isRootSectionActive) private var isRootSectionActive
     @State private var viewModel: ResultViewModel
     @State private var isRenamePromptPresented = false
     @State private var renameDraft = ""
     @State private var shareItem: ShareSheetItem?
+    @State private var isFinishing = false
     private let fromHistory: Bool
     private let onConvertAnother: (() -> Void)?
 
@@ -37,12 +37,12 @@ struct ResultView: View {
                 VStack(spacing: 18) {
                     successHeader
                     outputCard
-                    comparisonCard
                 }
                 .frame(maxWidth: 900)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 20)
-                .padding(.vertical, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
             .scrollBounceBehavior(.basedOnSize)
 
@@ -71,25 +71,36 @@ struct ResultView: View {
         .safeAreaInset(edge: .bottom) {
             actionBar
         }
-        .navigationTitle(isRootSectionActive ? "Result" : "")
+        .onDisappear {
+            guard isFinishing else { return }
+            // Keep the preview's files available while Done animates this
+            // screen away. Ordinary back navigation keeps the cached result.
+            TempStorage.cleanAll()
+            ImportStorage.cleanAll()
+        }
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
-        .toolbar {
-            if isRootSectionActive {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        Haptics.impact(.light)
-                        goBackToSettings()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.headline.weight(.semibold))
+        .toolbar(.hidden, for: .navigationBar)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { gesture in
+                    guard !isFinishing, !viewModel.isCopyingToPasteboard,
+                          gesture.startLocation.x <= 24,
+                          gesture.translation.width >= 80,
+                          gesture.translation.width > abs(gesture.translation.height) * 1.5,
+                          let last = path.last,
+                          case .result(_, _, let result, _) = last,
+                          result.id == viewModel.result.id else { return }
+                    // The settings screen owns its back navigation too. Avoid
+                    // starting a UIKit interactive pop that it would interrupt.
+                    withAnimation {
+                        _ = path.removeLast()
                     }
-                    .accessibilityLabel(fromHistory ? "Back to history" : "Back to settings")
                 }
-            }
-        }
+        )
 #if canImport(UIKit)
-        .background(ResultInteractivePopGestureEnabler().frame(width: 0, height: 0))
+        .background(ConvertBackNavigationGuard(isActive: true).frame(width: 0, height: 0))
 #endif
         .alert("Action Failed", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
@@ -138,10 +149,7 @@ struct ResultView: View {
                 .font(.title2.bold())
                 .foregroundStyle(Theme.text)
 
-            Text(fromHistory ? "This converted file is ready to share again." : "Your converted file is ready to share.")
-                .font(.subheadline)
-                .foregroundStyle(Theme.textMuted)
-                .multilineTextAlignment(.center)
+            sizeComparison
         }
         .accessibilityElement(children: .combine)
     }
@@ -149,9 +157,11 @@ struct ResultView: View {
     private var outputCard: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 12) {
-                Label("Output", systemImage: "doc.fill")
-                    .font(.headline)
+                Text(viewModel.exportFilename)
+                    .font(.headline.weight(.semibold))
                     .foregroundStyle(Theme.text)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
 
                 Spacer()
 
@@ -168,12 +178,6 @@ struct ResultView: View {
                 .tint(Theme.tint)
                 .accessibilityLabel("Rename output file")
             }
-
-            Text(viewModel.exportFilename)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(Theme.text)
-                .lineLimit(2)
-                .truncationMode(.middle)
 
             Divider()
                 .overlay(Theme.separator)
@@ -231,67 +235,21 @@ struct ResultView: View {
         }
     }
 
-    private var comparisonCard: some View {
+    private var sizeComparison: some View {
         let comparison = viewModel.sizeComparison
 
-        return VStack(alignment: .leading, spacing: 16) {
-            Label("File Size", systemImage: "chart.bar.fill")
-                .font(.headline)
+        return VStack(spacing: 6) {
+            Text("\(comparison.before) → \(comparison.after)")
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.text)
+                .accessibilityLabel("Before \(comparison.before), after \(comparison.after)")
 
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 12) {
-                    comparisonMetric(title: "Before", value: comparison.before)
-                    comparisonDivider
-                    comparisonMetric(title: "After", value: comparison.after)
-                    comparisonDivider
-                    comparisonMetric(title: "Change", value: comparison.change, emphasized: true)
-                }
-
-                VStack(spacing: 0) {
-                    comparisonRow(title: "Before", value: comparison.before)
-                    Divider().overlay(Theme.separator)
-                    comparisonRow(title: "After", value: comparison.after)
-                    Divider().overlay(Theme.separator)
-                    comparisonRow(title: "Change", value: comparison.change, emphasized: true)
-                }
-            }
+            Text(comparison.change)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.tint)
         }
-        .padding(20)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .accessibilityElement(children: .contain)
-    }
-
-    private func comparisonMetric(title: String, value: String, emphasized: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(Theme.textMuted)
-            Text(value)
-                .font(.subheadline.weight(emphasized ? .semibold : .medium))
-                .foregroundStyle(emphasized ? Theme.tint : Theme.text)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(minWidth: 92, maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var comparisonDivider: some View {
-        Divider()
-            .overlay(Theme.separator)
-            .frame(minHeight: 44)
-    }
-
-    private func comparisonRow(title: String, value: String, emphasized: Bool = false) -> some View {
-        LabeledContent(title) {
-            Text(value)
-                .font(.subheadline.weight(emphasized ? .semibold : .medium))
-                .foregroundStyle(emphasized ? Theme.tint : Theme.text)
-                .multilineTextAlignment(.trailing)
-        }
-        .font(.subheadline)
-        .foregroundStyle(Theme.textMuted)
-        .padding(.vertical, 10)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .combine)
     }
 
@@ -313,7 +271,7 @@ struct ResultView: View {
 
             secondaryActions
         }
-        .disabled(viewModel.isCopyingToPasteboard)
+        .disabled(isFinishing || viewModel.isCopyingToPasteboard)
         .frame(maxWidth: 900)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
@@ -367,13 +325,15 @@ struct ResultView: View {
 
     private var doneAction: some View {
         Button {
+            guard !isFinishing else { return }
+            isFinishing = true
             Haptics.impact(.medium)
-            TempStorage.cleanAll()
-            ImportStorage.cleanAll()
-            if let onConvertAnother {
-                onConvertAnother()
-            } else {
-                path.removeAll()
+            withAnimation {
+                if let onConvertAnother {
+                    onConvertAnother()
+                } else {
+                    path.removeAll()
+                }
             }
         } label: {
             Label("Done", systemImage: "checkmark")
@@ -410,14 +370,6 @@ struct ResultView: View {
         }
     }
 
-    private func goBackToSettings() {
-        // Normal results stay alive as the InputDetail screen's one-entry cache.
-        // That screen removes the file when settings change or the flow is discarded;
-        // History-owned results continue to be managed by ConversionHistoryStore.
-        if !path.isEmpty {
-            path.removeLast()
-        }
-    }
 }
 
 private struct ShareSheetItem: Identifiable {
@@ -434,24 +386,6 @@ private struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
-#endif
-
-#if canImport(UIKit)
-private struct ResultInteractivePopGestureEnabler: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> ResultInteractivePopGestureViewController {
-        ResultInteractivePopGestureViewController()
-    }
-
-    func updateUIViewController(_ uiViewController: ResultInteractivePopGestureViewController, context: Context) {}
-}
-
-private final class ResultInteractivePopGestureViewController: UIViewController {
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        navigationController?.interactivePopGestureRecognizer?.isEnabled = true
-        navigationController?.interactivePopGestureRecognizer?.delegate = nil
-    }
 }
 #endif
 

@@ -15,7 +15,13 @@ final class HomeViewModel {
 
     /// Short label (e.g. "JPEG", "M4A") for supported clipboard content; `nil` disables the paste control.
     var pasteboardImportLabel: String?
+    var pasteboardImportFileExtension: String?
+    var pasteboardPreviewThumbnail: UIImage?
+    var pasteboardFileSizeBytes: Int64?
+    var pasteboardDuration: TimeInterval?
     private var lastSeenPasteboardChangeCount: Int
+    private var lastPreviewPasteboardChangeCount: Int?
+    private var pasteboardPreviewTask: Task<Void, Never>?
 
     init() {
         lastSeenPasteboardChangeCount = UIPasteboard.general.changeCount
@@ -23,8 +29,34 @@ final class HomeViewModel {
     }
 
     func refreshPasteboard() {
-        lastSeenPasteboardChangeCount = UIPasteboard.general.changeCount
-        pasteboardImportLabel = importService.pasteboardImportLabel()
+        let changeCount = UIPasteboard.general.changeCount
+        lastSeenPasteboardChangeCount = changeCount
+        guard lastPreviewPasteboardChangeCount != changeCount else { return }
+        let candidateLabel = importService.pasteboardImportLabel()
+        // Advertised types are only candidates. Keep paste disabled until the
+        // provider actually supplies a readable representation.
+        pasteboardImportLabel = nil
+        pasteboardImportFileExtension = nil
+        lastPreviewPasteboardChangeCount = changeCount
+        pasteboardPreviewTask?.cancel()
+        pasteboardPreviewThumbnail = nil
+        pasteboardFileSizeBytes = nil
+        pasteboardDuration = nil
+        guard candidateLabel != nil else { return }
+
+        pasteboardPreviewTask = Task { [weak self] in
+            guard let self else { return }
+            let preview = await self.importService.pasteboardPreview(forChangeCount: changeCount)
+            guard !Task.isCancelled,
+                  UIPasteboard.general.changeCount == changeCount else { return }
+            if let fileExtension = preview.readableFileExtension {
+                self.pasteboardImportLabel = fileExtension.uppercased()
+                self.pasteboardImportFileExtension = fileExtension
+            }
+            self.pasteboardPreviewThumbnail = preview.thumbnail
+            self.pasteboardFileSizeBytes = preview.fileSizeBytes
+            self.pasteboardDuration = preview.duration
+        }
     }
 
     /// `UIPasteboard.changedNotification` can occasionally be delayed/missed until user interaction.
@@ -42,18 +74,31 @@ final class HomeViewModel {
     }
 
     func importFromFiles(_ url: URL) async -> MediaFile? {
-        await importFile(
+        let media = await importFile(
             context: "Import from Files",
             metadata: ["Selected file": url.lastPathComponent]
         ) {
             try await importService.importFromFiles(at: url)
         }
+        return media?.withOriginalFilename(url.lastPathComponent)
     }
 
     func importFromPasteboard() async -> MediaFile? {
-        await importFile(context: "Import from clipboard") {
+        let changeCount = UIPasteboard.general.changeCount
+        let media = await importFile(context: "Import from clipboard") {
             try await importService.importFromPasteboard()
         }
+        if media == nil, UIPasteboard.general.changeCount == changeCount {
+            // A provider can become unavailable after the preview. Don't keep
+            // offering the same failed clipboard item until it is copied again.
+            pasteboardPreviewTask?.cancel()
+            pasteboardImportLabel = nil
+            pasteboardImportFileExtension = nil
+            pasteboardPreviewThumbnail = nil
+            pasteboardFileSizeBytes = nil
+            pasteboardDuration = nil
+        }
+        return media
     }
 
     func importFromRemoteLink(_ linkString: String) async -> MediaFile? {

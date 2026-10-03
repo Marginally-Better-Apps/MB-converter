@@ -2,33 +2,38 @@ import SwiftUI
 
 struct ConversionHistoryListView: View {
     @Binding var path: [AppRoute]
-    var showsContentTitle = false
     /// Allows deterministic previews without mutating the shared history store.
     var previewEntries: [ConversionHistoryEntry]? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.isRootSectionActive) private var isRootSectionActive
+    @State private var drafts = ConversionDraftStore.shared
     @State private var store = ConversionHistoryStore.shared
     @State private var isClearAllConfirming = false
     @State private var entryPendingDeletion: ConversionHistoryEntry?
 
     var body: some View {
         List {
-            if showsContentTitle {
-                Text("History")
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(Theme.text)
-                    .accessibilityAddTraits(.isHeader)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+            if !drafts.entries.isEmpty && previewEntries == nil {
+                Section("Drafts") {
+                    ForEach(drafts.entries) { draft in
+                        Button { path.append(.draft(draft)) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "square.and.pencil").foregroundStyle(Theme.tint)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(draft.input.originalFilename).foregroundStyle(Theme.text).lineLimit(1)
+                                    Text(draft.config.outputFormat.displayName).font(.caption).foregroundStyle(Theme.textMuted)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(Theme.textMuted)
+                            }.padding(.vertical, 6)
+                        }
+                        .accessibilityLabel("Resume draft \(draft.input.originalFilename)")
+                        .swipeActions { Button("Delete", role: .destructive) { drafts.remove(id: draft.id) } }
+                    }
+                }
             }
 
-            Section {
-                historySummary
-                    .listRowBackground(Theme.surface)
-            }
-
-            if entries.isEmpty {
+            if entries.isEmpty && (drafts.entries.isEmpty || previewEntries != nil) {
                 Section {
                     ContentUnavailableView(
                         "No Conversions Yet",
@@ -39,7 +44,7 @@ struct ConversionHistoryListView: View {
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Theme.surface)
                 }
-            } else {
+            } else if !entries.isEmpty {
                 Section("Conversions") {
                     ForEach(entries) { entry in
                         historyRow(entry: entry)
@@ -60,8 +65,9 @@ struct ConversionHistoryListView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .tint(Theme.primary)
-        .navigationTitle(isRootSectionActive && !showsContentTitle ? "History" : "")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationTitle(isRootSectionActive ? "History" : "")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .onAppear {
             guard previewEntries == nil else { return }
             store = ConversionHistoryStore.shared
@@ -130,7 +136,7 @@ struct ConversionHistoryListView: View {
             }
             .foregroundStyle(Theme.text)
 
-            if !entries.isEmpty {
+            if store.isEnabled && !entries.isEmpty {
                 Button(role: .destructive) {
                     Haptics.warning()
                     isClearAllConfirming = true

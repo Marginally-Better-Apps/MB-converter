@@ -3,6 +3,8 @@ import AVKit
 import ImageIO
 import SwiftUI
 import UIKit
+import QuickLook
+import PDFKit
 
 struct MediaPreview: View {
     let url: URL
@@ -18,13 +20,21 @@ struct MediaPreview: View {
     var displayCropRect: CropRegion? = nil
     /// Clockwise rotation shown for image and video edits.
     var mediaRotation: MediaRotation = .none
+    /// Horizontal mirror shown for image and video edits.
+    var isMirrored = false
     /// Disable full-screen playback when the preview is embedded in another control.
     var isInteractive: Bool = true
 
+    /// Optional fixed height for previews that have more room in their parent card.
+    var preferredHeight: CGFloat? = nil
+
+    @State private var documentURL: URL?
+    @State private var documentThumbnail: UIImage?
     @State private var isShowingFullImage = false
     @State private var isShowingFullVideo = false
     @State private var isShowingFullAudio = false
     @State private var videoPreviewState: VideoPreviewState = .loading
+    @State private var imagePreviewState: VideoPreviewState = .loading
 
     var body: some View {
         Group {
@@ -35,12 +45,32 @@ struct MediaPreview: View {
                 videoCardPreview
             case .audio:
                 audioPlayerPreview
+            case .document, .data, .archive, .file:
+                Button {
+                    if isInteractive { documentURL = url }
+                } label: {
+                    Group {
+                        if let documentThumbnail { Image(uiImage: documentThumbnail).resizable().scaledToFit() }
+                        else { Image(systemName: category == .archive ? "archivebox" : category == .data ? "tablecells" : "doc.text").font(.system(size: 56, weight: .light)).foregroundStyle(Theme.tint) }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 100)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Preview file")
+                .quickLookPreview($documentURL)
+                .task(id: url) {
+                    guard url.pathExtension.lowercased() == "pdf" else { return }
+                    let sourceURL = url
+                    documentThumbnail = await Task.detached(priority: .utility) {
+                        PDFDocument(url: sourceURL)?.page(at: 0)?.thumbnail(of: CGSize(width: 512, height: 512), for: .mediaBox)
+                    }.value
+                }
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(minHeight: compact ? 140 : 220)
+        .frame(minHeight: preferredHeight ?? (compact ? 140 : 220))
         // Hard cap so image/video/animated never exceed a predictable vertical budget (avoids layout pushing siblings).
-        .frame(maxHeight: compact ? 220 : 400)
+        .frame(maxHeight: preferredHeight ?? (compact ? 220 : 400))
         .clipped()
         .modifier(PreviewChrome(enabled: showsChrome))
         .overlay {
@@ -57,7 +87,7 @@ struct MediaPreview: View {
 
     private var imagePreview: some View {
         Group {
-            if let image = UIImage.firstFrame(from: url) {
+            if case .ready(let image?) = imagePreviewState {
                 Group {
                     if isInteractive {
                         Button {
@@ -68,6 +98,7 @@ struct MediaPreview: View {
                                 image: image,
                                 sourceDimensions: sourceDimensions,
                                 rotation: mediaRotation,
+                                isMirrored: isMirrored,
                                 padding: compact ? 2 : 12,
                                 showsBorder: showsMediaBorder
                             )
@@ -79,6 +110,7 @@ struct MediaPreview: View {
                             image: image,
                             sourceDimensions: sourceDimensions,
                             rotation: mediaRotation,
+                            isMirrored: isMirrored,
                             padding: compact ? 2 : 12,
                             showsBorder: showsMediaBorder
                         )
@@ -87,14 +119,22 @@ struct MediaPreview: View {
                 .fullScreenCover(isPresented: $isShowingFullImage) {
                     FullImagePreview(image: image)
                 }
+            } else if case .loading = imagePreviewState {
+                ProgressView().tint(Theme.textMuted)
             } else {
                 ContentUnavailableView("Preview Unavailable", systemImage: "photo")
                     .foregroundStyle(Theme.textMuted)
             }
         }
+        .task(id: url) {
+            imagePreviewState = .loading
+            let image = await UIImage.previewImage(from: url)
+            guard !Task.isCancelled else { return }
+            imagePreviewState = .ready(image)
+        }
     }
 
-    /// Poster + play affordance; non-playable containers fall back to a thumbnail-only card.
+    /// Posters load independently; a compatible playback copy is prepared only after tapping Play.
     private var videoCardPreview: some View {
         Group {
             switch videoPreviewState {
@@ -104,7 +144,7 @@ struct MediaPreview: View {
                         ProgressView()
                             .tint(Theme.textMuted)
                     }
-            case .playable(let poster):
+            case .ready(let poster):
                 if isInteractive {
                     Button {
                         Haptics.impact(.light)
@@ -124,36 +164,21 @@ struct MediaPreview: View {
                 } else {
                     videoPosterBackground(poster)
                 }
-            case .unavailable(let poster):
-                videoPosterBackground(poster)
-                    .overlay {
-                        Color.black.opacity(poster == nil ? 0 : 0.38)
-                    }
-                    .overlay {
-                        VStack(spacing: 8) {
-                            Image(systemName: "play.slash")
-                                .font(.system(size: 34, weight: .semibold))
-                            Text("Preview Not Available")
-                                .font(.caption.weight(.semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(12)
-                        .multilineTextAlignment(.center)
-                    }
             }
         }
         .task(id: url) {
             videoPreviewState = .loading
-            let isPlayable = await VideoPreviewSupport.isPlayable(url)
             let poster = await UIImage.videoPosterFrame(from: url)
-            videoPreviewState = isPlayable ? .playable(poster) : .unavailable(poster)
+            guard !Task.isCancelled else { return }
+            videoPreviewState = .ready(poster)
         }
         .fullScreenCover(isPresented: $isShowingFullVideo) {
             FullVideoPlayer(
                 url: url,
                 sourceDimensions: sourceDimensions,
                 cropRegion: displayCropRect,
-                rotation: mediaRotation
+                rotation: mediaRotation,
+                isMirrored: isMirrored
             )
         }
     }
@@ -168,6 +193,7 @@ struct MediaPreview: View {
                     image: poster,
                     sourceDimensions: sourceDimensions,
                     rotation: mediaRotation,
+                    isMirrored: isMirrored,
                     padding: compact ? 2 : 12,
                     showsBorder: showsMediaBorder
                 )
@@ -178,8 +204,7 @@ struct MediaPreview: View {
 
     private enum VideoPreviewState {
         case loading
-        case playable(UIImage?)
-        case unavailable(UIImage?)
+        case ready(UIImage?)
     }
 
     private var audioPlayerPreview: some View {
@@ -205,9 +230,11 @@ struct MediaPreview: View {
     private var audioArtwork: some View {
         ZStack {
             Color(white: 0.12)
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 72))
-                .foregroundStyle(Theme.primary)
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 56))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.45), radius: 8, y: 2)
                 .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -281,6 +308,7 @@ private struct QuarterTurnImage: View {
     let image: UIImage
     let sourceDimensions: CGSize?
     let rotation: MediaRotation
+    let isMirrored: Bool
     let padding: CGFloat
     let showsBorder: Bool
 
@@ -307,6 +335,7 @@ private struct QuarterTurnImage: View {
                 height: rotation.swapsDimensions ? contentRect.width : contentRect.height
             )
             .rotationEffect(.degrees(Double(rotation.rawValue)))
+            .scaleEffect(x: isMirrored ? -1 : 1)
             .position(x: contentRect.midX, y: contentRect.midY)
         }
     }
@@ -343,36 +372,64 @@ private struct CropPreviewOverlay: View {
     }
 }
 
-/// Full-screen crop editor. Uses local `liveCrop` during drags so `@Observable` planning is not invoked every frame.
+/// Crop, rotation, and inline trimming. Local edit state keeps output planning off the drag path.
 struct CropEditorView: View {
-    let url: URL
     let category: MediaCategory
     let sourceDimensions: CGSize
+    let onTrimVideo: @MainActor (URL, VideoTrimRange) async throws -> Void
+    let showsVideoAudioControls: Bool
     @Binding var cropRegion: CropRegion?
     @Binding var mediaRotation: MediaRotation
+    @Binding var isMirrored: Bool
+    @Binding var audioEdits: AudioEditSettings
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var playback = TrimVideoPlayback()
     @State private var liveCrop: CropRegion
     @State private var liveRotation: MediaRotation
+    @State private var liveIsMirrored: Bool
+    @State private var liveAudioEdits: AudioEditSettings
+    @State private var undoHistory: [CropEditState] = []
+    @State private var interactionStartState: CropEditState?
     @State private var previewImage: UIImage?
+    @State private var liveTrim: VideoTrimRange?
+    @State private var videoDuration: Double = 0
+    @State private var isLoadingTrim = true
+    @State private var isSavingEdits = false
+    @State private var saveTask: Task<Void, Never>?
+    @State private var previewTime: Double = 0
+    @State private var previewRequests: AsyncStream<Double>.Continuation?
+    @State private var activeVideoURL: URL
+    @State private var trimErrorMessage = ""
+    @State private var isTrimErrorPresented = false
     @State private var xText = ""
     @State private var yText = ""
     @State private var widthText = ""
     @State private var heightText = ""
+    @State private var volumeOptionsPopoverPresented = false
 
     init(
         url: URL,
         category: MediaCategory,
         sourceDimensions: CGSize,
         cropRegion: Binding<CropRegion?>,
-        mediaRotation: Binding<MediaRotation>
+        mediaRotation: Binding<MediaRotation>,
+        isMirrored: Binding<Bool>,
+        showsVideoAudioControls: Bool,
+        audioEdits: Binding<AudioEditSettings>,
+        onTrimVideo: @escaping @MainActor (URL, VideoTrimRange) async throws -> Void
     ) {
-        self.url = url
         self.category = category
         self.sourceDimensions = sourceDimensions
+        self.onTrimVideo = onTrimVideo
+        self.showsVideoAudioControls = showsVideoAudioControls
         self._cropRegion = cropRegion
         self._mediaRotation = mediaRotation
+        self._isMirrored = isMirrored
+        self._audioEdits = audioEdits
+        self._liveAudioEdits = State(initialValue: audioEdits.wrappedValue)
         let initialRotation = (category == .image || category == .video) ? mediaRotation.wrappedValue : .none
         let initialDimensions = initialRotation.applied(to: sourceDimensions)
         let initial = cropRegion.wrappedValue?.clamped(to: initialDimensions)
@@ -380,6 +437,8 @@ struct CropEditorView: View {
             ?? CropRegion(x: 0, y: 0, width: 1, height: 1)
         _liveCrop = State(initialValue: initial)
         _liveRotation = State(initialValue: initialRotation)
+        _liveIsMirrored = State(initialValue: isMirrored.wrappedValue)
+        _activeVideoURL = State(initialValue: url)
     }
 
     var body: some View {
@@ -389,24 +448,48 @@ struct CropEditorView: View {
                 liveCrop: $liveCrop,
                 previewImage: previewImage,
                 rotation: liveRotation,
-                onUserGestureEnded: { syncTextFromLive() }
+                isMirrored: liveIsMirrored,
+                player: playback.player,
+                onUserGestureBegan: { beginUndoableInteraction() },
+                onUserGestureEnded: {
+                    syncTextFromLive()
+                    endUndoableInteraction()
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.surface.opacity(0.85))
+            .background(Theme.surface.opacity(0.92))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Theme.accent, lineWidth: 1)
+                    .stroke(Theme.separator, lineWidth: 1)
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Theme.background.ignoresSafeArea())
+            .background(Theme.background, ignoresSafeAreaEdges: [])
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                cropControls
+                if category == .video {
+                    VStack(spacing: 0) {
+                        // Keep the video length timeline fixed while the edit controls scroll.
+                        videoTrimControl
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                cropControls
+                                if showsVideoAudioControls {
+                                    videoAudioControls
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 280)
+                        .scrollBounceBehavior(.basedOnSize)
+                    }
+                } else {
+                    cropControls
+                }
             }
-            .navigationTitle("Crop")
+            .background(Theme.surface.ignoresSafeArea())
+            .navigationTitle("Edit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -419,10 +502,10 @@ struct CropEditorView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         Haptics.impact(.light)
-                        applyLiveToBinding()
-                        dismiss()
+                        saveEdits()
                     }
                     .fontWeight(.semibold)
+                    .disabled(isSavingEdits)
                 }
 
                 ToolbarItemGroup(placement: .bottomBar) {
@@ -440,15 +523,29 @@ struct CropEditorView: View {
                         )
                     }
 
+                    if category == .image || category == .video {
+                        Button {
+                            Haptics.selection()
+                            performUndoableEdit { liveIsMirrored.toggle() }
+                        } label: {
+                            Label("Mirror", systemImage: "arrow.left.and.right")
+                                .foregroundStyle(liveIsMirrored ? Theme.tint : Theme.text)
+                        }
+                        .accessibilityLabel(category == .video ? "Mirror video horizontally" : "Mirror image horizontally")
+                        .accessibilityValue(liveIsMirrored ? "On" : "Off")
+                    }
+
                     Spacer()
 
                     Button {
                         Haptics.selection()
-                        resetCrop()
+                        undoLastEdit()
                     } label: {
-                        Label("Reset Crop", systemImage: "arrow.counterclockwise")
+                        Label("Undo", systemImage: "arrow.uturn.backward")
+                            .foregroundStyle(canUndo ? Theme.tint : Theme.textMuted)
                     }
-                    .accessibilityLabel("Reset crop")
+                    .disabled(!canUndo)
+                    .accessibilityLabel("Undo last edit")
                 }
             }
             .toolbarBackground(Theme.surface, for: .navigationBar)
@@ -456,18 +553,45 @@ struct CropEditorView: View {
             .toolbarBackground(Theme.surface, for: .bottomBar)
             .toolbarBackground(.visible, for: .bottomBar)
         }
-        .task(id: url) {
+        .task(id: activeVideoURL) {
             previewImage = nil
             switch category {
             case .image, .animatedImage:
-                previewImage = UIImage.firstFrame(from: url)
+                let image = await UIImage.previewImage(from: activeVideoURL)
+                guard !Task.isCancelled else { return }
+                previewImage = image
             case .video:
-                previewImage = await UIImage.videoPosterFrame(from: url)
-            case .audio:
+                await updateVideoPreviewFrames()
+            case .audio, .document, .data, .archive, .file:
                 previewImage = nil
             }
         }
+        .interactiveDismissDisabled(isSavingEdits)
+        .disabled(isSavingEdits)
+        .overlay {
+            if isSavingEdits {
+                ProgressView("Saving trim…")
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
+        .task(id: activeVideoURL) { await loadTrimRange() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { playback.pause() }
+        }
+        .onChange(of: liveAudioEdits.volume) { _, _ in applyPreviewAudioVolume() }
+        .onDisappear {
+            saveTask?.cancel()
+            playback.stop()
+            PreviewAudioSession.deactivate()
+        }
+        .alert("Couldn't use trimmed video", isPresented: $isTrimErrorPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(trimErrorMessage)
+        }
         .onAppear {
+            if category == .video { PreviewAudioSession.configureForPlayback() }
             if liveCrop.clamped(to: editingSourceDimensions) == nil,
                let full = CropRegion.fullFrame(source: editingSourceDimensions) {
                 liveCrop = full
@@ -476,32 +600,294 @@ struct CropEditorView: View {
         }
     }
 
+    private func updateVideoPreviewFrames() async {
+        // Reuse one decoder and keep only the newest queued position. Continuous
+        // scrubbing produces frames without waiting for the finger to stop, and
+        // old seek requests cannot build up behind the playhead.
+        let (requests, continuation) = AsyncStream<Double>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        previewRequests = continuation
+        continuation.yield(previewTime)
+        defer { continuation.finish() }
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: activeVideoURL))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 1280, height: 1280)
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        await withTaskCancellationHandler {
+            for await seconds in requests {
+                guard !Task.isCancelled else { return }
+                do {
+                    // The end boundary has no video frame of its own.
+                    let rangeEnd = liveTrim?.end ?? videoDuration
+                    let rangeStart = liveTrim?.start ?? 0
+                    let frameTime = rangeEnd > 0 ? min(max(seconds, rangeStart), max(rangeStart, rangeEnd - 1.0 / 600)) : seconds
+                    let (image, _) = try await generator.image(at: CMTime(seconds: frameTime, preferredTimescale: 600))
+                    guard !Task.isCancelled else { return }
+                    previewImage = UIImage(cgImage: image)
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    if previewImage == nil {
+                        let fallback = await UIImage.videoPosterFrame(from: activeVideoURL)
+                        guard !Task.isCancelled else { return }
+                        previewImage = fallback
+                    }
+                }
+            }
+        } onCancel: {
+            generator.cancelAllCGImageGeneration()
+        }
+    }
+
     private var cropControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Crop Region")
-                    .font(.headline)
-                    .foregroundStyle(Theme.text)
+            HStack(spacing: 12) {
+                Image(systemName: "crop")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(Theme.tint)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.secondaryFill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
 
-                LazyVGrid(columns: cropFieldColumns, alignment: .leading, spacing: 12) {
-                    cropField("X", text: $xText)
-                    cropField("Y", text: $yText)
-                    cropField("Width", text: $widthText)
-                    cropField("Height", text: $heightText)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Crop region")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(Theme.text)
+                    Text("Drag the frame or enter exact pixel values")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textMuted)
                 }
 
-                Text("Drag the frame or enter exact pixel values.")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.textMuted)
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: 720, alignment: .leading)
-            .frame(maxWidth: .infinity)
+
+            LazyVGrid(columns: cropFieldColumns, alignment: .leading, spacing: 10) {
+                cropField("X", text: $xText)
+                cropField("Y", text: $yText)
+                cropField("Width", text: $widthText)
+                cropField("Height", text: $heightText)
+            }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(.ultraThinMaterial)
+        .padding(.vertical, 12)
+        .background(Theme.surface)
         .overlay(alignment: .top) {
-            Divider()
+            Rectangle()
+                .fill(Theme.separator)
+                .frame(height: 1)
+        }
+    }
+
+    @ViewBuilder
+    private var videoTrimControl: some View {
+        if let liveTrim {
+            VideoTrimTimeline(
+                url: activeVideoURL,
+                duration: videoDuration,
+                selection: Binding(get: { self.liveTrim ?? liveTrim }, set: { self.liveTrim = $0 }),
+                playhead: Binding(get: { previewTime }, set: {
+                    playback.pause()
+                    seekPreview(to: $0)
+                }),
+                isPlaying: playback.isPlaying,
+                onTogglePlayback: {
+                    Haptics.selection()
+                    if playback.isPlaying {
+                        playback.pause()
+                    } else {
+                        playback.play(from: previewTime, range: self.liveTrim ?? liveTrim)
+                    }
+                },
+                onInteractionBegan: beginUndoableInteraction,
+                onInteractionEnded: endUndoableInteraction
+            )
+        } else if isLoadingTrim {
+            ProgressView("Loading timeline…")
+                .font(.footnote)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+        } else {
+            Label("Video trimming isn't available for this file on this device.", systemImage: "info.circle")
+                .font(.footnote)
+                .foregroundStyle(Theme.textMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+        }
+    }
+
+    private var videoAudioControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Audio", systemImage: "waveform")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(Theme.text)
+
+            videoVolumeControl
+
+            HStack {
+                Label("Channels", systemImage: "hifispeaker.2")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.text)
+                Spacer(minLength: 12)
+                PopoverDropdown(
+                    title: liveAudioEdits.channels.label,
+                    accessibilityLabel: "Audio channels",
+                    options: AudioChannelMode.allCases,
+                    optionTitle: { $0.label },
+                    isSelected: { $0 == liveAudioEdits.channels },
+                    onSelect: { mode in performUndoableEdit { liveAudioEdits.channels = mode } }
+                )
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityIdentifier("videoAudioChannelPicker")
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(Theme.surface)
+        .overlay(alignment: .top) {
+            Rectangle().fill(Theme.separator).frame(height: 1)
+        }
+    }
+
+    private var videoVolumeControl: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(spacing: 12))
+
+        return layout {
+            Label("Volume", systemImage: liveAudioEdits.volume == 0 ? "speaker.slash" : "speaker.wave.2")
+                .font(.subheadline)
+                .frame(width: 88, alignment: .leading)
+                .foregroundStyle(Theme.text)
+
+            HStack(spacing: 12) {
+                Slider(value: videoVolumeBinding, in: 0...2, step: 0.05, onEditingChanged: audioSliderInteraction)
+                    .accessibilityLabel("Video audio volume")
+                    .accessibilityValue("\(Int((liveAudioEdits.volume * 100).rounded())) percent")
+                    .accessibilityIdentifier("videoAudioVolumeSlider")
+                    .frame(minWidth: 80)
+                Text("\(Int((liveAudioEdits.volume * 100).rounded()))%")
+                    .font(.subheadline.monospacedDigit())
+                    .frame(minWidth: 52, alignment: .trailing)
+                    .accessibilityIdentifier("videoAudioVolumeValue")
+                volumeOptionsMenuButton
+            }
+        }
+        .frame(minHeight: 44)
+    }
+
+    private var videoVolumeBinding: Binding<Double> {
+        Binding(get: { liveAudioEdits.volume }, set: { value in
+            if interactionStartState != nil {
+                liveAudioEdits.volume = value
+            } else {
+                performUndoableEdit { liveAudioEdits.volume = value }
+            }
+            applyPreviewAudioVolume()
+        })
+    }
+
+    private var volumeOptionsMenuButton: some View {
+        Button {
+            volumeOptionsPopoverPresented = true
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Theme.tint)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Video audio volume options")
+        .accessibilityIdentifier("videoAudioVolumeOptions")
+        .popover(isPresented: $volumeOptionsPopoverPresented) {
+            VStack(spacing: 0) {
+                Button {
+                    performUndoableEdit { liveAudioEdits.limiterEnabled.toggle() }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: liveAudioEdits.limiterEnabled ? "square" : "checkmark.square.fill")
+                            .foregroundStyle(Theme.tint)
+                        Text("Allow clipping")
+                            .foregroundStyle(Theme.text)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.body)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(liveAudioEdits.limiterEnabled ? "Off" : "On")
+                .accessibilityIdentifier("videoAudioRemoveLimiterToggle")
+            }
+            .padding(8)
+            .frame(width: 220)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private func loadTrimRange() async {
+        guard category == .video else { return }
+        if videoDuration > 0 {
+            playback.prepare(url: activeVideoURL, onPositionChange: { previewTime = $0 })
+            applyPreviewAudioVolume()
+            if let liveTrim { playback.seek(to: previewTime, range: liveTrim) }
+            return
+        }
+        isLoadingTrim = true
+        defer { isLoadingTrim = false }
+        let asset = AVURLAsset(url: activeVideoURL)
+        guard let duration = try? await asset.load(.duration).seconds,
+              duration.isFinite, duration > 0,
+              let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough),
+              export.supportedFileTypes.contains(where: { $0 == .mov || $0 == .mp4 }),
+              !Task.isCancelled else { return }
+        videoDuration = duration
+        liveTrim = VideoTrimRange(start: 0, end: duration)
+        playback.prepare(url: activeVideoURL, onPositionChange: { previewTime = $0 })
+        applyPreviewAudioVolume()
+    }
+
+    private func seekPreview(to seconds: Double) {
+        previewTime = seconds
+        // Only editing gestures seek. Player time updates (including Pause)
+        // must not feed back into the decoder as another seek request.
+        if playback.player != nil, let liveTrim {
+            playback.seek(to: seconds, range: liveTrim)
+        } else {
+            previewRequests?.yield(seconds)
+        }
+    }
+
+    private func audioSliderInteraction(_ editing: Bool) {
+        if editing { beginUndoableInteraction() } else { endUndoableInteraction() }
+    }
+
+    private func applyPreviewAudioVolume() {
+        playback.player?.volume = Float(min(1, max(0, liveAudioEdits.volume)))
+    }
+
+    private func saveEdits() {
+        guard !isSavingEdits else { return }
+        playback.pause()
+        endUndoableInteraction()
+        guard let liveTrim, !liveTrim.isFullDuration(videoDuration) else {
+            applyLiveToBinding()
+            dismiss()
+            return
+        }
+        isSavingEdits = true
+        saveTask = Task { @MainActor in
+            defer { isSavingEdits = false }
+            do {
+                try await onTrimVideo(activeVideoURL, liveTrim)
+                applyLiveToBinding()
+                dismiss()
+            } catch is CancellationError {
+                return
+            } catch {
+                trimErrorMessage = error.localizedDescription
+                isTrimErrorPresented = true
+            }
         }
     }
 
@@ -516,6 +902,8 @@ struct CropEditorView: View {
         guard let clamped = liveCrop.clamped(to: editingSourceDimensions) else { return }
         cropRegion = clamped.isEffectivelyFullFrame(for: editingSourceDimensions) ? nil : clamped
         mediaRotation = (category == .image || category == .video) ? liveRotation : .none
+        isMirrored = (category == .image || category == .video) && liveIsMirrored
+        if category == .video { audioEdits = liveAudioEdits }
     }
 
     private func cropField(_ title: String, text: Binding<String>) -> some View {
@@ -523,10 +911,25 @@ struct CropEditorView: View {
             Text(title)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Theme.textMuted)
-            TextField(title, text: text)
+            TextField(title, text: text, onEditingChanged: { isEditing in
+                if isEditing {
+                    beginUndoableInteraction()
+                } else {
+                    endUndoableInteraction()
+                }
+            })
                 .keyboardType(.numberPad)
-                .font(.subheadline.monospacedDigit())
-                .textFieldStyle(.roundedBorder)
+                .font(.subheadline.monospacedDigit().weight(.semibold))
+                .foregroundStyle(Theme.text)
+                .tint(Theme.tint)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 12)
+                .frame(height: 42)
+                .background(Theme.background, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .stroke(Theme.separator, lineWidth: 1)
+                }
                 .onChange(of: text.wrappedValue) { _, _ in
                     applyTextToLive()
                 }
@@ -557,21 +960,76 @@ struct CropEditorView: View {
         liveRotation.applied(to: sourceDimensions)
     }
 
-    private func resetCrop() {
-        guard let full = CropRegion.fullFrame(source: editingSourceDimensions) else { return }
-        liveCrop = full
+    private var canUndo: Bool {
+        !undoHistory.isEmpty || (interactionStartState != nil && interactionStartState != currentEditState)
+    }
+
+    /// Add future editor values here so one undo restores the complete edit state.
+    private var currentEditState: CropEditState {
+        CropEditState(crop: liveCrop, rotation: liveRotation, isMirrored: liveIsMirrored,
+                      trim: liveTrim, audioEdits: liveAudioEdits)
+    }
+
+    private func beginUndoableInteraction() {
+        playback.pause()
+        guard interactionStartState == nil else { return }
+        interactionStartState = currentEditState
+    }
+
+    private func endUndoableInteraction() {
+        guard let startState = interactionStartState else { return }
+        interactionStartState = nil
+        guard startState != currentEditState else { return }
+        undoHistory.append(startState)
+    }
+
+    private func performUndoableEdit(_ edit: () -> Void) {
+        playback.pause()
+        endUndoableInteraction()
+        let startState = currentEditState
+        edit()
+        guard startState != currentEditState else { return }
+        undoHistory.append(startState)
+    }
+
+    private func undoLastEdit() {
+        playback.pause()
+        let previousState: CropEditState
+        if let interactionStartState, interactionStartState != currentEditState {
+            previousState = interactionStartState
+        } else if let historyState = undoHistory.popLast() {
+            previousState = historyState
+        } else {
+            return
+        }
+        liveCrop = previousState.crop
+        liveRotation = previousState.rotation
+        liveIsMirrored = previousState.isMirrored
+        liveAudioEdits = previousState.audioEdits
+        liveTrim = previousState.trim ?? (videoDuration > 0 ? VideoTrimRange(start: 0, end: videoDuration) : nil)
+        seekPreview(to: liveTrim?.start ?? 0)
         syncTextFromLive()
     }
 
     private func rotateClockwise() {
-        let currentDimensions = editingSourceDimensions
-        liveCrop = liveCrop.rotatedClockwise(in: currentDimensions)
-        liveRotation = liveRotation.nextClockwise
-        if let clamped = liveCrop.clamped(to: editingSourceDimensions) {
-            liveCrop = clamped
+        performUndoableEdit {
+            let currentDimensions = editingSourceDimensions
+            liveCrop = liveCrop.rotatedClockwise(in: currentDimensions)
+            liveRotation = liveRotation.nextClockwise
+            if let clamped = liveCrop.clamped(to: editingSourceDimensions) {
+                liveCrop = clamped
+            }
+            syncTextFromLive()
         }
-        syncTextFromLive()
     }
+}
+
+private struct CropEditState: Hashable {
+    let crop: CropRegion
+    let rotation: MediaRotation
+    let isMirrored: Bool
+    let trim: VideoTrimRange?
+    let audioEdits: AudioEditSettings
 }
 
 // Fast dimming: four bands instead of even-odd fill each frame.
@@ -609,11 +1067,39 @@ private struct CropShadeBands: View {
     }
 }
 
+/// A video layer without its own controls; the timeline owns playback.
+private struct CropVideoSurface: UIViewRepresentable {
+    let player: AVPlayer
+
+    final class Surface: UIView {
+        override class var layerClass: AnyClass { AVPlayerLayer.self }
+        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    }
+
+    func makeUIView(context: Context) -> Surface {
+        let view = Surface()
+        view.playerLayer.videoGravity = .resizeAspect
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateUIView(_ view: Surface, context: Context) {
+        if view.playerLayer.player !== player { view.playerLayer.player = player }
+    }
+
+    static func dismantleUIView(_ view: Surface, coordinator: ()) {
+        view.playerLayer.player = nil
+    }
+}
+
 private struct CropCanvasView: View {
     let sourceDimensions: CGSize
     @Binding var liveCrop: CropRegion
     let previewImage: UIImage?
     let rotation: MediaRotation
+    let isMirrored: Bool
+    var player: AVPlayer? = nil
+    var onUserGestureBegan: (() -> Void)? = nil
     var onUserGestureEnded: (() -> Void)? = nil
 
     @State private var activeDrag: ActiveCropDrag?
@@ -630,7 +1116,16 @@ private struct CropCanvasView: View {
             ZStack {
                 Theme.background
 
-                if let previewImage {
+                if let player {
+                    CropVideoSurface(player: player)
+                        .frame(
+                            width: rotation.swapsDimensions ? contentRect.height : contentRect.width,
+                            height: rotation.swapsDimensions ? contentRect.width : contentRect.height
+                        )
+                        .rotationEffect(.degrees(Double(rotation.rawValue)))
+                        .scaleEffect(x: isMirrored ? -1 : 1)
+                        .position(x: contentRect.midX, y: contentRect.midY)
+                } else if let previewImage {
                     Image(uiImage: previewImage)
                         .resizable()
                         .scaledToFit()
@@ -639,19 +1134,28 @@ private struct CropCanvasView: View {
                             height: rotation.swapsDimensions ? contentRect.width : contentRect.height
                         )
                         .rotationEffect(.degrees(Double(rotation.rawValue)))
+                        .scaleEffect(x: isMirrored ? -1 : 1)
                         .position(x: contentRect.midX, y: contentRect.midY)
                 } else {
                     ProgressView()
                         .tint(Theme.textMuted)
                 }
 
-                CropShadeBands(contentRect: contentRect, cropRect: displayRect, opacity: 0.42)
+                CropShadeBands(
+                    contentRect: contentRect,
+                    cropRect: displayRect,
+                    shadeColor: Theme.background,
+                    opacity: 0.54
+                )
                 CropFrameChrome(displayRect: displayRect, crop: crop, showsHandles: true, usesThemeAccent: false)
             }
             .contentShape(Rectangle())
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0.5, coordinateSpace: .local)
                     .onChanged { value in
+                        if activeDrag == nil {
+                            onUserGestureBegan?()
+                        }
                         updateDrag(value, contentRect: contentRect, regionAtStart: crop)
                     }
                     .onEnded { _ in
@@ -759,15 +1263,15 @@ private struct CropFrameChrome: View {
     var showsHandles: Bool
     var usesThemeAccent: Bool
 
-    private var lineColor: Color { usesThemeAccent ? Theme.primary : .white }
-    private var labelBackground: Color { usesThemeAccent ? Theme.surface : Color.black.opacity(0.6) }
-    private var labelForeground: Color { usesThemeAccent ? Theme.text : .white }
-    private var handleColor: Color { usesThemeAccent ? Theme.primary : .white }
+    private var lineColor: Color { Theme.tint }
+    private var labelBackground: Color { Theme.surface }
+    private var labelForeground: Color { Theme.text }
+    private var handleColor: Color { Theme.tint }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(lineColor, lineWidth: usesThemeAccent ? 2 : 1.5)
+                .stroke(lineColor, lineWidth: usesThemeAccent ? 2 : 2.5)
                 .frame(width: displayRect.width, height: displayRect.height)
                 .position(x: displayRect.midX, y: displayRect.midY)
 
@@ -775,8 +1279,12 @@ private struct CropFrameChrome: View {
                 .font(.caption2.monospacedDigit().weight(.semibold))
                 .foregroundStyle(labelForeground)
                 .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(labelBackground.opacity(usesThemeAccent ? 0.95 : 0.9), in: Capsule())
+                .padding(.vertical, 5)
+                .background(labelBackground.opacity(0.96), in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(Theme.tint.opacity(0.28), lineWidth: 1)
+                }
                 .position(x: displayRect.midX, y: max(displayRect.minY - 12, 14))
 
             if showsHandles {
@@ -784,9 +1292,9 @@ private struct CropFrameChrome: View {
                     let point = handlePoints[index]
                     Circle()
                         .fill(handleColor)
-                        .frame(width: 11, height: 11)
+                        .frame(width: 13, height: 13)
                         .overlay(
-                            Circle().stroke(Theme.background.opacity(0.35), lineWidth: 0.5)
+                            Circle().stroke(Theme.surface.opacity(0.95), lineWidth: 2)
                         )
                         .position(point)
                 }
@@ -859,6 +1367,23 @@ private struct PreviewChrome: ViewModifier {
 }
 
 private extension UIImage {
+    static func previewImage(from url: URL) async -> UIImage? {
+        let native = await Task.detached(priority: .userInitiated) { firstFrame(from: url) }.value
+        guard !Task.isCancelled else { return nil }
+        if let native { return native }
+        do {
+            let data = try await MediaPreviewRenderer.firstFrame(sourceURL: url)
+            guard !Task.isCancelled else { return nil }
+            return UIImage(data: data)
+        } catch {
+            if !Task.isCancelled {
+                DiagnosticsLog.shared.record(error: error, context: "Decode image preview",
+                                             metadata: ["Filename": url.lastPathComponent])
+            }
+            return nil
+        }
+    }
+
     static func firstFrame(from url: URL) -> UIImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
@@ -886,6 +1411,7 @@ private extension UIImage {
         ]
         var lastError: Error?
         for t in startTimes {
+            guard !Task.isCancelled else { return nil }
             do {
                 let (cg, _) = try await generator.image(at: t)
                 return UIImage(cgImage: cg)
@@ -894,6 +1420,15 @@ private extension UIImage {
                 continue
             }
         }
+        guard !Task.isCancelled else { return nil }
+        do {
+            let data = try await MediaPreviewRenderer.firstFrame(sourceURL: url)
+            guard !Task.isCancelled else { return nil }
+            if let image = UIImage(data: data) { return image }
+        } catch {
+            lastError = error
+        }
+        guard !Task.isCancelled else { return nil }
         if let lastError {
             DiagnosticsLog.shared.record(
                 error: lastError,
@@ -934,90 +1469,91 @@ private struct FullImagePreview: View {
     }
 }
 
-private struct FullVideoPlayer: View {
+/// Keeps preview controls in the app without publishing Lock Screen media controls.
+private struct PreviewPlayerView: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.updatesNowPlayingInfoCenter = false
+        controller.allowsPictureInPicturePlayback = false
+        controller.player = player
+        return controller
+    }
+
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        if controller.player !== player {
+            controller.player = player
+        }
+    }
+
+    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: ()) {
+        controller.player?.pause()
+        controller.player = nil
+    }
+}
+
+/// Native playback with an on-demand compatible copy for unsupported formats.
+@MainActor
+struct FullVideoPlayer: View {
     let url: URL
     let sourceDimensions: CGSize?
     let cropRegion: CropRegion?
     let rotation: MediaRotation
+    let isMirrored: Bool
+    var trimRange: VideoTrimRange? = nil
+    var initialSourceTime: Double? = nil
+    var onPlaybackPositionChange: ((Double) -> Void)? = nil
 
-    @State private var player: AVPlayer?
-    @State private var previewFailed = false
-    @Environment(\.dismiss) private var dismiss
+    @State private var playback = MediaPreviewPlayback()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack {
             Color.black.ignoresSafeArea()
 
-            if let player {
-                VideoPlayer(player: player)
+            if let player = playback.player {
+                PreviewPlayerView(player: player)
                     .ignoresSafeArea()
-            } else if previewFailed {
-                VStack(spacing: 10) {
-                    Image(systemName: "play.slash")
-                        .font(.system(size: 42, weight: .semibold))
-                    Text("Edited Preview Unavailable")
-                        .font(.headline)
-                }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ProgressView()
-                    .tint(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                PlaybackPreparationView(playback: playback)
             }
-
-            Button {
-                Haptics.impact(.light)
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(.black.opacity(0.45), in: Circle())
-            }
-            .accessibilityLabel("Close video preview")
-            .accessibilityHint("Stops playback and dismisses the full-screen preview")
-            .padding(.top, 16)
-            .padding(.leading, 16)
         }
-        .task {
-            PreviewAudioSession.configureForPlayback()
-            do {
-                let item = try await EditedVideoPreview.makePlayerItem(
-                    url: url,
+        .task(id: url) {
+            playback.setActive(scenePhase == .active && UIApplication.shared.applicationState == .active)
+            var offset = initialSourceTime.map { max(0, $0 - (trimRange?.start ?? 0)) }
+            if let trimRange, let time = offset, time >= trimRange.duration - 1.0 / 600 {
+                offset = 0
+            }
+            playback.prepare(sourceURL: url, category: .video, initialTime: offset) { playableURL in
+                try await EditedVideoPreview.makePlayerItem(
+                    url: playableURL,
                     sourceDimensions: sourceDimensions,
                     cropRegion: cropRegion,
-                    rotation: rotation
+                    rotation: rotation,
+                    isMirrored: isMirrored,
+                    trimRange: trimRange
                 )
-                guard !Task.isCancelled else { return }
-                let newPlayer = AVPlayer(playerItem: item)
-                newPlayer.allowsExternalPlayback = false
-                newPlayer.usesExternalPlaybackWhileExternalScreenIsActive = false
-                player = newPlayer
-                newPlayer.play()
-            } catch {
-                guard !Task.isCancelled else { return }
-                DiagnosticsLog.shared.record(
-                    error: error,
-                    context: "Build edited video preview",
-                    metadata: [
-                        "Filename": url.lastPathComponent,
-                        "Rotation degrees": String(rotation.rawValue)
-                    ]
-                )
-                previewFailed = true
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            playback.setActive(phase == .active)
+        }
         .onDisappear {
-            player?.pause()
-            player = nil
+            if let onPlaybackPositionChange, let player = playback.player {
+                let sourceTime = player.currentTime().seconds + (trimRange?.start ?? 0)
+                if sourceTime.isFinite {
+                    onPlaybackPositionChange(trimRange?.clampedPlayhead(sourceTime) ?? sourceTime)
+                }
+            }
+            playback.stop()
+            PreviewAudioSession.deactivate()
         }
     }
 }
 
 /// Builds an in-memory video composition so crop and rotation edits can be previewed without export.
-private enum EditedVideoPreview {
+enum EditedVideoPreview {
     enum PreviewError: Error {
         case missingVideoTrack
         case invalidDimensions
@@ -1029,11 +1565,21 @@ private enum EditedVideoPreview {
         url: URL,
         sourceDimensions: CGSize?,
         cropRegion: CropRegion?,
-        rotation: MediaRotation
+        rotation: MediaRotation,
+        isMirrored: Bool,
+        trimRange: VideoTrimRange? = nil
     ) async throws -> AVPlayerItem {
-        let asset = AVURLAsset(url: url)
+        let source = AVURLAsset(url: url)
+        let asset: AVAsset
+        if let trimRange {
+            let trimmed = AVMutableComposition()
+            try await trimmed.insertTimeRange(trimRange.timeRange, of: source, at: .zero)
+            asset = trimmed
+        } else {
+            asset = source
+        }
         let item = AVPlayerItem(asset: asset)
-        guard cropRegion != nil || rotation != .none else { return item }
+        guard cropRegion != nil || rotation != .none || isMirrored else { return item }
 
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw PreviewError.missingVideoTrack
@@ -1082,8 +1628,8 @@ private enum EditedVideoPreview {
             throw PreviewError.invalidDimensions
         }
 
-        // Crop coordinates originate from MediaInspector's oriented dimensions. Scale only when
-        // an asset reports a slightly different display size during playback (for example, SAR).
+        // Crop coordinates originate from MediaInspector's oriented dimensions. Map them into
+        // the actual playback size, which can be a smaller FFmpeg preview or use a different SAR.
         let scaleX = editedSize.width / logicalEditedSize.width
         let scaleY = editedSize.height / logicalEditedSize.height
         let boundedCrop = CGRect(
@@ -1096,12 +1642,7 @@ private enum EditedVideoPreview {
         guard !boundedCrop.isNull else {
             throw PreviewError.invalidDimensions
         }
-        let renderCrop = CGRect(
-            x: boundedCrop.minX.rounded(.up),
-            y: boundedCrop.minY.rounded(.up),
-            width: boundedCrop.maxX.rounded(.down) - boundedCrop.minX.rounded(.up),
-            height: boundedCrop.maxY.rounded(.down) - boundedCrop.minY.rounded(.up)
-        )
+        let renderCrop = pixelAlignedCrop(boundedCrop, in: editedSize)
         guard renderCrop.width >= 1, renderCrop.height >= 1 else {
             throw PreviewError.invalidDimensions
         }
@@ -1112,6 +1653,9 @@ private enum EditedVideoPreview {
         )
         let finalTransform = normalizedOrientation
             .concatenating(editRotation)
+            .concatenating(isMirrored
+                ? CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: editedSize.width, ty: 0)
+                : .identity)
             .concatenating(cropTranslation)
 
         let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
@@ -1131,6 +1675,11 @@ private enum EditedVideoPreview {
         composition.instructions = [instruction]
         item.videoComposition = composition
         return item
+    }
+
+    static func pixelAlignedCrop(_ crop: CGRect, in dimensions: CGSize) -> CGRect {
+        // Round outward so a valid small source crop cannot collapse to zero pixels in a proxy.
+        crop.integral.intersection(CGRect(origin: .zero, size: dimensions))
     }
 
     private static func validDimensions(_ dimensions: CGSize?) -> CGSize? {
@@ -1188,24 +1737,24 @@ private enum EditedVideoPreview {
 
 private struct FullAudioPlayer: View {
     let url: URL
-    @State private var player: AVPlayer?
+    @State private var playback = MediaPreviewPlayback()
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
 
-            if let player {
-                VideoPlayer(player: player)
+            if let player = playback.player {
+                PreviewPlayerView(player: player)
                     .ignoresSafeArea()
             } else {
-                ProgressView()
-                    .tint(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                PlaybackPreparationView(playback: playback)
             }
 
             Button {
                 Haptics.impact(.light)
+                playback.stop()
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
@@ -1215,45 +1764,72 @@ private struct FullAudioPlayer: View {
                     .background(.black.opacity(0.45), in: Circle())
             }
             .accessibilityLabel("Close audio preview")
-            .accessibilityHint("Stops playback and dismisses the full-screen preview")
             .padding(.top, 16)
             .padding(.leading, 16)
         }
-        .onAppear {
-            PreviewAudioSession.configureForPlayback()
-            if player == nil {
-                let newPlayer = AVPlayer(url: url)
-                newPlayer.allowsExternalPlayback = false
-                newPlayer.usesExternalPlaybackWhileExternalScreenIsActive = false
-                player = newPlayer
-            }
-            player?.play()
+        .task(id: url) {
+            playback.setActive(scenePhase == .active && UIApplication.shared.applicationState == .active)
+            playback.prepare(sourceURL: url, category: .audio)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            playback.setActive(phase == .active)
         }
         .onDisappear {
-            player?.pause()
+            playback.stop()
+            PreviewAudioSession.deactivate()
         }
     }
 }
 
-private enum PreviewAudioSession {
+private struct PlaybackPreparationView: View {
+    let playback: MediaPreviewPlayback
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if let message = playback.errorMessage {
+                Image(systemName: "play.slash")
+                    .font(.system(size: 42, weight: .semibold))
+                Text("Preview Unavailable").font(.headline)
+                Text(message).font(.subheadline)
+            } else {
+                if playback.progress > 0 {
+                    ProgressView(value: playback.progress)
+                        .frame(maxWidth: 240)
+                } else {
+                    ProgressView()
+                }
+                Text("Preparing preview…").font(.headline)
+                Text("Close to cancel.").font(.subheadline)
+            }
+        }
+        .tint(.white)
+        .foregroundStyle(.white)
+        .multilineTextAlignment(.center)
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+enum PreviewAudioSession {
     static func configureForPlayback() {
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .default)
-            try session.setActive(true)
+            // AVPlayer activates the session when playback starts, including
+            // when the user resumes a preview after returning to the app.
         } catch {
             DiagnosticsLog.shared.record(error: error, context: "Configure preview audio session")
             assertionFailure("Unable to configure preview audio session: \(error)")
         }
     }
-}
 
-private enum VideoPreviewSupport {
-    static func isPlayable(_ url: URL) async -> Bool {
-        let asset = AVURLAsset(url: url)
-        return (try? await asset.load(.isPlayable)) ?? false
+    static func deactivate() {
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            DiagnosticsLog.shared.record(error: error, context: "Deactivate preview audio session")
+        }
     }
-
 }
 
 private struct ZoomableImageView: UIViewRepresentable {

@@ -9,6 +9,7 @@ enum MediaCategory: String, Codable, Hashable {
     case audio
     case image
     case animatedImage
+    case document, data, archive, file
 }
 
 // MARK: - Output Format
@@ -18,13 +19,16 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
     case mp4_h264, mp4_hevc, mov, webm
 
     // Audio
-    case mp3, m4a, wav, aac, flac, ogg, opus
+    case mp3, m4a, wav, aac, flac, ogg, opus, alac, aiff, caf
 
     // Image
-    case jpg, png, heic, webpImage, tiff
+    case jpg, png, heic, webpImage, tiff, bmp, ico, jpeg2000, avif, tga, psd, exr, icns
 
     // Animated
     case gif
+    case pdf, docx, odt, rtf, txt, markdown, html
+    case csv, tsv, json
+    case zip, gzip
 
     var id: String { rawValue }
 
@@ -46,6 +50,29 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
         case .heic: "heic"
         case .webpImage: "webp"
         case .tiff: "tiff"
+        case .alac: "m4a"
+        case .aiff: "aiff"
+        case .caf: "caf"
+        case .bmp: "bmp"
+        case .ico: "ico"
+        case .jpeg2000: "jp2"
+        case .avif: "avif"
+        case .tga: "tga"
+        case .psd: "psd"
+        case .exr: "exr"
+        case .icns: "icns"
+        case .pdf: "pdf"
+        case .docx: "docx"
+        case .odt: "odt"
+        case .rtf: "rtf"
+        case .txt: "txt"
+        case .markdown: "md"
+        case .html: "html"
+        case .csv: "csv"
+        case .tsv: "tsv"
+        case .json: "json"
+        case .zip: "zip"
+        case .gzip: "gz"
         }
     }
 
@@ -68,6 +95,29 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
         case .heic: "HEIC"
         case .webpImage: "WebP"
         case .tiff: "TIFF"
+        case .alac: "ALAC"
+        case .aiff: "AIFF"
+        case .caf: "CAF"
+        case .bmp: "BMP"
+        case .ico: "ICO"
+        case .jpeg2000: "JPEG 2000"
+        case .avif: "AVIF"
+        case .tga: "TGA"
+        case .psd: "Photoshop"
+        case .exr: "OpenEXR"
+        case .icns: "macOS icon"
+        case .pdf: "PDF"
+        case .docx: "Word"
+        case .odt: "OpenDocument"
+        case .rtf: "Rich text"
+        case .txt: "Text"
+        case .markdown: "Markdown"
+        case .html: "HTML"
+        case .csv: "CSV"
+        case .tsv: "TSV"
+        case .json: "JSON"
+        case .zip: "ZIP"
+        case .gzip: "Gzip"
         }
     }
 
@@ -75,8 +125,11 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
         switch self {
         case .mp4_h264, .mp4_hevc, .mov, .webm: .video
         case .gif: .animatedImage
-        case .mp3, .m4a, .wav, .aac, .flac, .ogg, .opus: .audio
-        case .jpg, .png, .heic, .webpImage, .tiff: .image
+        case .mp3, .m4a, .wav, .aac, .flac, .ogg, .opus, .alac, .aiff, .caf: .audio
+        case .jpg, .png, .heic, .webpImage, .tiff, .bmp, .ico, .jpeg2000, .avif, .tga, .psd, .exr, .icns: .image
+        case .pdf, .docx, .odt, .rtf, .txt, .markdown, .html: .document
+        case .csv, .tsv, .json: .data
+        case .zip, .gzip: .archive
         }
     }
 
@@ -84,18 +137,18 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
         switch self {
         case .mp4_h264, .mp4_hevc, .mov, .webm, .gif,
              .mp3, .m4a, .aac, .ogg, .opus,
-             .jpg, .heic, .webpImage:
+             .jpg, .heic, .webpImage, .avif, .jpeg2000:
             true
-        case .wav, .flac, .png, .tiff:
+        case .wav, .flac, .png, .tiff, .alac, .aiff, .caf, .bmp, .ico,
+             .pdf, .docx, .odt, .rtf, .txt, .markdown, .html, .csv, .tsv, .json, .zip, .gzip, .tga, .psd, .exr, .icns:
             false
         }
     }
 
-    /// Whether this format can hit an arbitrary target size via quality/bitrate tuning.
-    /// Lossless formats can only "hit" a target by reducing dimensions.
+    /// Supports a size target through bitrate or quality.
     var supportsTargetSize: Bool {
         switch self {
-        case .webpImage:
+        case .webpImage, .avif, .jpeg2000:
             false
         default:
             isLossy
@@ -104,6 +157,10 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
 
     /// All converter outputs are regular files; copy puts raw bytes on the pasteboard with a matching UTI.
     var supportsClipboardCopy: Bool { true }
+
+    /// VP9 supports a statistics pass. VideoToolbox H.264/HEVC do not produce
+    /// the pass statistics required by FFmpeg's two-pass encoding interface.
+    var supportsTwoPassVideoEncoding: Bool { self == .webm }
 }
 
 extension OutputFormat {
@@ -129,20 +186,19 @@ extension OutputFormat {
         case .webpImage: return UTType.webP.identifier
         case .tiff: return UTType.tiff.identifier
         case .gif: return UTType.gif.identifier
+        default: return UTType(filenameExtension: fileExtension)?.identifier ?? UTType.data.identifier
         }
     }
 }
 
 extension OutputFormat {
-    /// Muxer for two-pass first pass output. The `null` muxer and `/dev/null` are often unavailable
-    /// in iOS `ffmpeg-kit` builds, so pass 1 writes a discard file in temp instead.
+    /// The analysis pass writes a temporary discard file using the target container.
     var ffmpegFirstPassMuxerArg: String {
         switch self {
         case .webm: " -f webm"
         case .mov: " -f mov"
         case .mp4_h264, .mp4_hevc: " -f mp4"
-        case .mp3, .m4a, .wav, .aac, .flac, .ogg, .opus, .jpg, .png, .heic, .webpImage, .tiff, .gif:
-            " -f mp4"
+        default: " -f mp4"
         }
     }
 
@@ -165,6 +221,10 @@ extension OutputFormat {
         case .webpImage: " -f webp"
         case .tiff: " -f image2"
         case .gif: " -f gif"
+        case .alac: " -f mp4"
+        case .aiff: " -f aiff"
+        case .caf: " -f caf"
+        default: ""
         }
     }
 
@@ -267,7 +327,7 @@ private extension String {
 
 // MARK: - Media File (Input)
 
-struct MediaFile: Identifiable, Hashable {
+struct MediaFile: Identifiable, Hashable, Codable {
     let id: UUID
     let url: URL
     let originalFilename: String
@@ -279,6 +339,7 @@ struct MediaFile: Identifiable, Hashable {
     let bitrate: Int?               // bps; container average (audio, video) or whole file
     /// Audio track only; bps. Populated for video when an audio track exists.
     let audioBitrate: Int?
+    let videoColor: VideoColorInfo?
     let videoCodec: String?
     let audioCodec: String?
     let containerFormat: String     // file extension lowercased
@@ -295,6 +356,7 @@ struct MediaFile: Identifiable, Hashable {
         bitrate: Int? = nil,
         audioBitrate: Int? = nil,
         videoCodec: String? = nil,
+        videoColor: VideoColorInfo? = nil,
         audioCodec: String? = nil,
         containerFormat: String
     ) {
@@ -309,6 +371,7 @@ struct MediaFile: Identifiable, Hashable {
         self.bitrate = bitrate
         self.audioBitrate = audioBitrate
         self.videoCodec = videoCodec
+        self.videoColor = videoColor
         self.audioCodec = audioCodec
         self.containerFormat = containerFormat
     }
@@ -316,7 +379,7 @@ struct MediaFile: Identifiable, Hashable {
 
 // MARK: - Output metadata (EXIF, tags, etc.)
 
-struct MetadataExportPolicy: Hashable, Sendable {
+struct MetadataExportPolicy: Hashable, Sendable, Codable {
     /// When `true`, all container/EXIF metadata is stripped. When `false`, only the listed tags are written back.
     var stripAll: Bool
     /// Global container tags (FFmpeg `-metadata`); used when `stripAll` is `false`.
@@ -337,7 +400,7 @@ struct MetadataExportPolicy: Hashable, Sendable {
     )
 }
 
-struct ImageMetadataEntry: Hashable, Sendable, Identifiable {
+struct ImageMetadataEntry: Hashable, Sendable, Identifiable, Codable {
     var id: String { imagePropertyKey }
 
     var scope: ImageMetadataScope
@@ -347,7 +410,7 @@ struct ImageMetadataEntry: Hashable, Sendable, Identifiable {
 }
 
 /// Where the value lives when writing a still image.
-enum ImageMetadataScope: String, Hashable, Sendable {
+enum ImageMetadataScope: String, Hashable, Sendable, Codable {
     case exif
     case gps
     case iptc
@@ -485,22 +548,82 @@ struct AutoTargetLockPolicy: Hashable, Codable {
     )
 }
 
-struct ConversionConfig: Hashable {
+enum AudioChannelMode: String, CaseIterable, Identifiable, Sendable, Codable {
+    case original, mono, stereo, left, right
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .original: "Original"
+        case .mono: "Mono"
+        case .stereo: "Stereo"
+        case .left: "Left only"
+        case .right: "Right only"
+        }
+    }
+
+    var outputChannelCount: Int? {
+        switch self {
+        case .original: nil
+        case .stereo: 2
+        case .mono, .left, .right: 1
+        }
+    }
+}
+
+/// Source-relative, non-destructive audio edits. Nil end means the source end.
+struct AudioEditSettings: Hashable, Sendable, Codable {
+    var trimStart: Double = 0
+    var trimEnd: Double? = nil
+    var volume: Double = 1
+    var limiterEnabled: Bool = true
+    var speed: Double = 1
+    var preservePitch: Bool = true
+    var channels: AudioChannelMode = .original
+
+    var isIdentity: Bool {
+        trimStart == 0 && trimEnd == nil && volume == 1 && speed == 1 && channels == .original
+    }
+
+    var videoTrackIsIdentity: Bool {
+        volume == 1 && channels == .original
+    }
+
+    var videoTrackEdits: AudioEditSettings {
+        AudioEditSettings(volume: volume, limiterEnabled: limiterEnabled, channels: channels)
+    }
+
+    func outputDuration(sourceDuration: Double) -> Double {
+        max(0, min(trimEnd ?? sourceDuration, sourceDuration) - trimStart) / speed
+    }
+}
+
+struct ConversionConfig: Hashable, Codable {
     var outputFormat: OutputFormat
     var targetDimensions: CGSize?           // nil = keep original; never larger than source
     var targetFPS: Double?                  // nil = keep original; never larger than source
     var targetSizeBytes: Int64?             // nil = use defaults / no enforcement
     var cropRegion: CropRegion?             // nil = full frame
     var mediaRotation: MediaRotation        // applied before crop
+    var isMirrored: Bool                    // horizontal mirror applied after rotation and before crop
     var imageQuality: Double? = nil         // 0...1 single-pass quality for still-image encoders that use quality mode
     var videoQuality: Double? = nil         // 0...1 quality fallback for video when duration/target sizing is unavailable
     var usesSinglePassVideoTargetEncode: Bool
     var frameTimeForExtraction: Double?     // seconds; for video → image conversions
     var preferredAudioBitrateKbps: Int?     // override default for video output's audio track
+    var audioEdits: AudioEditSettings
     var operationMode: OutputOperationMode
     var autoTargetLockPolicy: AutoTargetLockPolicy
     var prefersRemuxWhenPossible: Bool
     var metadata: MetadataExportPolicy
+    var document: DocumentExportSettings = DocumentExportSettings()
+    var imageEnhancement: ImageEnhancementSettings = ImageEnhancementSettings()
+
+    /// Use this effective mode for execution and progress, including configurations
+    /// created before the bundled encoder capabilities changed.
+    var usesTwoPassVideoEncoding: Bool {
+        outputFormat.supportsTwoPassVideoEncoding && !usesSinglePassVideoTargetEncode
+    }
 
     init(
         outputFormat: OutputFormat,
@@ -509,11 +632,13 @@ struct ConversionConfig: Hashable {
         targetSizeBytes: Int64? = nil,
         cropRegion: CropRegion? = nil,
         mediaRotation: MediaRotation = .none,
+        isMirrored: Bool = false,
         imageQuality: Double? = nil,
         videoQuality: Double? = nil,
         usesSinglePassVideoTargetEncode: Bool = false,
         frameTimeForExtraction: Double? = nil,
         preferredAudioBitrateKbps: Int? = nil,
+        audioEdits: AudioEditSettings = AudioEditSettings(),
         operationMode: OutputOperationMode = .manual,
         autoTargetLockPolicy: AutoTargetLockPolicy = .manual,
         prefersRemuxWhenPossible: Bool = false,
@@ -525,11 +650,13 @@ struct ConversionConfig: Hashable {
         self.targetSizeBytes = targetSizeBytes
         self.cropRegion = cropRegion
         self.mediaRotation = mediaRotation
+        self.isMirrored = isMirrored
         self.imageQuality = imageQuality
         self.videoQuality = videoQuality
         self.usesSinglePassVideoTargetEncode = usesSinglePassVideoTargetEncode
         self.frameTimeForExtraction = frameTimeForExtraction
         self.preferredAudioBitrateKbps = preferredAudioBitrateKbps
+        self.audioEdits = audioEdits
         self.operationMode = operationMode
         self.autoTargetLockPolicy = autoTargetLockPolicy
         self.prefersRemuxWhenPossible = prefersRemuxWhenPossible
@@ -577,5 +704,36 @@ struct ConversionResult: Identifiable, Hashable {
         self.audioBitrate = audioBitrate
         self.videoCodec = videoCodec
         self.audioCodec = audioCodec
+    }
+}
+
+struct DocumentExportSettings: Hashable, Codable, Sendable {
+    var pages: String = ""
+    var rotation: MediaRotation = .none
+    var compress: Bool = false
+    var recognizeText: Bool = true
+    var rasterDPI: Double = 144
+}
+
+struct ImageEnhancementSettings: Hashable, Codable, Sendable {
+    var scale: Double = 1
+    var removeBackground: Bool = false
+}
+
+extension MediaFile {
+    func withURL(_ url: URL) -> MediaFile {
+        MediaFile(id: id, url: url, originalFilename: originalFilename, category: category,
+                  sizeOnDisk: sizeOnDisk, dimensions: dimensions, duration: duration, fps: fps,
+                  bitrate: bitrate, audioBitrate: audioBitrate, videoCodec: videoCodec,
+                  videoColor: videoColor, audioCodec: audioCodec, containerFormat: containerFormat)
+    }
+}
+
+extension MediaFile {
+    func withOriginalFilename(_ name: String) -> MediaFile {
+        MediaFile(id: id, url: url, originalFilename: name, category: category,
+                  sizeOnDisk: sizeOnDisk, dimensions: dimensions, duration: duration, fps: fps,
+                  bitrate: bitrate, audioBitrate: audioBitrate, videoCodec: videoCodec,
+                  videoColor: videoColor, audioCodec: audioCodec, containerFormat: containerFormat)
     }
 }

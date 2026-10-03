@@ -9,6 +9,7 @@ import CoreMedia
 enum MediaInspector {
 
     static func inspect(url: URL) async throws -> MediaFile {
+        try Task.checkCancellation()
         guard let category = FormatMatrix.detectCategory(from: url) else {
             throw ConversionError.invalidInput("Unsupported file type")
         }
@@ -20,11 +21,17 @@ enum MediaInspector {
 
         switch category {
         case .image:
-            return try inspectImage(url: url, filename: filename, size: size, ext: ext)
+            return try await inspectImage(url: url, filename: filename, size: size, ext: ext)
         case .animatedImage:
             return try inspectAnimatedImage(url: url, filename: filename, size: size, ext: ext)
         case .video:
             return try await inspectVideo(url: url, filename: filename, size: size, ext: ext)
+        case .document:
+            try await Task.detached(priority: .userInitiated) { try DocumentConverter.validate(url) }.value
+            return MediaFile(url: url, originalFilename: filename, category: category, sizeOnDisk: size, containerFormat: ext)
+        case .data, .archive, .file:
+            guard size > 0 else { throw ConversionError.invalidInput("Empty file") }
+            return MediaFile(url: url, originalFilename: filename, category: category, sizeOnDisk: size, containerFormat: ext)
         case .audio:
             return try await inspectAudio(url: url, filename: filename, size: size, ext: ext)
         }
@@ -34,19 +41,38 @@ enum MediaInspector {
 
     private static func inspectImage(
         url: URL, filename: String, size: Int64, ext: String
-    ) throws -> MediaFile {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let props  = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width  = props[kCGImagePropertyPixelWidth] as? Int,
-              let height = props[kCGImagePropertyPixelHeight] as? Int else {
+    ) async throws -> MediaFile {
+        let dimensions: CGSize
+        if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+           let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = props[kCGImagePropertyPixelWidth] as? Int,
+           let height = props[kCGImagePropertyPixelHeight] as? Int,
+           width > 0, height > 0 {
+            dimensions = CGSize(width: width, height: height)
+        } else {
+            // ImageIO support varies by OS version. FFmpeg can inspect and decode
+            // additional still images, including AVIF on older supported devices.
+            let probe = await Task.detached(priority: .userInitiated) {
+                FFmpegMediaProbe.probe(at: url)
+            }.value
+            try Task.checkCancellation()
+            guard let stream = probe?.streams.first(where: { $0.codecType == "video" }),
+                  let width = stream.width, let height = stream.height,
+                  width > 0, height > 0 else {
+                throw ConversionError.invalidInput("Couldn't read image metadata")
+            }
+            dimensions = CGSize(width: width, height: height)
+        }
+        guard dimensions.width.isFinite, dimensions.height.isFinite else {
             throw ConversionError.invalidInput("Couldn't read image metadata")
         }
+        try Task.checkCancellation()
         return MediaFile(
             url: url,
             originalFilename: filename,
             category: .image,
             sizeOnDisk: size,
-            dimensions: CGSize(width: width, height: height),
+            dimensions: dimensions,
             containerFormat: ext
         )
     }
@@ -96,117 +122,91 @@ enum MediaInspector {
         url: URL, filename: String, size: Int64, ext: String
     ) async throws -> MediaFile {
         let asset = AVURLAsset(url: url)
+        var duration: Double?
+        var dimensions: CGSize?
+        var fps: Double?
+        var videoCodec: String?
+        var videoColor: VideoColorInfo?
+        var audioCodec: String?
+        var videoDataRate: Int?
+        var audioBitrate: Int?
+        var foundVideoTrack = false
+        var nativeReadFailed = false
 
-        var duration: Double
-        let vTracks: [AVAssetTrack]
-        let aTracks: [AVAssetTrack]
         do {
             async let durationCM = asset.load(.duration)
             async let videoTracks = asset.loadTracks(withMediaType: .video)
             async let audioTracks = asset.loadTracks(withMediaType: .audio)
-            let durationValue = try await durationCM
-            let rawSeconds = CMTimeGetSeconds(durationValue)
-            if CMTIME_IS_INDEFINITE(durationValue) || !rawSeconds.isFinite || rawSeconds <= 0 {
-                duration = 0
-            } else {
-                duration = rawSeconds
+            duration = validDuration(CMTimeGetSeconds(try await durationCM))
+
+            if let track = try await videoTracks.first {
+                foundVideoTrack = true
+                let naturalSize = try await track.load(.naturalSize)
+                let transform = try await track.load(.preferredTransform)
+                let oriented = naturalSize.applying(transform)
+                if oriented.width.isFinite, oriented.height.isFinite,
+                   abs(oriented.width) > 0, abs(oriented.height) > 0 {
+                    dimensions = CGSize(
+                        width: abs(oriented.width).rounded(),
+                        height: abs(oriented.height).rounded()
+                    )
+                }
+                fps = validDuration(Double(try await track.load(.nominalFrameRate)))
+                videoDataRate = positiveInteger(Double(try await track.load(.estimatedDataRate)))
+                if let description = try await track.load(.formatDescriptions).first {
+                    videoCodec = fourCharCodeString(CMFormatDescriptionGetMediaSubType(description))
+                }
             }
-            vTracks = try await videoTracks
-            aTracks = try await audioTracks
+            if let track = try await audioTracks.first {
+                if let description = try await track.load(.formatDescriptions).first {
+                    audioCodec = fourCharCodeString(CMFormatDescriptionGetMediaSubType(description))
+                }
+                audioBitrate = positiveInteger(Double(try await track.load(.estimatedDataRate)))
+            }
         } catch {
+            if error is CancellationError { throw error }
+            nativeReadFailed = true
             DiagnosticsLog.shared.record(
                 error: error,
                 context: "Inspect video with AVFoundation",
-                metadata: [
-                    "Filename": filename,
-                    "Fallback": "FFprobe or basic media metadata"
-                ]
+                metadata: ["Filename": filename, "Fallback": "FFmpeg media probe"]
             )
-            #if canImport(ffmpegkit)
-            if let p = FFprobeVideoMetadata.probeVideo(at: url) {
-                let durationSec = p.duration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
-                if durationSec != nil || p.dimensions != nil {
-                    let bitrate: Int? = {
-                        guard let t = durationSec, t > 0 else { return nil }
-                        return Int((Double(size) * 8.0 / t).rounded())
-                    }()
-                    return MediaFile(
-                        url: url,
-                        originalFilename: filename,
-                        category: .video,
-                        sizeOnDisk: size,
-                        dimensions: p.dimensions,
-                        duration: durationSec,
-                        fps: p.fps,
-                        bitrate: bitrate,
-                        audioBitrate: nil,
-                        videoCodec: p.videoCodec,
-                        audioCodec: p.audioCodec,
-                        containerFormat: ext
-                    )
+        }
+
+        // All native property loads are covered by the fallback, including failures
+        // while reading track format descriptions and not only asset loading.
+        let prefersProbe = FFprobeVideoMetadata.preferredProbeExtensions.contains(ext)
+        // Probe every video for color signaling, including AVFoundation-readable iPhone HDR clips.
+        do {
+            let probe = await Task.detached(priority: .userInitiated) {
+                FFprobeVideoMetadata.probeVideo(at: url)
+            }.value
+            if let probe {
+                foundVideoTrack = true
+                if let probeDuration = probe.duration.flatMap(validDuration), duration == nil || prefersProbe || nativeReadFailed {
+                    duration = probeDuration
                 }
-            }
-            #endif
-            return fallbackVideoMediaFile(
-                url: url,
-                filename: filename,
-                size: size,
-                ext: ext
-            )
-        }
-
-        var dimensions: CGSize?
-        var fps: Double?
-        var videoCodec: String?
-        var audioCodec: String?
-
-        var videoDataRateBps: Float = 0
-        if let vTrack = vTracks.first {
-            let naturalSize = try await vTrack.load(.naturalSize)
-            let transform   = try await vTrack.load(.preferredTransform)
-            let oriented    = naturalSize.applying(transform)
-            dimensions = CGSize(
-                width: abs(oriented.width).rounded(),
-                height: abs(oriented.height).rounded()
-            )
-            fps = Double(try await vTrack.load(.nominalFrameRate))
-            videoDataRateBps = try await vTrack.load(.estimatedDataRate)
-
-            if let desc = try await vTrack.load(.formatDescriptions).first {
-                videoCodec = fourCharCodeString(CMFormatDescriptionGetMediaSubType(desc))
+                videoColor = probe.videoColor
+                dimensions = dimensions ?? probe.dimensions
+                fps = fps ?? probe.fps
+                videoCodec = videoCodec ?? probe.videoCodec
+                audioCodec = audioCodec ?? probe.audioCodec
+                audioBitrate = audioBitrate ?? probe.audioBitrate
             }
         }
 
-        var audioDataRateBps: Float = 0
-        if let aTrack = aTracks.first,
-           let desc = try await aTrack.load(.formatDescriptions).first {
-            audioCodec = fourCharCodeString(CMFormatDescriptionGetMediaSubType(desc))
-            audioDataRateBps = try await aTrack.load(.estimatedDataRate)
+        let bitrate = estimatedBitrate(size: size, duration: duration)
+        if audioBitrate == nil, audioCodec != nil,
+           let bitrate, let videoDataRate, bitrate > videoDataRate {
+            audioBitrate = bitrate - videoDataRate
         }
+        // The synchronous probe runs in a detached worker; propagate cancellation
+        // before returning metadata to a completed or cancelled conversion task.
+        try Task.checkCancellation()
 
-        #if canImport(ffmpegkit)
-        applyFFprobeSupplement(
-            url: url,
-            ext: ext,
-            avDuration: &duration,
-            dimensions: &dimensions,
-            fps: &fps,
-            videoCodec: &videoCodec,
-            audioCodec: &audioCodec
-        )
-        #endif
-
-        let bitrate = duration > 0 ? Int((Double(size) * 8.0 / duration).rounded()) : nil
-
-        let audioBitrate: Int? = {
-            if audioDataRateBps > 0 {
-                return Int(audioDataRateBps.rounded())
-            }
-            if let b = bitrate, videoDataRateBps > 0, b > Int(videoDataRateBps) {
-                return max(0, b - Int(videoDataRateBps.rounded()))
-            }
-            return nil
-        }()
+        guard foundVideoTrack else {
+            throw ConversionError.invalidInput("Couldn't read a video track from this file. The file may be invalid or incomplete.")
+        }
 
         return MediaFile(
             url: url,
@@ -214,11 +214,12 @@ enum MediaInspector {
             category: .video,
             sizeOnDisk: size,
             dimensions: dimensions,
-            duration: duration > 0 ? duration : nil,
+            duration: duration,
             fps: fps,
             bitrate: bitrate,
             audioBitrate: audioBitrate,
             videoCodec: videoCodec,
+            videoColor: videoColor,
             audioCodec: audioCodec,
             containerFormat: ext
         )
@@ -230,25 +231,57 @@ enum MediaInspector {
         url: URL, filename: String, size: Int64, ext: String
     ) async throws -> MediaFile {
         let asset = AVURLAsset(url: url)
-        let durationCM = try await asset.load(.duration)
-        let duration = CMTimeGetSeconds(durationCM)
-        let tracks = try await asset.loadTracks(withMediaType: .audio)
-
+        var duration: Double?
         var audioCodec: String?
-        if let track = tracks.first,
-           let desc = try await track.load(.formatDescriptions).first {
-            audioCodec = fourCharCodeString(CMFormatDescriptionGetMediaSubType(desc))
+        var audioBitrate: Int?
+        var foundAudioTrack = false
+        var nativeReadFailed = false
+
+        do {
+            duration = validDuration(CMTimeGetSeconds(try await asset.load(.duration)))
+            if let track = try await asset.loadTracks(withMediaType: .audio).first {
+                foundAudioTrack = true
+                if let description = try await track.load(.formatDescriptions).first {
+                    audioCodec = fourCharCodeString(CMFormatDescriptionGetMediaSubType(description))
+                }
+                audioBitrate = positiveInteger(Double(try await track.load(.estimatedDataRate)))
+            }
+        } catch {
+            if error is CancellationError { throw error }
+            nativeReadFailed = true
+            DiagnosticsLog.shared.record(
+                error: error,
+                context: "Inspect audio with AVFoundation",
+                metadata: ["Filename": filename, "Fallback": "FFmpeg media probe"]
+            )
         }
 
-        let bitrate = duration > 0 ? Int((Double(size) * 8.0 / duration).rounded()) : nil
+        // Also used when inspecting newly exported Ogg/Opus files that AVFoundation
+        // cannot reopen, so a successful conversion is not discarded at inspection.
+        if nativeReadFailed || !foundAudioTrack || duration == nil || audioCodec == nil || audioBitrate == nil {
+            let probe = await Task.detached(priority: .userInitiated) {
+                FFprobeVideoMetadata.probeAudio(at: url)
+            }.value
+            if let probe {
+                foundAudioTrack = true
+                duration = duration ?? probe.duration.flatMap(validDuration)
+                audioCodec = audioCodec ?? probe.audioCodec
+                audioBitrate = audioBitrate ?? probe.audioBitrate
+            }
+        }
+        guard foundAudioTrack else {
+            throw ConversionError.invalidInput("Couldn't read an audio track from this file.")
+        }
+        try Task.checkCancellation()
 
         return MediaFile(
             url: url,
             originalFilename: filename,
             category: .audio,
             sizeOnDisk: size,
-            duration: duration > 0 ? duration : nil,
-            bitrate: bitrate,
+            duration: duration,
+            bitrate: estimatedBitrate(size: size, duration: duration),
+            audioBitrate: audioBitrate,
             audioCodec: audioCodec,
             containerFormat: ext
         )
@@ -256,33 +289,21 @@ enum MediaInspector {
 
     // MARK: - Helpers
 
-    /// Converts a CoreMedia FourCC into a human-readable codec string (e.g. 'avc1', 'hvc1', 'mp4a').
-    #if canImport(ffmpegkit)
-    /// Fills duration and track metadata from FFprobe when AVFoundation omits or misreports them (common for Matroska / WebM / TS).
-    private static func applyFFprobeSupplement(
-        url: URL,
-        ext: String,
-        avDuration: inout Double,
-        dimensions: inout CGSize?,
-        fps: inout Double?,
-        videoCodec: inout String?,
-        audioCodec: inout String?
-    ) {
-        let avOK = avDuration > 0
-        let wantProbe = FFprobeVideoMetadata.preferredProbeExtensions.contains(ext) || !avOK
-        guard wantProbe, let p = FFprobeVideoMetadata.probeVideo(at: url) else { return }
-        if let d = p.duration, d > 0, d.isFinite {
-            if FFprobeVideoMetadata.preferredProbeExtensions.contains(ext) || !avOK {
-                avDuration = d
-            }
-        }
-        if dimensions == nil, let dim = p.dimensions { dimensions = dim }
-        if fps == nil, let f = p.fps { fps = f }
-        if videoCodec == nil, let c = p.videoCodec { videoCodec = c }
-        if audioCodec == nil, let c = p.audioCodec { audioCodec = c }
+    private static func validDuration(_ value: Double) -> Double? {
+        value.isFinite && value > 0 ? value : nil
     }
-    #endif
 
+    private static func positiveInteger(_ value: Double) -> Int? {
+        guard value.isFinite, value > 0, value < Double(Int.max) else { return nil }
+        return Int(value.rounded())
+    }
+
+    private static func estimatedBitrate(size: Int64, duration: Double?) -> Int? {
+        guard let duration, duration > 0 else { return nil }
+        return positiveInteger(Double(size) * 8.0 / duration)
+    }
+
+    /// Converts a CoreMedia FourCC into a human-readable codec string (e.g. 'avc1', 'hvc1', 'mp4a').
     private static func fourCharCodeString(_ code: FourCharCode) -> String {
         let bytes: [UInt8] = [
             UInt8((code >> 24) & 0xff),
@@ -292,28 +313,6 @@ enum MediaInspector {
         ]
         return String(bytes: bytes, encoding: .ascii)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-
-    private static func fallbackVideoMediaFile(
-        url: URL,
-        filename: String,
-        size: Int64,
-        ext: String
-    ) -> MediaFile {
-        MediaFile(
-            url: url,
-            originalFilename: filename,
-            category: .video,
-            sizeOnDisk: size,
-            dimensions: nil,
-            duration: nil,
-            fps: nil,
-            bitrate: nil,
-            audioBitrate: nil,
-            videoCodec: nil,
-            audioCodec: nil,
-            containerFormat: ext
-        )
     }
 
 }

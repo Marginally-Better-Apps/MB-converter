@@ -3,64 +3,35 @@ import SwiftUI
 struct FormatPicker: View {
     let formats: [OutputFormat]
     let inputCategory: MediaCategory
-    let isInteractionDisabled: Bool
     @Binding var selection: OutputFormat
 
     var body: some View {
-        Menu {
-            if inputCategory == .video {
-                if !videoFormats.isEmpty {
-                    Section("Video Output") {
-                        ForEach(videoFormats) { format in
-                            formatButton(format)
-                        }
-                    }
+        PopoverDropdown(
+            title: selection.displayName,
+            accessibilityLabel: "Output format",
+            options: orderedFormats,
+            optionTitle: { $0.displayName },
+            optionSection: { format in
+                if format.category == .archive { return "Compress file" }
+                if inputCategory == .video { return format.category == .video ? "Video" : format.category == .audio ? "Extract audio" : "Frame" }
+                if inputCategory == .document { return format.category == .image ? "Page images" : "Documents" }
+                if inputCategory == .image {
+                    if [.bmp, .ico, .jpeg2000, .tga, .psd, .exr, .icns].contains(format) { return "More formats" }
+                    if format.category == .document { return "Document" }
+                    return "Images"
                 }
-                if !audioFormats.isEmpty {
-                    Section("Audio Output") {
-                        ForEach(audioFormats) { format in
-                            formatButton(format)
-                        }
-                    }
-                }
-            } else {
-                ForEach(formats) { format in
-                    formatButton(format)
-                }
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Text(selection.displayName)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Theme.tint)
-            .padding(.horizontal, 4)
-            .frame(minHeight: 42)
-        }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 10))
-        .disabled(isInteractionDisabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
+                return nil
+            },
+            isSelected: { $0 == selection },
+            onSelect: { selection = $0 }
+        )
     }
 
-    private var videoFormats: [OutputFormat] {
-        formats.filter { $0.category == .video }
-    }
-
-    private var audioFormats: [OutputFormat] {
-        formats.filter { $0.category == .audio }
-    }
-
-    @ViewBuilder
-    private func formatButton(_ format: OutputFormat) -> some View {
-        Button {
-            Haptics.selection()
-            selection = format
-        } label: {
-            Text(format.displayName)
-        }
+    private var orderedFormats: [OutputFormat] {
+        guard inputCategory == .video else { return formats }
+        return formats.filter { $0.category == .video }
+            + formats.filter { $0.category == .audio }
+            + formats.filter { $0.category == .image }
+            + formats.filter { $0.category == .archive }
     }
 }

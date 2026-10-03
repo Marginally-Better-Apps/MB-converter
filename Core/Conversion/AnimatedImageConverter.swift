@@ -4,9 +4,11 @@ import UniformTypeIdentifiers
 
 final class AnimatedImageConverter: Converter {
     private let runner = FFmpegCommandRunner()
+    private let imageConverter = ImageConverter()
 
     func cancel() {
         runner.cancel()
+        imageConverter.cancel()
     }
 
     func convert(
@@ -15,6 +17,7 @@ final class AnimatedImageConverter: Converter {
         progress: @escaping @Sendable (Double) -> Void,
         encodingStats: (@Sendable (FFmpegEncodingDisplayStats) -> Void)? = nil
     ) async throws -> ConversionResult {
+        try Task.checkCancellation()
         guard input.category == .animatedImage else {
             throw ConversionError.unsupportedConversion
         }
@@ -23,8 +26,8 @@ final class AnimatedImageConverter: Converter {
         case .video:
             return try await convertToVideo(input: input, config: config, progress: progress, encodingStats: encodingStats)
         case .image:
-            return try await extractFirstFrame(input: input, config: config, progress: progress)
-        case .audio, .animatedImage:
+            return try await extractFirstFrame(input: input, config: config, progress: progress, encodingStats: encodingStats)
+        case .audio, .animatedImage, .document, .data, .archive, .file:
             throw ConversionError.unsupportedConversion
         }
     }
@@ -103,7 +106,7 @@ final class AnimatedImageConverter: Converter {
 
         do {
             progress(0)
-            if config.usesSinglePassVideoTargetEncode {
+            if !config.usesTwoPassVideoEncoding {
                 try await runner.run(
                     singlePass,
                     duration: duration,
@@ -166,8 +169,10 @@ final class AnimatedImageConverter: Converter {
     private func extractFirstFrame(
         input: MediaFile,
         config: ConversionConfig,
-        progress: @escaping @Sendable (Double) -> Void
+        progress: @escaping @Sendable (Double) -> Void,
+        encodingStats: (@Sendable (FFmpegEncodingDisplayStats) -> Void)?
     ) async throws -> ConversionResult {
+        encodingStats?(FFmpegEncodingDisplayStats(processingBackend: "ImageIO · System managed"))
         guard let source = CGImageSourceCreateWithURL(input.url as CFURL, nil),
               let frame = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             throw ConversionError.invalidInput("Couldn't read GIF frame.")
@@ -192,9 +197,9 @@ final class AnimatedImageConverter: Converter {
 
         do {
             let still = try await MediaInspector.inspect(url: intermediate)
-            let result = try await ImageConverter().convert(input: still, config: config) {
+            let result = try await imageConverter.convert(input: still, config: config, progress: {
                 progress(0.25 + $0 * 0.75)
-            }
+            }, encodingStats: encodingStats)
             try? FileManager.default.removeItem(at: intermediate)
             return result
         } catch {

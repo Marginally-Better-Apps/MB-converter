@@ -55,6 +55,16 @@ enum Theme {
 
     static var destructive: Color { .red }
 
+    /// Opaque home controls stay distinct from the canvas in both appearances.
+    enum Home {
+        static let background = dynamic(light: 0xe1ebf4, dark: 0x08121e)
+        static let surface = dynamic(light: 0xffffff, dark: 0x21354b)
+        /// At least 3:1 against both the home canvas and control surface.
+        static let controlBorder = dynamic(light: 0x6e879d, dark: 0x7194b2)
+        static let separator = dynamic(light: 0xadbccd, dark: 0x54718b)
+        static let iconForeground = dynamic(light: 0xffffff, dark: 0x08121e)
+    }
+
     // MARK: - Construction
 
     private static func dynamic(light: Int, dark: Int) -> Color {
@@ -73,5 +83,15 @@ private extension UIColor {
             blue:  CGFloat( hex        & 0xff) / 255.0,
             alpha: 1
         )
+    }
+}
+
+extension View {
+    @ViewBuilder func converterGlass(cornerRadius: CGFloat = 14, prominent: Bool = false) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(prominent ? .regular.tint(Theme.tint).interactive() : .regular.interactive(), in: RoundedRectangle(cornerRadius: cornerRadius))
+        } else {
+            background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
+        }
     }
 }

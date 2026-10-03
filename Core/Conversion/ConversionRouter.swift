@@ -6,12 +6,16 @@ enum ConversionRouter {
             throw ConversionError.unsupportedConversion
         }
 
+        if config.outputFormat.category == .archive { return ArchiveConverter() }
+        if input.category == .data { return DataConverter() }
+        if input.category == .document || config.outputFormat.category == .document { return DocumentConverter() }
+
         switch (input.category, config.outputFormat.category) {
         case (.video, .video):
             return VideoConverter()
         case (.video, .audio), (.audio, .audio):
             return AudioConverter()
-        case (.image, .image):
+        case (.image, .image), (.video, .image):
             return ImageConverter()
         case (.animatedImage, .video), (.animatedImage, .image):
             return AnimatedImageConverter()

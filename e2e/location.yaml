@@ -1,0 +1,30 @@
+appId: com.marginallybetter.converter
+---
+- launchApp:
+    clearState: true
+    arguments:
+      uitest-fixtures: true
+- assertVisible: "MB Converter"
+- tapOn: "Conversion history"
+- tapOn: "Resume draft Sample.png"
+- scrollUntilVisible:
+    element: "Metadata.*"
+- tapOn: "Metadata.*"
+- tapOn:
+    text: "1"
+    rightOf: "Remove All Metadata"
+- tapOn: "Location, No fields"
+- tapOn: "Choose on map"
+- assertVisible: "Search for a place or address"
+- tapOn: "Apply"
+- assertVisible: "Edit"
+- assertVisible: "37.33490, -122.00900"
+- tapOn: "Back to Metadata"
+- tapOn: "Back to Convert"
+- tapOn: "Back to main page"
+- tapOn: "Resume draft Sample.png"
+- scrollUntilVisible:
+    element: "Metadata.*"
+- tapOn: "Metadata.*"
+- tapOn: "Location, 4 of 4 included"
+- assertVisible: "37.33490, -122.00900"

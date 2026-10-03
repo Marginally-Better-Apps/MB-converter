@@ -1,111 +1,77 @@
 import Foundation
 
-#if canImport(ffmpegkit)
-import ffmpegkit
-
-/// Uses FFprobe (via FFmpegKit) to read container metadata that `AVURLAsset` often omits for Matroska, WebM, and MPEG-TS.
+/// Reads metadata directly through the bundled libavformat bridge.
 enum FFprobeVideoMetadata {
-
-    struct Result {
+    struct Result: Sendable {
         var duration: Double?
         var dimensions: CGSize?
         var fps: Double?
         var frameCount: Int?
         var videoCodec: String?
+        var videoColor: VideoColorInfo?
         var audioCodec: String?
+        var audioBitrate: Int?
     }
 
-    /// Containers where we prefer FFprobe duration/dimensions over AVFoundation when FFprobe succeeds.
+    struct AudioResult: Sendable {
+        var duration: Double?
+        var audioCodec: String?
+        var audioBitrate: Int?
+    }
+
+    /// Containers where we prefer native FFmpeg metadata over AVFoundation when probing succeeds.
     static let preferredProbeExtensions: Set<String> = ["hevc", "m2v", "mkv", "webm", "ts", "mts", "m2ts"]
 
-    static func probeVideo(at url: URL) -> Result? {
-        let session = FFprobeKit.getMediaInformation(url.path, withTimeout: 15_000)
-        guard let info = session?.getMediaInformation() else { return nil }
-
-        var duration = parseDuration(info.getDuration())
-
-        var width: Int?
-        var height: Int?
-        var fps: Double?
-        var frameCount: Int?
-        var videoCodec: String?
-        var audioCodec: String?
-
-        let streams = info.getStreams() ?? []
-
-        for item in streams {
-            guard let stream = item as? StreamInformation else { continue }
-            let type = stream.getType()?.lowercased() ?? ""
-            if type == "video", width == nil {
-                width = stream.getWidth()?.intValue
-                height = stream.getHeight()?.intValue
-                fps = parseFrameRate(stream.getAverageFrameRate()) ?? parseFrameRate(stream.getRealFrameRate())
-                // Use FFmpegKit accessors only — KVC on `StreamInformation` throws for undefined keys.
-                duration = duration
-                    ?? parseDuration(stream.getStringProperty("duration"))
-                    ?? tagClockDuration(stream.getTags())
-                frameCount = stream.getNumberProperty("nb_frames")?.intValue
-                    ?? parseInt(stream.getStringProperty("nb_frames"))
-                videoCodec = normalizeCodec(stream.getCodec())
-            } else if type == "audio", audioCodec == nil {
-                audioCodec = normalizeCodec(stream.getCodec())
-            }
-        }
-
-        duration = duration
-            ?? tagClockDuration(info.getTags())
-            ?? durationFromFrames(frameCount: frameCount, fps: fps)
-
-        let dimensions: CGSize?
-        if let w = width, let h = height, w > 0, h > 0 {
-            dimensions = CGSize(width: w, height: h)
-        } else {
-            dimensions = nil
-        }
-
-        return Result(
-            duration: duration,
-            dimensions: dimensions,
-            fps: fps,
-            frameCount: frameCount,
-            videoCodec: videoCodec,
-            audioCodec: audioCodec
+    static func probeAudio(at url: URL) -> AudioResult? {
+        guard let info = FFmpegMediaProbe.probe(at: url),
+              let audio = info.streams.first(where: { $0.codecType == "audio" }) else { return nil }
+        return AudioResult(
+            duration: positive(info.format?.duration) ?? positive(audio.duration)
+                ?? tagClockDuration(audio.tags) ?? tagClockDuration(info.format?.tags),
+            audioCodec: normalizeCodec(audio.codecName),
+            audioBitrate: positive(audio.bitRate)
         )
     }
 
-    private static func parseDuration(_ string: String?) -> Double? {
-        guard let string, !string.isEmpty, string != "N/A" else { return nil }
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let value = Double(trimmed), value.isFinite, value > 0 else { return nil }
+    static func probeVideo(at url: URL) -> Result? {
+        guard let info = FFmpegMediaProbe.probe(at: url),
+              let video = info.streams.first(where: { $0.codecType == "video" }) else { return nil }
+        let audio = info.streams.first(where: { $0.codecType == "audio" })
+        let fps = parseFrameRate(video.averageFrameRate) ?? parseFrameRate(video.realFrameRate)
+        let frameCount = positive(video.frameCount)
+        let duration = positive(info.format?.duration) ?? positive(video.duration)
+            ?? tagClockDuration(video.tags) ?? tagClockDuration(info.format?.tags)
+            ?? durationFromFrames(frameCount: frameCount, fps: fps)
+        let dimensions: CGSize?
+        if let width = positive(video.width), let height = positive(video.height) {
+            dimensions = CGSize(width: CGFloat(width), height: CGFloat(height))
+        } else {
+            dimensions = nil
+        }
+        return Result(
+            duration: duration, dimensions: dimensions, fps: fps, frameCount: frameCount,
+            videoCodec: normalizeCodec(video.codecName), videoColor: video.color, audioCodec: normalizeCodec(audio?.codecName),
+            audioBitrate: positive(audio?.bitRate)
+        )
+    }
+
+    private static func positive<T: BinaryInteger>(_ value: T?) -> T? {
+        guard let value, value > 0 else { return nil }
         return value
     }
 
-    private static func parseClockDuration(_ string: String?) -> Double? {
-        guard let string, !string.isEmpty, string != "N/A" else { return nil }
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(separator: ":")
-        guard parts.count == 3,
-              let hours = Double(parts[0]),
-              let minutes = Double(parts[1]),
-              let seconds = Double(parts[2]) else {
-            return nil
-        }
-        let total = (hours * 3600) + (minutes * 60) + seconds
-        return total.isFinite && total > 0 ? total : nil
+    private static func positive(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        return value
     }
 
     private static func parseFrameRate(_ string: String?) -> Double? {
-        guard let string, !string.isEmpty, string != "N/A" else { return nil }
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let slash = trimmed.firstIndex(of: "/") {
-            let num = Double(trimmed[..<slash])
-            let den = Double(trimmed[trimmed.index(after: slash)...])
-            guard let num, let den, den != 0 else { return nil }
-            let v = num / den
-            return v.isFinite && v > 0 ? v : nil
+        guard let string else { return nil }
+        let parts = string.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "/")
+        if parts.count == 2, let numerator = Double(parts[0]), let denominator = Double(parts[1]), denominator != 0 {
+            return positive(numerator / denominator)
         }
-        guard let v = Double(trimmed), v.isFinite, v > 0 else { return nil }
-        return v
+        return positive(Double(string))
     }
 
     private static func normalizeCodec(_ codec: String?) -> String? {
@@ -114,27 +80,20 @@ enum FFprobeVideoMetadata {
     }
 
     private static func durationFromFrames(frameCount: Int?, fps: Double?) -> Double? {
-        guard let frameCount, frameCount > 0, let fps, fps > 0 else { return nil }
-        let duration = Double(frameCount) / fps
-        return duration.isFinite && duration > 0 ? duration : nil
+        guard let frameCount, let fps else { return nil }
+        return positive(Double(frameCount) / fps)
     }
 
-    private static func parseInt(_ value: String?) -> Int? {
-        guard let value, !value.isEmpty, value != "N/A" else { return nil }
-        return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    /// FFprobe tag-based duration (e.g. `DURATION`, `DURATION-eng`) in `H:MM:SS.mmm` form.
-    private static func tagClockDuration(_ tags: [AnyHashable: Any]?) -> Double? {
+    /// Matroska tags can supply duration as H:MM:SS.mmm when stream duration is absent.
+    private static func tagClockDuration(_ tags: [String: String]?) -> Double? {
         guard let tags else { return nil }
-        let keys = ["DURATION", "DURATION-eng", "duration"]
-        for key in keys {
-            if let raw = tags[key] as? String {
-                if let d = parseClockDuration(raw) { return d }
-            }
+        for key in ["DURATION", "DURATION-eng", "duration"] {
+            guard let raw = tags[key] else { continue }
+            let parts = raw.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ":")
+            guard parts.count == 3, let hours = Double(parts[0]), let minutes = Double(parts[1]), let seconds = Double(parts[2]),
+                  hours >= 0, minutes >= 0, minutes < 60, seconds >= 0, seconds < 60 else { continue }
+            if let duration = positive(hours * 3600 + minutes * 60 + seconds) { return duration }
         }
         return nil
     }
 }
-
-#endif
