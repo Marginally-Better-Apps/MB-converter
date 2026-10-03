@@ -27,7 +27,7 @@ final class AnimatedImageConverter: Converter {
             return try await convertToVideo(input: input, config: config, progress: progress, encodingStats: encodingStats)
         case .image:
             return try await extractFirstFrame(input: input, config: config, progress: progress, encodingStats: encodingStats)
-        case .audio, .animatedImage:
+        case .audio, .animatedImage, .document, .data, .archive, .file:
             throw ConversionError.unsupportedConversion
         }
     }

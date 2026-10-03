@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7ECAB93F3A8B4AFC0D1D5E43 /* Features/Batch/BatchConversionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BED1F4D4C055F8D9A6DE6C; };
+		1308B8D8EA564248D2710452 /* Features/InputDetail/DocumentOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24027ABEA9584B72AF18C362; };
+		E20B4AE14DA1915BEDB1B66B /* Core/IO/ConversionDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 435BE426E7AB28AFFED67443; };
+		7FD68E2B42511212940550BB /* Core/Documents/DataConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C14A7630B17B2C46E13B09DE; };
+		3D91E258EE5FCF9CB633E6CA /* Core/Documents/DocumentConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58D3449AB1E067CBCB3FBA0; };
+		C32A9DBDE23059FCFC5DAAF2 /* Core/Documents/FileArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A0CF2B5514125976578850; };
 		E93000000000000000000002 /* MediaPreviewPlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E93000000000000000000001 /* MediaPreviewPlaybackTests.swift */; };
 		E92000000000000000000002 /* DesignSystem/Components/MediaPreviewPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92000000000000000000001 /* DesignSystem/Components/MediaPreviewPlayback.swift */; };
 		E91000000000000000000002 /* Core/Conversion/MediaPreviewRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E91000000000000000000001 /* Core/Conversion/MediaPreviewRenderer.swift */; };
@@ -90,6 +96,12 @@
 
 
 /* Begin PBXFileReference section */
+		B3BED1F4D4C055F8D9A6DE6C /* Features/Batch/BatchConversionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Features/Batch/BatchConversionView.swift"; sourceTree = "<group>"; };
+		24027ABEA9584B72AF18C362 /* Features/InputDetail/DocumentOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Features/InputDetail/DocumentOptionsView.swift"; sourceTree = "<group>"; };
+		435BE426E7AB28AFFED67443 /* Core/IO/ConversionDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/IO/ConversionDraftStore.swift"; sourceTree = "<group>"; };
+		C14A7630B17B2C46E13B09DE /* Core/Documents/DataConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Documents/DataConverter.swift"; sourceTree = "<group>"; };
+		D58D3449AB1E067CBCB3FBA0 /* Core/Documents/DocumentConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Documents/DocumentConverter.swift"; sourceTree = "<group>"; };
+		A2A0CF2B5514125976578850 /* Core/Documents/FileArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Documents/FileArchive.swift"; sourceTree = "<group>"; };
 		E93000000000000000000001 /* MediaPreviewPlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPreviewPlaybackTests.swift; sourceTree = "<group>"; };
 		E92000000000000000000001 /* DesignSystem/Components/MediaPreviewPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/Components/MediaPreviewPlayback.swift; sourceTree = "<group>"; };
 		E91000000000000000000001 /* Core/Conversion/MediaPreviewRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/MediaPreviewRenderer.swift; sourceTree = "<group>"; };
@@ -184,6 +196,12 @@
 		0A85897F1A32FE9B91C081CD = {
 			isa = PBXGroup;
 			children = (
+				B3BED1F4D4C055F8D9A6DE6C /* Features/Batch/BatchConversionView.swift */,
+				24027ABEA9584B72AF18C362 /* Features/InputDetail/DocumentOptionsView.swift */,
+				435BE426E7AB28AFFED67443 /* Core/IO/ConversionDraftStore.swift */,
+				C14A7630B17B2C46E13B09DE /* Core/Documents/DataConverter.swift */,
+				D58D3449AB1E067CBCB3FBA0 /* Core/Documents/DocumentConverter.swift */,
+				A2A0CF2B5514125976578850 /* Core/Documents/FileArchive.swift */,
 				E40000000000000000000001 /* WebP-NOTICE.txt */,
 				5B63929DD0C6EDA4E6B74F0E /* App/ConverterApp.swift */,
 				31C642BE5466990C8E969125 /* Core/Background/ConversionNotifications.swift */,
@@ -384,6 +402,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7ECAB93F3A8B4AFC0D1D5E43 /* Features/Batch/BatchConversionView.swift in Sources */,
+				1308B8D8EA564248D2710452 /* Features/InputDetail/DocumentOptionsView.swift in Sources */,
+				E20B4AE14DA1915BEDB1B66B /* Core/IO/ConversionDraftStore.swift in Sources */,
+				7FD68E2B42511212940550BB /* Core/Documents/DataConverter.swift in Sources */,
+				3D91E258EE5FCF9CB633E6CA /* Core/Documents/DocumentConverter.swift in Sources */,
+				C32A9DBDE23059FCFC5DAAF2 /* Core/Documents/FileArchive.swift in Sources */,
 				93FCE4738CDC9F2ED128C031 /* App/ConverterApp.swift in Sources */,
 				2B91FB12EB0B40758155B055 /* Core/Background/ConversionNotifications.swift in Sources */,
 				BDD2D84F93419F9AB7E93E07 /* Core/Background/SystemBackgroundExecution.swift in Sources */,

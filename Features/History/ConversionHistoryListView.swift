@@ -6,18 +6,34 @@ struct ConversionHistoryListView: View {
     var previewEntries: [ConversionHistoryEntry]? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.isRootSectionActive) private var isRootSectionActive
+    @State private var drafts = ConversionDraftStore.shared
     @State private var store = ConversionHistoryStore.shared
     @State private var isClearAllConfirming = false
     @State private var entryPendingDeletion: ConversionHistoryEntry?
 
     var body: some View {
         List {
-            Section {
-                historySummary
-                    .listRowBackground(Theme.surface)
+            if !drafts.entries.isEmpty && previewEntries == nil {
+                Section("Drafts") {
+                    ForEach(drafts.entries) { draft in
+                        Button { path.append(.draft(draft)) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "square.and.pencil").foregroundStyle(Theme.tint)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(draft.input.originalFilename).foregroundStyle(Theme.text).lineLimit(1)
+                                    Text(draft.config.outputFormat.displayName).font(.caption).foregroundStyle(Theme.textMuted)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(Theme.textMuted)
+                            }.padding(.vertical, 6)
+                        }
+                        .accessibilityLabel("Resume draft \(draft.input.originalFilename)")
+                        .swipeActions { Button("Delete", role: .destructive) { drafts.remove(id: draft.id) } }
+                    }
+                }
             }
 
-            if entries.isEmpty {
+            if entries.isEmpty && (drafts.entries.isEmpty || previewEntries != nil) {
                 Section {
                     ContentUnavailableView(
                         "No Conversions Yet",
@@ -28,7 +44,7 @@ struct ConversionHistoryListView: View {
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Theme.surface)
                 }
-            } else {
+            } else if !entries.isEmpty {
                 Section("Conversions") {
                     ForEach(entries) { entry in
                         historyRow(entry: entry)

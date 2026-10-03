@@ -11,6 +11,20 @@ struct ImageConversionTests {
         if let fixture = ProcessInfo.processInfo.environment["MB_IMAGE_TEST_FALLBACK"] {
             try await verifyDecodeFallback(URL(fileURLWithPath: fixture))
         }
+        let smallSource = try makeHEIC(width: 64, height: 48)
+        defer { try? FileManager.default.removeItem(at: smallSource) }
+        let smallInput = MediaFile(url: smallSource, originalFilename: "small.heic", category: .image, sizeOnDisk: 1000, dimensions: CGSize(width: 64, height: 48), containerFormat: "heic")
+        for format in [OutputFormat.bmp, .ico, .jpeg2000, .avif, .tga, .psd, .exr, .icns] where CodecCapability.canEncode(format) {
+            print("Testing native image output \(format)"); fflush(stdout)
+            let result = try await ImageConverter().convert(input: smallInput, config: .init(outputFormat: format), progress: { _ in }, encodingStats: nil)
+            defer { try? FileManager.default.removeItem(at: result.url) }
+            try require(CGImageSourceCreateWithURL(result.url as CFURL, nil) != nil, "\(format) must produce a readable image")
+        }
+        var scaledConfig = ConversionConfig(outputFormat: .png)
+        scaledConfig.imageEnhancement.scale = 2
+        let scaled = try await ImageConverter().convert(input: smallInput, config: scaledConfig, progress: { _ in }, encodingStats: nil)
+        defer { try? FileManager.default.removeItem(at: scaled.url) }
+        try require(scaled.dimensions == CGSize(width: 128, height: 96), "Upscaling must double the output dimensions")
         try await PNGDimensionsTests.run()
         try await WebPRegressionTests.run()
         let large = ProcessInfo.processInfo.environment["MB_IMAGE_TEST_LARGE"] == "1"

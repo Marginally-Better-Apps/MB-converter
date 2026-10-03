@@ -85,3 +85,13 @@ private extension UIColor {
         )
     }
 }
+
+extension View {
+    @ViewBuilder func converterGlass(cornerRadius: CGFloat = 14, prominent: Bool = false) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(prominent ? .regular.tint(Theme.tint).interactive() : .regular.interactive(), in: RoundedRectangle(cornerRadius: cornerRadius))
+        } else {
+            background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
+        }
+    }
+}

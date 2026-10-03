@@ -1,3 +1,13 @@
+#include "MBFResourcePolicy.h"
+#include <sys/sysctl.h>
+#include <unistd.h>
+static uint64_t mbf_physical_memory(void) {
+    uint64_t bytes = 0;
+    size_t size = sizeof(bytes);
+    if (sysctlbyname("hw.memsize", &bytes, &size, NULL, 0) != 0) return 2ULL * 1024 * 1024 * 1024;
+    return bytes;
+}
+
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 MB Converter contributors.
 // Original, reentrant adapter over FFmpeg's public C APIs. No FFmpeg CLI or
@@ -382,7 +392,7 @@ static int mbf_filters(MBFJob *job, MBFStream *stream, enum AVPixelFormat pixel_
     av_bprint_init(&description, 256, AV_BPRINT_SIZE_UNLIMITED);
     stream->graph = avfilter_graph_alloc();
     if (!stream->graph) { av_bprint_finalize(&description, NULL); return AVERROR(ENOMEM); }
-    stream->graph->nb_threads = 2;
+    stream->graph->nb_threads = mbf_worker_count((int)sysconf(_SC_NPROCESSORS_ONLN), mbf_physical_memory(), stream->decoder->width, stream->decoder->height);
     if (video) {
         AVFrame *first = stream->first_frame;
         AVRational aspect = first ? first->sample_aspect_ratio : decoder->sample_aspect_ratio;
@@ -535,7 +545,7 @@ static int mbf_initialize_stream(MBFJob *job, int index, const char *codec_name)
         if (!stream->decoder || !stream->encoder) return AVERROR(ENOMEM);
         if ((error = avcodec_parameters_to_context(stream->decoder, stream->input->codecpar)) < 0) return error;
         stream->decoder->pkt_timebase = stream->input->time_base;
-        stream->decoder->thread_count = 2;
+        stream->decoder->thread_count = mbf_worker_count((int)sysconf(_SC_NPROCESSORS_ONLN), mbf_physical_memory(), stream->decoder->width, stream->decoder->height);
         stream->pipeline = type == AVMEDIA_TYPE_VIDEO && job->options.video_pipeline;
         if (stream->pipeline && (error = mbf_setup_hardware(job, stream)) < 0) return error;
         if ((error = avcodec_open2(stream->decoder, decoder, NULL)) < 0)
@@ -549,7 +559,6 @@ static int mbf_initialize_stream(MBFJob *job, int index, const char *codec_name)
             av_channel_layout_uninit(&stream->decoder->ch_layout);
             av_channel_layout_default(&stream->decoder->ch_layout, channels);
         }
-        stream->encoder->thread_count = 2;
         if (job->output->oformat->flags & AVFMT_GLOBALHEADER) stream->encoder->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
         enum AVPixelFormat pixel_format = AV_PIX_FMT_NONE;
         if (type == AVMEDIA_TYPE_VIDEO) {
@@ -593,6 +602,7 @@ static int mbf_initialize_stream(MBFJob *job, int index, const char *codec_name)
             stream->encoder->gop_size = FFMAX(1, (int)lrint(av_q2d(fps) * 2));
             if (encoder->id == AV_CODEC_ID_MJPEG) stream->encoder->color_range = AVCOL_RANGE_JPEG;
         }
+        stream->encoder->thread_count = mbf_worker_count((int)sysconf(_SC_NPROCESSORS_ONLN), mbf_physical_memory(), stream->encoder->width, stream->encoder->height);
         if ((error = mbf_pass_options(job, stream)) < 0) return error;
         AVDictionary *codec_options = NULL;
         int require_hardware_encoder = stream->pipeline && job->options.acceleration;

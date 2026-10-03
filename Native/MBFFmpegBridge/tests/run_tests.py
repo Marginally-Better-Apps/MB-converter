@@ -53,8 +53,10 @@ def main():
         run(ffmpeg, "-v", "error", "-y", "-i", directory / "source24.wav", "-c:a", "pcm_s32le", directory / "source32.wav")
         run(ffmpeg, "-v", "error", "-y", "-display_rotation:v:0", "90", "-i", directory / "input.mp4",
             "-c", "copy", directory / "rotated.mp4")
+        encoders = run(ffmpeg, "-hide_banner", "-encoders", capture=True)
+        av1_options = ["-c:v", "libaom-av1", "-cpu-used", "8"] if "libaom-av1" in encoders else ["-c:v", "libsvtav1", "-preset", "12"]
         run(ffmpeg, "-v", "error", "-y", "-i", directory / "input.mp4", "-an", "-frames:v", "2",
-            "-c:v", "libaom-av1", "-cpu-used", "8", directory / "av1.mkv")
+            *av1_options, directory / "av1.mkv")
         input_digest = hashlib.sha256((directory / "input.mp4").read_bytes()).digest()
         run(executable, directory)
         assert input_digest == hashlib.sha256((directory / "input.mp4").read_bytes()).digest()

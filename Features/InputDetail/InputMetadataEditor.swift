@@ -9,6 +9,8 @@ struct InputMetadataEditor: View {
     @Environment(\.isRootSectionActive) private var isRootSectionActive
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var focusedMetadataRowID: String?
+    @State private var isAddingLocation = false
+    @State private var newLocation = CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.009)
     @State private var selectedGroup: MetadataFieldGroup.Kind?
     @State private var addedMetadataRowID: String?
     @State private var highlightedMetadataRowID: String?
@@ -135,10 +137,17 @@ struct InputMetadataEditor: View {
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
 
-                        if kind == .location,
-                           !group.indices.allSatisfy({ viewModel.metadataFieldRows[$0].isRemoved }),
-                           let coordinate = locationCoordinateBinding() {
-                            MetadataLocationCard(coordinate: coordinate)
+                        if kind == .location {
+                            if !group.indices.allSatisfy({ viewModel.metadataFieldRows[$0].isRemoved }), let coordinate = locationCoordinateBinding() {
+                                MetadataLocationCard(coordinate: coordinate)
+                            } else {
+                                Button { isAddingLocation = true } label: { Label("Choose on map", systemImage: "map") }
+                                    .buttonStyle(.bordered)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .sheet(isPresented: $isAddingLocation) {
+                                        LocationEditorSheet(coordinate: $newLocation, onApply: addPickedLocation)
+                                    }
+                            }
                         }
 
                         if group.indices.isEmpty {
@@ -156,7 +165,9 @@ struct InputMetadataEditor: View {
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(group.indices, id: \.self) { index in
+                                ForEach(group.indices.filter { index in
+                                    kind != .location || !(MetadataLocationResolver.isLatitudeRow(viewModel.metadataFieldRows[index]) || MetadataLocationResolver.isLongitudeRow(viewModel.metadataFieldRows[index]) || MetadataLocationResolver.isLatitudeRefRow(viewModel.metadataFieldRows[index]) || MetadataLocationResolver.isLongitudeRefRow(viewModel.metadataFieldRows[index]))
+                                }, id: \.self) { index in
                                     MetadataFieldCard(
                                         row: $viewModel.metadataFieldRows[index],
                                         focusedRowID: $focusedMetadataRowID,
@@ -235,6 +246,7 @@ struct InputMetadataEditor: View {
 
     private func missingTemplates(for kind: MetadataFieldGroup.Kind) -> [AddableMetadataField] {
         switch viewModel.input.category {
+        case .document, .data, .archive, .file: return []
         case .image:
             let existing = Set(viewModel.metadataFieldRows.map(StandardImageMetadataCatalog.matchID(for:)))
             return StandardImageMetadataCatalog.templates(for: kind)
@@ -297,6 +309,26 @@ struct InputMetadataEditor: View {
         for index in group.indices {
             viewModel.metadataFieldRows[index].isRemoved = removed
         }
+    }
+
+    private func addPickedLocation() {
+        userEditedField()
+        if viewModel.input.category == .image {
+            for template in StandardImageMetadataCatalog.templates.filter({ ["Latitude", "Longitude", "LatitudeRef", "LongitudeRef"].contains($0.key) }) {
+                if !viewModel.metadataFieldRows.contains(where: { $0.tag.tagKey == template.key && $0.tag.kind.isImageGPS }) {
+                    addMetadataField(.image(template))
+                }
+            }
+        } else {
+            let key = "location"
+            if !viewModel.metadataFieldRows.contains(where: { $0.tag.tagKey == key }) {
+                viewModel.metadataFieldRows.append(MetadataFieldRowModel(tag: DiscoveredMetadataTag(id: "format:location", label: "Location", value: "", tagKey: key, kind: .ffprobeFormat)))
+            }
+        }
+        for index in viewModel.metadataFieldRows.indices where MetadataLocationResolver.isLatitudeRow(viewModel.metadataFieldRows[index]) || MetadataLocationResolver.isLongitudeRow(viewModel.metadataFieldRows[index]) || MetadataLocationResolver.isLatitudeRefRow(viewModel.metadataFieldRows[index]) || MetadataLocationResolver.isLongitudeRefRow(viewModel.metadataFieldRows[index]) || MetadataLocationResolver.isISO6709RepresentationRow(viewModel.metadataFieldRows[index]) {
+            viewModel.metadataFieldRows[index].isRemoved = false
+        }
+        updateLocationRows(to: newLocation)
     }
 
     private func locationCoordinateBinding() -> Binding<CLLocationCoordinate2D>? {
@@ -954,7 +986,7 @@ private struct MetadataLocationCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Map Preview", systemImage: "mappin.and.ellipse")
+                Label("Location", systemImage: "mappin.and.ellipse")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.text)
                 Spacer()
@@ -980,12 +1012,7 @@ private struct MetadataLocationCard: View {
                 .foregroundStyle(Theme.textMuted)
         }
         .padding(12)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Theme.accent.opacity(0.65), lineWidth: 1)
-        )
+        .converterGlass(cornerRadius: 16)
         .sheet(isPresented: $isEditorPresented) {
             LocationEditorSheet(coordinate: $coordinate)
         }
@@ -1045,10 +1072,12 @@ private struct LocationEditorSheet: View {
     @Binding var coordinate: CLLocationCoordinate2D
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    var onApply: (() -> Void)? = nil
     @StateObject private var search = LocationSearchModel()
     @State private var draftCoordinate: CLLocationCoordinate2D
 
-    init(coordinate: Binding<CLLocationCoordinate2D>) {
+    init(coordinate: Binding<CLLocationCoordinate2D>, onApply: (() -> Void)? = nil) {
+        self.onApply = onApply
         self._coordinate = coordinate
         self._draftCoordinate = State(initialValue: coordinate.wrappedValue)
     }
@@ -1118,7 +1147,7 @@ private struct LocationEditorSheet: View {
                     .padding(.horizontal)
             }
             .padding(.vertical)
-            .navigationTitle("Edit Location")
+            .navigationTitle("Location")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1129,6 +1158,7 @@ private struct LocationEditorSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
                         coordinate = draftCoordinate
+                        onApply?()
                         dismiss()
                     }
                 }
@@ -1449,4 +1479,8 @@ private func dismissKeyboard() {
         from: nil,
         for: nil
     )
+}
+
+private extension DiscoveredMetadataTag.Kind {
+    var isImageGPS: Bool { if case .image(let entry) = self { return entry.scope == .gps }; return false }
 }

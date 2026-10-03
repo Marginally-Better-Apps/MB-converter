@@ -158,6 +158,8 @@ final class OutputConfigViewModel {
     private var planningDuration: Double? {
         isAudioOutput ? audioOutputDuration : input.duration
     }
+    var documentSettings = DocumentExportSettings()
+    var imageEnhancement = ImageEnhancementSettings()
     var webpQuality: Double = 0.82
     var targetFraction: Double = 1.0 {
         didSet {
@@ -305,6 +307,33 @@ final class OutputConfigViewModel {
         if metadataFieldRows.isEmpty {
             metadataFieldRows = tags.map { MetadataFieldRowModel(tag: $0) }
         }
+        if let policy = restoredMetadata {
+            for index in metadataFieldRows.indices {
+                let tag = metadataFieldRows[index].tag
+                let retained: String?
+                switch tag.kind {
+                case .ffprobeFormat: retained = policy.retainedFormatTags[tag.tagKey]
+                case .ffprobeStream(let stream): retained = policy.retainedStreamTags[stream]?[tag.tagKey]
+                case .image(let entry): retained = policy.retainedImageTags.first { $0.imagePropertyKey == entry.imagePropertyKey }?.value
+                }
+                metadataFieldRows[index].isRemoved = policy.stripAll || retained == nil
+                if let retained { metadataFieldRows[index].value = retained }
+            }
+            // Fields added in the metadata editor may not exist in the source.
+            for entry in policy.retainedImageTags where !metadataFieldRows.contains(where: { $0.id == entry.imagePropertyKey }) {
+                let tag = DiscoveredMetadataTag(id: entry.imagePropertyKey, label: entry.dictionaryKey, value: entry.value, tagKey: entry.dictionaryKey, kind: .image(entry), defaultIsRemoved: false)
+                metadataFieldRows.append(MetadataFieldRowModel(tag: tag))
+            }
+            for (key, value) in policy.retainedFormatTags where !metadataFieldRows.contains(where: { $0.tag.tagKey == key && $0.tag.kind == .ffprobeFormat }) {
+                metadataFieldRows.append(MetadataFieldRowModel(tag: DiscoveredMetadataTag(id: "format:\(key)", label: key, value: value, tagKey: key, kind: .ffprobeFormat)))
+            }
+            for (stream, values) in policy.retainedStreamTags {
+                for (key, value) in values where !metadataFieldRows.contains(where: { $0.tag.tagKey == key && $0.tag.kind == .ffprobeStream(index: stream) }) {
+                    metadataFieldRows.append(MetadataFieldRowModel(tag: DiscoveredMetadataTag(id: "stream:\(stream):\(key)", label: key, value: value, tagKey: key, kind: .ffprobeStream(index: stream))))
+                }
+            }
+            restoredMetadata = nil
+        }
         hasCompletedMetadataDiscovery = true
         isLoadingDiscoveredMetadata = false
     }
@@ -396,7 +425,7 @@ final class OutputConfigViewModel {
         guard !sourceWasTrimmed,
               selectedFormat.category == input.category,
               matchesSourceContainer,
-              !hasMetadataChanges else { return false }
+              !hasMetadataChanges, imageEnhancement == ImageEnhancementSettings() else { return false }
 
         switch input.category {
         case .video:
@@ -415,7 +444,7 @@ final class OutputConfigViewModel {
             // target can also change the output even at the slider's maximum.
             if selectedFormat == .webpImage { return false }
             return !selectedFormat.supportsTargetSize || targetSizeBytes >= input.sizeOnDisk
-        case .animatedImage:
+        case .animatedImage, .document, .data, .archive, .file:
             return false
         }
     }
@@ -643,7 +672,9 @@ final class OutputConfigViewModel {
         if selectedFormat == .webpImage {
             return "WebP uses quality mode (single pass). Output size is not guaranteed."
         }
-        return selectedFormat.supportsTargetSize ? nil : "\(selectedFormat.fileExtension.uppercased()) is lossless. Output size depends on dimensions."
+        guard selectedFormat.category == .image || selectedFormat.category == .audio,
+              !selectedFormat.isLossy else { return nil }
+        return "\(selectedFormat.displayName) is lossless."
     }
 
     var targetSizeBytes: Int64 {
@@ -746,6 +777,7 @@ final class OutputConfigViewModel {
             return audioLossySummaryLabel(targetBytes: planningBytes)
         case .image:
             return "Image quality will be tuned for the target size."
+        case .document, .data, .archive, .file: return ""
         }
     }
 
@@ -794,9 +826,32 @@ final class OutputConfigViewModel {
         targetFraction = min(1.0, max(targetMinimumFraction, bytes / ref))
     }
 
+    func restore(_ config: ConversionConfig) {
+        if formats.contains(config.outputFormat) { selectedFormat = config.outputFormat }
+        operationMode = config.operationMode
+        isResolutionLocked = config.autoTargetLockPolicy.resolution
+        isFPSLocked = config.autoTargetLockPolicy.fps
+        isAudioQualityLocked = config.autoTargetLockPolicy.audioQuality
+        selectedFPS = config.targetFPS
+        cropRegion = config.cropRegion; mediaRotation = config.mediaRotation; isMirrored = config.isMirrored
+        audioEdits = config.audioEdits
+        documentSettings = config.document; imageEnhancement = config.imageEnhancement
+        if let size = config.targetDimensions {
+            selectedResolutionID = "custom"; customWidthText = "\(Int(size.width))"; customHeightText = "\(Int(size.height))"
+        }
+        if let bytes = config.targetSizeBytes { targetFraction = Double(bytes) / Double(max(1, targetSizeSliderReferenceBytes)) }
+        if let quality = config.imageQuality { webpQuality = quality }
+        if let bitrate = config.preferredAudioBitrateKbps { videoOutputAudioQuality = .closestPreset(for: bitrate) }
+        usesSinglePassVideoTargetEncode = config.usesSinglePassVideoTargetEncode
+        restoredMetadata = config.metadata
+        removeAllMetadata = config.metadata.stripAll
+    }
+
+    private var restoredMetadata: MetadataExportPolicy?
+
     func makeConfig() -> ConversionConfig {
         let mode: OutputOperationMode = isAutoTargetMode ? .autoTarget : .manual
-        return ConversionConfig(
+        var config = ConversionConfig(
             outputFormat: selectedFormat,
             targetDimensions: resolvedDimensions,
             targetFPS: selectedFPS,
@@ -815,6 +870,9 @@ final class OutputConfigViewModel {
             prefersRemuxWhenPossible: prefersRemuxWhenPossible,
             metadata: makeMetadataPolicy()
         )
+        config.document = documentSettings
+        config.imageEnhancement = imageEnhancement
+        return config
     }
 
     private func preferredAudioKbpsForExport() -> Int? {
@@ -961,7 +1019,7 @@ final class OutputConfigViewModel {
                 )
             }
             return minimumImageTargetBytes()
-        case .animatedImage:
+        case .animatedImage, .document, .data, .archive, .file:
             return input.sizeOnDisk
         }
     }

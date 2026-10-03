@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 enum CodecCapability {
     struct DecodeIssue: Hashable, Sendable {
@@ -32,6 +34,12 @@ enum CodecCapability {
             // WebM output includes Opus audio when the input has an audio track.
             guard FFmpegRuntimeInfo.hasEncoder("libopus") else { return nil }
             (encoder, muxer) = ("libvpx-vp9", "webm")
+        case .alac:
+            (encoder, muxer) = ("alac", "mp4")
+        case .aiff:
+            (encoder, muxer) = ("pcm_s16be", "aiff")
+        case .caf:
+            (encoder, muxer) = ("pcm_s16le", "caf")
         case .mp3:
             (encoder, muxer) = ("libmp3lame", "mp3")
         case .m4a:
@@ -58,6 +66,12 @@ enum CodecCapability {
             return "libwebp"
         case .tiff:
             return "tiff"
+        case .bmp, .ico, .jpeg2000, .avif, .tga, .psd, .exr, .icns:
+            guard let type = UTType(filenameExtension: format.fileExtension),
+                  (CGImageDestinationCopyTypeIdentifiers() as? [String])?.contains(type.identifier) == true else { return nil }
+            return format.rawValue
+        case .pdf, .docx, .odt, .rtf, .txt, .markdown, .html, .csv, .tsv, .json, .zip, .gzip:
+            return "native"
         case .gif:
             (encoder, muxer) = ("gif", "gif")
         }
@@ -88,7 +102,7 @@ enum CodecCapability {
             return decodeIssue(videoCodec: media.videoCodec) ?? decodeIssue(audioCodec: media.audioCodec)
         case .audio:
             return decodeIssue(audioCodec: media.audioCodec)
-        case .image, .animatedImage:
+        case .image, .animatedImage, .document, .data, .archive, .file:
             return nil
         }
     }

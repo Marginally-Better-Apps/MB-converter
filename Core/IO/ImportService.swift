@@ -329,7 +329,7 @@ struct ImportService {
                 preview.thumbnail = AudioWaveformThumbnail.image(
                     from: readableURL, maxPixelSize: maxPixelSize, isCancelled: isCancelled
                 ).map { UIImage(cgImage: $0) }
-            case .none:
+            case .some(.document), .some(.data), .some(.archive), .some(.file), .none:
                 return
             }
             guard !isCancelled() else { return }

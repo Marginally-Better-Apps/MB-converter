@@ -1,0 +1,18 @@
+appId: com.marginallybetter.converter
+---
+- launchApp:
+    clearState: true
+    arguments:
+      uitest-fixtures: true
+- assertVisible: "MB Converter"
+- tapOn: "Conversion history"
+- tapOn: "Resume draft Sample.png"
+- scrollUntilVisible:
+    element: "Metadata.*"
+- tapOn: "Metadata.*"
+- tapOn: "Remove All Metadata"
+- tapOn: "Location, No fields"
+- tapOn: "Choose on map"
+- assertVisible: "Search for a place or address"
+- tapOn: "Apply"
+- assertVisible: "Edit"

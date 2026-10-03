@@ -51,6 +51,7 @@ final class DiagnosticsLog: @unchecked Sendable {
         "Core/Compatibility/FormatMatrix.swift", "Core/Compatibility/FFmpegRuntimeInfo.swift",
         "Core/Inspection/FFmpegMediaProbe.swift", "Core/Inspection/MediaTagDiscovery.swift",
         "Core/Inspection/FFprobeVideoMetadata.swift", "Core/Inspection/MediaInspector.swift",
+        "Core/Documents/FileArchive.swift", "Core/Documents/DocumentConverter.swift", "Core/Documents/DataConverter.swift",
         "Core/Conversion/FFmpegCommandRunner.swift", "Core/Conversion/MediaPreviewRenderer.swift",
         "Features/OutputConfig/OutputConfigViewModel.swift",
         "Tests/PNGDimensionsTests.swift", "Tests/PNGViewModelTests.swift",

@@ -44,10 +44,7 @@ struct PopoverDropdown<Option: Identifiable>: View {
             .foregroundStyle(isEnabled ? Theme.tint : Theme.textMuted)
             .padding(.horizontal, 16)
             .frame(minHeight: 44)
-            .background(
-                isEnabled ? Theme.secondaryFill : Theme.disabledFill,
-                in: RoundedRectangle(cornerRadius: 10)
-            )
+            .converterGlass(cornerRadius: 10)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
@@ -75,7 +72,6 @@ struct PopoverDropdown<Option: Identifiable>: View {
             .scrollBounceBehavior(.basedOnSize)
             .frame(idealWidth: 280, maxWidth: 320, idealHeight: menuHeight, maxHeight: menuHeight)
             .presentationCompactAdaptation(.popover)
-            .presentationBackground(Theme.groupedSurface)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

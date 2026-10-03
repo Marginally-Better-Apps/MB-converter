@@ -1,0 +1,27 @@
+appId: com.marginallybetter.converter
+---
+- launchApp:
+    clearState: true
+    arguments:
+      uitest-fixtures: true
+- assertVisible: "MB Converter"
+- tapOn: "Conversion history"
+- assertVisible: "Drafts"
+- tapOn: "Resume draft Sample.pdf"
+- assertVisible: "Sample.pdf"
+- startRecording: documents-and-drafts
+- tapOn: "Output format"
+- tapOn: "Word"
+- assertVisible: "Editable text. Images and layout aren’t preserved."
+- tapOn: "Back to main page"
+- assertVisible: "Drafts"
+- stopApp
+- launchApp
+- tapOn: "Conversion history"
+- assertVisible: "Drafts"
+- tapOn: "Resume draft Sample.pdf"
+- assertVisible: "Word"
+- tapOn: "Convert"
+- assertVisible:
+    text: "Share"
+- stopRecording

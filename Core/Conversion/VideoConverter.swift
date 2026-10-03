@@ -29,7 +29,7 @@ final class VideoConverter: Converter {
             return try await audioConverter.convert(input: input, config: config, progress: progress, encodingStats: encodingStats)
         case .image:
             return try await extractFrame(input: input, config: config, progress: progress, encodingStats: encodingStats)
-        case .animatedImage:
+        case .animatedImage, .document, .data, .archive, .file:
             throw ConversionError.unsupportedConversion
         }
     }

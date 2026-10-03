@@ -4,6 +4,8 @@ import CoreGraphics
 import UniformTypeIdentifiers
 import libwebp
 import Accelerate
+import CoreImage
+import Vision
 
 #if canImport(MobileCoreServices)
 import MobileCoreServices
@@ -49,9 +51,10 @@ final class ImageConverter: Converter {
             throw ConversionError.unsupportedConversion
         }
 
-        let decoded = try await withReadableSource(at: input.url) { source in
+        let (decoded, decodedURL) = try await withReadableSource(at: input.url, knownDimensions: input.dimensions) { source in
             try decodeForConversion(source: source, input: input, config: config)
         }
+        defer { if let decodedURL { try? FileManager.default.removeItem(at: decodedURL) } }
         var workingImage = decoded.image
         let commandConfig = decoded.config
         let editingSourceDimensions = config.mediaRotation.applied(to: decoded.sourceDimensions)
@@ -70,6 +73,44 @@ final class ImageConverter: Converter {
            (target.width < CGFloat(workingImage.width) || target.height < CGFloat(workingImage.height)) {
             workingImage = try resizedImage(workingImage, to: target)
         }
+        if config.outputFormat == .ico {
+            let factor = min(1, 256.0 / Double(max(workingImage.width, workingImage.height)))
+            workingImage = try resizedImage(workingImage, to: CGSize(width: Double(workingImage.width) * factor, height: Double(workingImage.height) * factor))
+        }
+        if config.imageEnhancement.removeBackground {
+            guard [OutputFormat.png, .heic, .webpImage, .tiff].contains(config.outputFormat) else {
+                throw ConversionError.invalidInput("Choose PNG, HEIC, WebP or TIFF for transparency")
+            }
+            if #available(iOS 17, macOS 14, *) {
+                guard workingImage.width * workingImage.height <= ConversionResourceBudget.maximumRasterPixels else {
+                    throw ConversionError.invalidInput("Choose a smaller resolution before removing the background")
+                }
+                let handler = VNImageRequestHandler(cgImage: workingImage)
+                let request = VNGenerateForegroundInstanceMaskRequest()
+                try handler.perform([request]); try checkCancellation()
+                guard let observation = request.results?.first, !observation.allInstances.isEmpty else {
+                    throw ConversionError.invalidInput("No foreground subject found")
+                }
+                let pixels = try observation.generateMaskedImage(ofInstances: observation.allInstances, from: handler, croppedToInstancesExtent: false)
+                let image = CIImage(cvPixelBuffer: pixels)
+                guard let foreground = CIContext().createCGImage(image, from: image.extent) else {
+                    throw ConversionError.engineFailed("Couldn't remove background")
+                }
+                workingImage = foreground
+            } else { throw ConversionError.invalidInput("Background removal requires iOS 17") }
+        }
+        let upscale = config.imageEnhancement.scale
+        guard upscale.isFinite, [1.0, 2.0, 4.0].contains(upscale) else { throw ConversionError.invalidInput("Invalid upscale factor") }
+        if upscale > 1 {
+            let pixels = Double(workingImage.width) * Double(workingImage.height) * upscale * upscale
+            guard pixels <= Double(ConversionResourceBudget.maximumImagePixels), max(workingImage.width, workingImage.height) <= 16384 / Int(upscale) else {
+                throw ConversionError.invalidInput("Choose a smaller resolution before upscaling")
+            }
+            let original = CIImage(cgImage: workingImage)
+            let scaled = original.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: upscale, kCIInputAspectRatioKey: 1.0])
+            guard let enlarged = CIContext().createCGImage(scaled, from: scaled.extent) else { throw ConversionError.engineFailed("Couldn't upscale image") }
+            workingImage = enlarged
+        }
         progress(0.3)
         try checkCancellation()
 
@@ -80,7 +121,36 @@ final class ImageConverter: Converter {
 
         // 2. Encode (with target search if applicable)
         let data: Data
-        if utType == .webP {
+        if config.outputFormat == .ico || config.outputFormat == .icns {
+            let size = 256
+            guard let context = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                throw ConversionError.engineFailed("Couldn't create icon")
+            }
+            let scale = min(Double(size) / Double(workingImage.width), Double(size) / Double(workingImage.height))
+            let width = Double(workingImage.width) * scale, height = Double(workingImage.height) * scale
+            context.interpolationQuality = .high
+            context.draw(workingImage, in: CGRect(x: (Double(size) - width) / 2, y: (Double(size) - height) / 2, width: width, height: height))
+            guard let icon = context.makeImage() else { throw ConversionError.engineFailed("Couldn't create icon") }
+            workingImage = icon
+            let png = try encode(image: icon, utType: .png, quality: 1, metadataPolicy: commandConfig.metadata)
+            var bytes = Data()
+            if config.outputFormat == .ico {
+                bytes.append(contentsOf: [0,0,1,0,1,0,0,0,0,0,1,0,32,0])
+                var length = UInt32(png.count).littleEndian, offset = UInt32(22).littleEndian
+                withUnsafeBytes(of: &length) { bytes.append(contentsOf: $0) }
+                withUnsafeBytes(of: &offset) { bytes.append(contentsOf: $0) }
+                bytes.append(png)
+            } else {
+                bytes.append(Data("icns".utf8)); var length = UInt32(png.count + 16).bigEndian
+                withUnsafeBytes(of: &length) { bytes.append(contentsOf: $0) }
+                bytes.append(Data("ic08".utf8)); length = UInt32(png.count + 8).bigEndian
+                withUnsafeBytes(of: &length) { bytes.append(contentsOf: $0) }
+                bytes.append(png)
+            }
+            data = bytes
+            progress(0.95)
+        } else if utType == .webP {
             let quality = max(0, min(1, commandConfig.imageQuality ?? 0.82))
             data = try encodeWebPWithLibWebP(
                 image: workingImage, quality: quality, progress: progress, encodingStats: encodingStats
@@ -140,17 +210,20 @@ final class ImageConverter: Converter {
     }
 
     func measurePNGBaselineWithFallback(input: MediaFile, config: ConversionConfig) async throws -> PNGSizeBaseline {
-        let image = try await withReadableSource(at: input.url) { source in
-            guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        let (image, decodedURL) = try await withReadableSource(at: input.url, knownDimensions: input.dimensions) { source in
+            try validateFullDecode(source)
+            guard let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
                 throw ConversionError.invalidInput("Couldn't read image")
             }
             return image
         }
+        defer { if let decodedURL { try? FileManager.default.removeItem(at: decodedURL) } }
         return try measurePNGBaseline(image: image, config: config)
     }
 
     private func measurePNGBaseline(source: CGImageSource, config: ConversionConfig) throws -> PNGSizeBaseline {
-        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        try validateFullDecode(source)
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
             throw ConversionError.invalidInput("Couldn't read image")
         }
         return try measurePNGBaseline(image: image, config: config)
@@ -470,7 +543,10 @@ final class ImageConverter: Converter {
             let maxPixel = Int(ceil(max(target.width, target.height))) + (config.outputFormat == .png ? 1 : 0)
             workingImage = try decodeThumbnail(source: source, maxPixelSize: maxPixel)
         } else {
-            guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            guard sourceDimensions.width * sourceDimensions.height <= CGFloat(ConversionResourceBudget.maximumImagePixels) else {
+                throw ConversionError.invalidInput("Choose a smaller resolution for this image")
+            }
+            guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
                 throw ConversionError.invalidInput("Couldn't read image")
             }
             workingImage = cgImage
@@ -482,20 +558,49 @@ final class ImageConverter: Converter {
     /// Only the decode operation is retried; encoding failures retain their original error.
     /// The intermediary is full resolution and never replaces the source metadata policy.
     private func withReadableSource<T>(
-        at url: URL, decode: (CGImageSource) throws -> T
-    ) async throws -> T {
+        at url: URL, knownDimensions: CGSize?, decode: (CGImageSource) throws -> T
+    ) async throws -> (T, URL?) {
         try checkCancellation()
         if let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
-            do { return try decode(source) }
-            catch { try checkCancellation() }
+            do { return (try decode(source), nil) }
+            catch {
+                try checkCancellation()
+                // Retry decoder failures, preserving validation and memory-limit errors.
+                switch error {
+                case ConversionError.invalidInput(let message) where message == "Couldn't read image" || message == "Couldn't read image metadata": break
+                case ConversionError.engineFailed(let message) where message == "Image decode failed": break
+                default: throw error
+                }
+                if let size = try? sourceImageDimensions(from: source),
+                   size.width * size.height > CGFloat(ConversionResourceBudget.maximumImagePixels) {
+                    throw ConversionError.invalidInput("Choose a smaller resolution for this image")
+                }
+            }
+        }
+        if let size = knownDimensions,
+           size.width * size.height > CGFloat(ConversionResourceBudget.maximumImagePixels) {
+            throw ConversionError.invalidInput("This image needs too much memory to decode")
         }
         let decodedURL = try await MediaPreviewRenderer.renderFirstFrame(sourceURL: url, runner: decodeRunner)
-        defer { try? FileManager.default.removeItem(at: decodedURL) }
-        try checkCancellation()
-        guard let source = CGImageSourceCreateWithURL(decodedURL as CFURL, nil) else {
-            throw ConversionError.invalidInput("Couldn't read image")
+        do {
+            try checkCancellation()
+            guard let source = CGImageSourceCreateWithURL(decodedURL as CFURL, nil) else {
+                throw ConversionError.invalidInput("Couldn't read image")
+            }
+            // CGImage can retain a lazy file-backed provider even with immediate caching.
+            // The caller owns this file through the final encode/measurement.
+            return (try decode(source), decodedURL)
+        } catch {
+            try? FileManager.default.removeItem(at: decodedURL)
+            throw error
         }
-        return try decode(source)
+    }
+
+    private func validateFullDecode(_ source: CGImageSource) throws {
+        let size = try sourceImageDimensions(from: source)
+        guard size.width * size.height <= CGFloat(ConversionResourceBudget.maximumImagePixels) else {
+            throw ConversionError.invalidInput("Choose a smaller resolution for this image")
+        }
     }
 
     private func sourceImageDimensions(from source: CGImageSource) throws -> CGSize {
@@ -521,7 +626,11 @@ final class ImageConverter: Converter {
         // Some large HEICs cannot use ImageIO's thumbnail decode at aggressive
         // downscales, even though their full-resolution image is readable.
         try checkCancellation()
-        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        let fullSize = try sourceImageDimensions(from: source)
+        guard fullSize.width * fullSize.height <= CGFloat(ConversionResourceBudget.maximumImagePixels) else {
+            throw ConversionError.invalidInput("This image needs too much memory to decode")
+        }
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
             throw ConversionError.engineFailed("Image decode failed")
         }
         let scale = min(1, CGFloat(max(1, maxPixelSize)) / CGFloat(max(image.width, image.height)))
@@ -676,6 +785,8 @@ final class ImageConverter: Converter {
         case .heic: .heic
         case .webpImage: .webP
         case .tiff: .tiff
+        case .bmp, .ico, .jpeg2000, .avif, .tga, .psd, .exr, .icns:
+            UTType(filenameExtension: format.fileExtension) ?? .data
         default: .data
         }
     }

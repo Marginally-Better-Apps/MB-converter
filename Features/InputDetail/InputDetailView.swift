@@ -8,6 +8,10 @@ struct InputDetailView: View {
     @Environment(\.isRootSectionActive) private var isRootSectionActive
     @State private var viewModel: InputDetailViewModel
     @State private var outputConfigViewModel: OutputConfigViewModel
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var draftError: String?
+    @State private var completedConfig: ConversionConfig?
+    @State private var isLeaving = false
     @State private var isShowingCropEditor = false
     @State private var isShowingAudioEditor = false
     @State private var isDiscardConfirmationPresented = false
@@ -27,10 +31,12 @@ struct InputDetailView: View {
         let result: ConversionResult
     }
 
-    init(media: MediaFile, path: Binding<[AppRoute]>) {
+    init(media: MediaFile, path: Binding<[AppRoute]>, restoredConfig: ConversionConfig? = nil) {
         self._path = path
         self._viewModel = State(initialValue: InputDetailViewModel(media: media))
-        self._outputConfigViewModel = State(initialValue: OutputConfigViewModel(input: media))
+        let model = OutputConfigViewModel(input: media)
+        if let restoredConfig { model.restore(restoredConfig) }
+        self._outputConfigViewModel = State(initialValue: model)
     }
 
     var body: some View {
@@ -45,6 +51,15 @@ struct InputDetailView: View {
 
                     essentialOutputSection(viewModel: outputConfigViewModel)
 
+                    if outputConfigViewModel.input.category == .document {
+                        DocumentOptionsView(viewModel: outputConfigViewModel)
+                    }
+                    if outputConfigViewModel.input.category == .image, outputConfigViewModel.selectedFormat.category == .image {
+                        ImageEnhancementOptions(viewModel: outputConfigViewModel)
+                    }
+                    if [.docx, .odt].contains(outputConfigViewModel.selectedFormat) || (["docx", "odt"].contains(outputConfigViewModel.input.containerFormat) && outputConfigViewModel.selectedFormat == .pdf) {
+                        Text("Editable text. Images and layout aren’t preserved.").font(.caption).foregroundStyle(Theme.textMuted)
+                    }
                     editorLinks(viewModel: outputConfigViewModel)
                 }
                 .frame(maxWidth: 920)
@@ -92,12 +107,25 @@ struct InputDetailView: View {
                 try? FileManager.default.removeItem(at: previous.result.url)
             }
             cachedRun = CachedRun(config: config, result: result)
+            completedConfig = config
         }
         .onChange(of: outputConfigViewModel.cacheInvalidationConfig) { oldConfig, newConfig in
             guard let oldConfig, let newConfig else { return }
             guard oldConfig != newConfig else { return }
             invalidateCachedRun()
         }
+        .task(id: outputConfigViewModel.cacheInvalidationConfig) {
+            guard outputConfigViewModel.hasCompletedMetadataDiscovery else { return }
+            do { try await Task.sleep(for: .milliseconds(250)); try await checkpointDraft() }
+            catch is CancellationError { }
+            catch { draftError = error.localizedDescription }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { Task { try? await checkpointDraft() } }
+        }
+        .alert("Couldn't save draft", isPresented: Binding(get: { draftError != nil }, set: { if !$0 { draftError = nil } })) {
+            Button("OK", role: .cancel) { draftError = nil }
+        } message: { Text(draftError ?? "") }
         .onChange(of: isShowingCropEditor) { _, isOpen in
             if !isOpen {
                 outputConfigViewModel.refreshAfterCropChange()
@@ -181,16 +209,7 @@ struct InputDetailView: View {
             editorDestination(editor)
                 .tint(Theme.tint)
         }
-        .alert("Discard this conversion?", isPresented: $isDiscardConfirmationPresented) {
-            Button("Keep Editing", role: .cancel) {
-                Haptics.impact(.light)
-            }
-            Button("Discard", role: .destructive) {
-                discardConversion()
-            }
-        } message: {
-            Text("Your current settings and any cached result for this conversion will be discarded.")
-        }
+
     }
 
     @ViewBuilder
@@ -418,9 +437,6 @@ struct InputDetailView: View {
                         step: 0.01
                     )
                         .tint(Theme.tint)
-                    Text("Faster single-pass encoding; the final file size is estimated.")
-                        .font(.footnote)
-                        .foregroundStyle(Theme.textMuted)
                 }
             } else if let note = viewModel.losslessNote {
                 Divider()
@@ -454,14 +470,16 @@ struct InputDetailView: View {
                     .overlay(Theme.separator)
             }
 
-            Button {
-                selectedEditor = .metadata
-            } label: {
-                editorLinkLabel(
-                    title: "Metadata",
-                    systemImage: "info.circle",
-                    detail: metadataSummary(viewModel)
-                )
+            if [.image, .video, .audio, .animatedImage].contains(viewModel.input.category) {
+                Button {
+                    selectedEditor = .metadata
+                } label: {
+                    editorLinkLabel(
+                        title: "Metadata",
+                        systemImage: "info.circle",
+                        detail: metadataSummary(viewModel)
+                    )
+                }
             }
         }
         .buttonStyle(.plain)
@@ -579,12 +597,8 @@ struct InputDetailView: View {
         .tint(Theme.tint)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-                .overlay(Theme.separator)
-        }
-        .disabled(!viewModel.canConvert)
+        .converterGlass(cornerRadius: 22)
+        .disabled(!viewModel.canConvert || isLeaving)
         .accessibilityHint(viewModel.canConvert
             ? "Starts the conversion using the selected settings."
             : "Change an output setting to convert this file.")
@@ -598,7 +612,14 @@ struct InputDetailView: View {
            FileManager.default.fileExists(atPath: cachedRun.result.url.path) {
             path.append(.result(viewModel.input, config, cachedRun.result, fromHistory: false))
         } else {
-            path.append(.processing(viewModel.input, config))
+            isLeaving = true
+            Task {
+                defer { isLeaving = false }
+                do {
+                    try await ConversionDraftStore.shared.save(input: viewModel.input, config: config)
+                    path.append(.processing(viewModel.input, config))
+                } catch { draftError = error.localizedDescription }
+            }
         }
     }
 
@@ -609,30 +630,32 @@ struct InputDetailView: View {
         self.cachedRun = nil
     }
 
-    private func requestDiscardConfirmation() {
-        guard isRootSectionActive, selectedEditor == nil, !isDiscardConfirmationPresented else { return }
-        Haptics.impact(.light)
-        isDiscardConfirmationPresented = true
+    private func checkpointDraft() async throws {
+        let config = outputConfigViewModel.makeConfig()
+        guard config != completedConfig else { return }
+        try await ConversionDraftStore.shared.save(input: outputConfigViewModel.input, config: config)
     }
 
-    private func discardConversion() {
-        Haptics.warning()
-        invalidateCachedRun()
-        try? FileManager.default.removeItem(at: viewModel.media.url)
-        if let trimmedMediaURL {
-            try? FileManager.default.removeItem(at: trimmedMediaURL)
-            self.trimmedMediaURL = nil
-        }
-        if !path.isEmpty {
-            path.removeLast()
+    private func requestDiscardConfirmation() {
+        guard isRootSectionActive, selectedEditor == nil, !isLeaving else { return }
+        isLeaving = true
+        Task {
+            defer { isLeaving = false }
+            await outputConfigViewModel.loadDiscoveredMetadataIfNeeded()
+            do {
+                try await checkpointDraft()
+                Haptics.impact(.light)
+                if !path.isEmpty { path.removeLast() }
+            } catch { draftError = error.localizedDescription }
         }
     }
+
+    private func discardConversion() { requestDiscardConfirmation() }
 
     private static func isInputDetailRoute(for media: MediaFile) -> (AppRoute) -> Bool {
         { route in
-            if case .inputDetail(let routeMedia) = route {
-                return routeMedia.id == media.id
-            }
+            if case .inputDetail(let routeMedia) = route { return routeMedia.id == media.id }
+            if case .draft(let draft) = route { return draft.input.id == media.id }
             return false
         }
     }

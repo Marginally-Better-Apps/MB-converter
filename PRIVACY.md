@@ -1,18 +1,18 @@
 # MB Converter Privacy Policy
 
-**Last updated: September 14, 2026**
+**Last updated: October 3, 2026**
 
 This policy explains how MB Converter for iPhone and iPad handles information. “We” and “us” refer to the maintainers of MB Converter.
 
 ## Overview
 
-MB Converter converts media on your device. You do not need an account, and the app does not upload your media, conversion history, or its local error log to us automatically. The app includes no advertising or third-party analytics or tracking SDKs. We do not sell your personal information or use it for targeted advertising.
+MB Converter converts and compresses files, recognizes text, and processes images on your device. You do not need an account, and the app does not upload your media, conversion history, or its local error log to us automatically. The app includes no advertising or third-party analytics or tracking SDKs. We do not sell your personal information or use it for targeted advertising.
 
 Network downloads, sharing, Apple services, and information you send us for support are explained below.
 
 ## Media and permissions
 
-The app processes photos, videos, audio, and associated metadata that you choose to import from Photos, Files, a direct link, or the clipboard. It uses that information to preview, inspect, edit, convert, and export your files.
+The app processes documents, tabular data, photos, videos, audio, and associated metadata that you choose to import from Photos, Files, a direct link, or the clipboard. It uses that information to preview, inspect, edit, convert, and export your files.
 
 - **Photos and Files:** the app uses system pickers to access the items you select and makes local working copies. It does not scan your entire photo library. An item stored with iCloud or another file provider may need to be downloaded by that provider.
 - **Clipboard:** the app checks whether supported media types are available to enable its import control. It reads the media content when you choose to import it. Copying a result or diagnostic report places that content on the system clipboard, where it can be pasted into other apps and may be available on your other devices through Apple's Universal Clipboard.
@@ -24,6 +24,8 @@ Media metadata can contain personal information, such as location coordinates, d
 
 When you import a direct link, your device connects to the host and any hosts it redirects to. Those services receive information needed for the request, such as your IP address, the requested URL, and normal network request details. Information included in the link is also sent to the relevant host. Downloads are not routed through a media-conversion server operated by us.
 
+Location editing uses Apple Maps through MapKit. Map tiles, place searches, and selected coordinates may be handled by Apple under its service policies. This does not send the imported file, its contents, or conversion jobs to Apple. You can set a pin without granting device-location permission.
+
 Opening links to GitHub or other websites also connects you to those services. Their privacy policies govern their handling of your information.
 
 ## Local storage, history, and deletion
@@ -31,11 +33,12 @@ Opening links to GitHub or other websites also connects you to those services. T
 The app stores appearance and history preferences on your device.
 
 - **Working files:** imported copies and conversion working files are stored temporarily and cleaned when the app starts. iOS may also remove temporary files. Copies prepared for sharing or the clipboard can remain in temporary storage until it is cleaned.
+- **Drafts:** unfinished conversions automatically keep a local source copy and the current settings in Application Support, separately from temporary files and the saved-history preference. Draft storage is excluded from device backup. Drafts survive leaving the editor and app relaunch, and are removed after successful conversion or when you swipe to delete them in History.
 - **Session history:** saved history is off by default. Session-only history is cleared when you quit and reopen the app.
 - **Saved history:** when enabled, the app keeps converted files, original filenames and media details, conversion settings, and result information across launches. Enabling it also saves the current session's available history. You can delete individual entries, clear History, or turn saved history off and confirm deletion in Settings.
 - **Local diagnostics:** the app records launch events and errors to help troubleshoot problems. These records persist across launches, with older entries removed as the log grows to approximately 5 MB. Clearing conversion history does not clear diagnostics. The current app has no separate control to clear the error log.
 
-Deleting the app removes its local app data, including saved history, preferences, and diagnostics. Copies you saved or shared elsewhere, clipboard content, and existing backups must be managed separately. Offloading an app preserves its documents and data.
+Deleting the app removes its local app data, including drafts, saved history, preferences, and diagnostics. Copies you saved or shared elsewhere, clipboard content, and existing backups must be managed separately. Offloading an app preserves its documents and data.
 
 App data may be included in iCloud or computer backups depending on your device settings. We do not receive or control those backups. See [Apple's explanation of iCloud Backup](https://support.apple.com/en-us/108770).
 

@@ -47,12 +47,19 @@ struct HomeView: View {
                         homeHeader
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        homeIntroduction
-                            .padding(.top, 34)
-
                         VStack(spacing: 14) {
                             primaryImportControls
                             secondaryImportControls
+                            if let draft = ConversionDraftStore.shared.entries.first {
+                                Button { path.append(.draft(draft)) } label: {
+                                    HStack {
+                                        Image(systemName: "square.and.pencil")
+                                        Text("Resume \(draft.input.originalFilename)").lineLimit(1)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                    }.padding(16).converterGlass(cornerRadius: 18)
+                                }.buttonStyle(.plain)
+                            }
 
                             if isImporting {
                                 importStatusCard
@@ -95,7 +102,7 @@ struct HomeView: View {
         .fileImporter(
             isPresented: $isFileImporterPresented,
             allowedContentTypes: Self.allowedContentTypes,
-            allowsMultipleSelection: false
+            allowsMultipleSelection: true
         ) { result in
             handleFileImporter(result)
         }
@@ -215,7 +222,7 @@ struct HomeView: View {
             } label: {
                 HomeImportSourceRow(
                     title: "Files",
-                    subtitle: "Browse your device or cloud",
+                    subtitle: "",
                     systemImage: "folder"
                 )
             }
@@ -236,7 +243,7 @@ struct HomeView: View {
             } label: {
                 HomeImportSourceRow(
                     title: "From Link",
-                    subtitle: "Download a media file",
+                    subtitle: "",
                     systemImage: "link"
                 )
             }
@@ -269,21 +276,8 @@ struct HomeView: View {
             )
         }
         .buttonStyle(HomeImportCardButtonStyle())
-        .background(Theme.Home.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .strokeBorder(
-                    Theme.Home.controlBorder,
-                    lineWidth: 1.5
-                )
-        }
-        .shadow(
-            color: colorScheme == .dark ? .black.opacity(0.22) : Theme.primary.opacity(0.09),
-            radius: 22,
-            x: 0,
-            y: 12
-        )
+        .converterGlass(cornerRadius: 26)
+
     }
 
     private var homeBackground: some View {
@@ -549,8 +543,15 @@ struct HomeView: View {
     private func handleFileImporter(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first else { return }
-            Task { await importFile(url) }
+            guard !urls.isEmpty else { return }
+            if urls.count == 1 { Task { await importFile(urls[0]) } }
+            else {
+                Task {
+                    var files: [MediaFile] = []
+                    for url in urls { if let file = await viewModel.importFromFiles(url) { files.append(file) } }
+                    if !files.isEmpty { path.append(.batch(files)) }
+                }
+            }
         case .failure(let error):
             viewModel.errorMessage = error.localizedDescription
             DiagnosticsLog.shared.record(error: error, context: "Open Files picker")
@@ -766,18 +767,7 @@ struct HomeView: View {
         )
     }
 
-    private static var allowedContentTypes: [UTType] {
-        [
-            .image,
-            .movie,
-            .audio,
-            UTType(filenameExtension: "webm") ?? .data,
-            UTType(filenameExtension: "mkv") ?? .data,
-            UTType(filenameExtension: "flac") ?? .data,
-            UTType(filenameExtension: "opus") ?? .data,
-            UTType(filenameExtension: "ogg") ?? .data
-        ]
-    }
+    private static var allowedContentTypes: [UTType] { [.item] }
 }
 
 private enum ThemeSelection: String, CaseIterable, Identifiable {
@@ -846,7 +836,7 @@ private struct HomeImportSourceCard: View {
                     Spacer(minLength: 18)
                     cardCopy
                 }
-                .frame(maxWidth: .infinity, minHeight: 136, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
             }
         }
         .padding(20)
@@ -855,30 +845,7 @@ private struct HomeImportSourceCard: View {
             minHeight: dynamicTypeSize.isAccessibilitySize ? 100 : nil,
             alignment: .leading
         )
-        .background {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(isEnabled ? Theme.Home.surface : Theme.disabledSurface)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .strokeBorder(
-                    isEnabled ? Theme.Home.controlBorder : Theme.Home.separator,
-                    lineWidth: 1.5
-                )
-        }
-        .shadow(
-            color: (colorScheme == .dark ? Color.black : Theme.primary)
-                .opacity(isEnabled ? 0.16 : 0.02),
-            radius: 24,
-            x: 0,
-            y: 16
-        )
-        .shadow(
-            color: Theme.primary.opacity(isEnabled ? 0.06 : 0),
-            radius: 4,
-            x: 0,
-            y: 3
-        )
+        .converterGlass(cornerRadius: 26)
         .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
 
@@ -902,9 +869,6 @@ private struct HomeImportSourceCard: View {
                 .font(.system(.title3, design: .default, weight: .semibold))
                 .foregroundStyle(isEnabled ? Theme.text : Theme.textMuted)
 
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(Theme.textMuted)
         }
         .fixedSize(horizontal: false, vertical: true)
         .multilineTextAlignment(.leading)
@@ -981,10 +945,12 @@ private struct HomeImportSourceRow: View {
                 .font(.body.weight(.semibold))
                 .foregroundStyle(isEnabled ? Theme.text : Theme.textMuted)
 
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(Theme.textMuted)
-                .lineLimit(1)
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textMuted)
+                    .lineLimit(1)
+            }
         }
         .fixedSize(horizontal: false, vertical: true)
     }

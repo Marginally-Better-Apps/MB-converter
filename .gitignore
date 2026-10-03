@@ -62,3 +62,7 @@ fastlane/test_output/
 *.provisionprofile
 
 # Shared Xcode schemes, package lockfiles, app assets, and release docs belong in Git.
+
+# Private Gala artifacts
+.gala/
+artifacts/

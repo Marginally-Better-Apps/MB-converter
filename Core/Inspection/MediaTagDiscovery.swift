@@ -25,6 +25,7 @@ struct DiscoveredMetadataTag: Identifiable, Hashable, Sendable {
 enum MediaTagDiscovery {
     static func discover(for media: MediaFile) async -> [DiscoveredMetadataTag] {
         switch media.category {
+        case .document, .data, .archive, .file: return []
         case .image:
             return await Task.detached(priority: .userInitiated) {
                 discoverImageTags(at: media.url)

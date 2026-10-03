@@ -3,6 +3,8 @@ import AVKit
 import ImageIO
 import SwiftUI
 import UIKit
+import QuickLook
+import PDFKit
 
 struct MediaPreview: View {
     let url: URL
@@ -26,6 +28,8 @@ struct MediaPreview: View {
     /// Optional fixed height for previews that have more room in their parent card.
     var preferredHeight: CGFloat? = nil
 
+    @State private var documentURL: URL?
+    @State private var documentThumbnail: UIImage?
     @State private var isShowingFullImage = false
     @State private var isShowingFullVideo = false
     @State private var isShowingFullAudio = false
@@ -41,6 +45,26 @@ struct MediaPreview: View {
                 videoCardPreview
             case .audio:
                 audioPlayerPreview
+            case .document, .data, .archive, .file:
+                Button {
+                    if isInteractive { documentURL = url }
+                } label: {
+                    Group {
+                        if let documentThumbnail { Image(uiImage: documentThumbnail).resizable().scaledToFit() }
+                        else { Image(systemName: category == .archive ? "archivebox" : category == .data ? "tablecells" : "doc.text").font(.system(size: 56, weight: .light)).foregroundStyle(Theme.tint) }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 100)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Preview file")
+                .quickLookPreview($documentURL)
+                .task(id: url) {
+                    guard url.pathExtension.lowercased() == "pdf" else { return }
+                    let sourceURL = url
+                    documentThumbnail = await Task.detached(priority: .utility) {
+                        PDFDocument(url: sourceURL)?.page(at: 0)?.thumbnail(of: CGSize(width: 512, height: 512), for: .mediaBox)
+                    }.value
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -538,7 +562,7 @@ struct CropEditorView: View {
                 previewImage = image
             case .video:
                 await updateVideoPreviewFrames()
-            case .audio:
+            case .audio, .document, .data, .archive, .file:
                 previewImage = nil
             }
         }

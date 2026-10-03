@@ -11,7 +11,7 @@ enum FormatMatrix {
         "mxf", "ogv", "vob", "asf", "wmv", "wtv", "swf"
     ]
     static let supportedAudioFilenameExtensions: [String] = [
-        "mp3", "m4a", "wav", "aac", "flac", "ogg", "opus", "alac"
+        "mp3", "m4a", "wav", "aac", "flac", "ogg", "opus", "alac", "aiff", "aif", "caf", "wma", "ac3", "aifc", "amr", "ape", "au", "mka", "m4b", "oga", "wv"
     ]
 
     private static let supportedVideoFilenameExtensionSet = Set(supportedVideoFilenameExtensions)
@@ -24,13 +24,14 @@ enum FormatMatrix {
             [
                 // Same-category
                 .mp4_h264, .mp4_hevc, .mov, .webm,
+                .jpg, .png,
                 // Audio extraction
-                .m4a, .mp3, .wav, .aac, .flac, .ogg, .opus
+                .m4a, .mp3, .wav, .aac, .flac, .ogg, .opus, .alac, .aiff, .caf
             ]
         case .audio:
-            [.m4a, .mp3, .wav, .aac, .flac, .ogg, .opus]
+            [.m4a, .mp3, .wav, .aac, .flac, .ogg, .opus, .alac, .aiff, .caf]
         case .image:
-            [.jpg, .png, .heic, .webpImage, .tiff]
+            [.jpg, .png, .heic, .webpImage, .avif, .pdf, .txt, .tiff, .bmp, .ico, .jpeg2000, .tga, .psd, .exr, .icns]
         case .animatedImage:
             [
                 // Animated to video
@@ -38,14 +39,23 @@ enum FormatMatrix {
                 // First-frame extraction
                 .jpg, .png, .heic, .tiff
             ]
+        case .document:
+            [.pdf, .docx, .txt, .rtf, .markdown, .html, .odt, .jpg, .png]
+        case .data:
+            [.csv, .json, .tsv, .pdf, .txt]
+        case .archive, .file:
+            []
         }
-        return formats.filter { CodecCapability.canEncode($0) }
+        return (formats + [.zip, .gzip]).filter { CodecCapability.canEncode($0) }
     }
 
     /// Detects the input category from a file URL.
-    /// Returns nil if the file type is unknown or unsupported.
+    /// Unknown types remain importable for ZIP/GZIP compression.
     static func detectCategory(from url: URL) -> MediaCategory? {
         let ext = url.pathExtension.lowercased()
+        if ["pdf", "docx", "odt", "rtf", "txt", "md", "markdown", "html", "htm"].contains(ext) { return .document }
+        if ["csv", "tsv", "json"].contains(ext) { return .data }
+        if ["zip", "gz", "gzip"].contains(ext) { return .archive }
         // Motion JPEG (extension-only container) is video for conversion; do not treat as a still image.
         if supportedVideoFilenameExtensionSet.contains(ext) {
             return .video
@@ -71,7 +81,7 @@ enum FormatMatrix {
             .audio
         case "webp", "avif": .image
         case "gif": .animatedImage
-        default: nil
+        default: .file
         }
     }
 
@@ -82,6 +92,9 @@ enum FormatMatrix {
         case .audio: .m4a
         case .image: .jpg
         case .animatedImage: .mp4_h264
+        case .document: .pdf
+        case .data: .csv
+        case .archive, .file: .zip
         }
     }
 }

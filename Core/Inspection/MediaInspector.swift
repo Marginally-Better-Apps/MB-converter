@@ -26,6 +26,12 @@ enum MediaInspector {
             return try inspectAnimatedImage(url: url, filename: filename, size: size, ext: ext)
         case .video:
             return try await inspectVideo(url: url, filename: filename, size: size, ext: ext)
+        case .document:
+            try await Task.detached(priority: .userInitiated) { try DocumentConverter.validate(url) }.value
+            return MediaFile(url: url, originalFilename: filename, category: category, sizeOnDisk: size, containerFormat: ext)
+        case .data, .archive, .file:
+            guard size > 0 else { throw ConversionError.invalidInput("Empty file") }
+            return MediaFile(url: url, originalFilename: filename, category: category, sizeOnDisk: size, containerFormat: ext)
         case .audio:
             return try await inspectAudio(url: url, filename: filename, size: size, ext: ext)
         }

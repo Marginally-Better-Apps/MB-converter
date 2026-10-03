@@ -12,8 +12,15 @@ struct FormatPicker: View {
             options: orderedFormats,
             optionTitle: { $0.displayName },
             optionSection: { format in
-                guard inputCategory == .video else { return nil }
-                return format.category == .video ? "Video Output" : "Extract audio"
+                if format.category == .archive { return "Compress file" }
+                if inputCategory == .video { return format.category == .video ? "Video" : format.category == .audio ? "Extract audio" : "Frame" }
+                if inputCategory == .document { return format.category == .image ? "Page images" : "Documents" }
+                if inputCategory == .image {
+                    if [.bmp, .ico, .jpeg2000, .tga, .psd, .exr, .icns].contains(format) { return "More formats" }
+                    if format.category == .document { return "Document" }
+                    return "Images"
+                }
+                return nil
             },
             isSelected: { $0 == selection },
             onSelect: { selection = $0 }
@@ -24,5 +31,7 @@ struct FormatPicker: View {
         guard inputCategory == .video else { return formats }
         return formats.filter { $0.category == .video }
             + formats.filter { $0.category == .audio }
+            + formats.filter { $0.category == .image }
+            + formats.filter { $0.category == .archive }
     }
 }

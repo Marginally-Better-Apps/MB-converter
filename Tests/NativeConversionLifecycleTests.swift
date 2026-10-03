@@ -7,6 +7,18 @@ import XCTest
 
 @MainActor
 final class NativeConversionLifecycleTests: XCTestCase {
+    func testVideoFirstFrameConvertsThroughOfferedRoute() async throws {
+        let source = try await makeVideo()
+        defer { try? FileManager.default.removeItem(at: source) }
+        let input = try await MediaInspector.inspect(url: source)
+        let config = ConversionConfig(outputFormat: .png)
+        let engine = try ConversionRouter.converter(for: input, config: config)
+        let result = try await engine.convert(input: input, config: config, progress: { _ in }, encodingStats: nil)
+        defer { try? FileManager.default.removeItem(at: result.url) }
+        XCTAssertNotNil(UIImage(contentsOfFile: result.url.path))
+        XCTAssertEqual(result.dimensions, input.dimensions)
+    }
+
     func testInlinePlaybackResumesAtPausedPositionWithoutWaitingForAnotherSeek() async throws {
         let source = try await makeVideo()
         defer { try? FileManager.default.removeItem(at: source) }

@@ -250,6 +250,7 @@ final class ProcessingViewModel {
                 }
                 // Recording belongs to execution, not to a navigation callback.
                 recordResult(input, config, output)
+                ConversionDraftStore.shared.remove(id: input.id)
                 progress = 1
                 progressIsDeterminate = true
                 passLabel = "Complete"

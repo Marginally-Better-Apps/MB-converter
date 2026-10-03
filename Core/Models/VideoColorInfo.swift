@@ -1,7 +1,7 @@
 import Foundation
 
 /// Optional ffprobe-compatible color information. Missing fields remain unknown.
-struct VideoColorInfo: Decodable, Hashable, Sendable {
+struct VideoColorInfo: Codable, Hashable, Sendable {
     var pixelFormat: String?
     var bitDepth: Int?
     var primaries: String?

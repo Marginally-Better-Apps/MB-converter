@@ -15,7 +15,17 @@ enum FFmpegRuntimeInfo {
 @main
 struct CodecCapabilityTests {
     static func main() {
-        check(FormatMatrix.allowedOutputs(for: .audio).isEmpty, "Unlinked runtime must not offer audio encoders")
+        check(FormatMatrix.detectCategory(from: URL(fileURLWithPath: "/tmp/report.pdf"))?.rawValue == "document", "PDF must be importable as a document")
+        for ext in ["docx", "odt", "rtf", "txt", "md", "html"] {
+            check(FormatMatrix.detectCategory(from: URL(fileURLWithPath: "/tmp/report.\(ext)"))?.rawValue == "document", "\(ext) must be importable")
+        }
+        for ext in ["csv", "tsv", "json"] {
+            check(FormatMatrix.detectCategory(from: URL(fileURLWithPath: "/tmp/data.\(ext)"))?.rawValue == "data", "\(ext) must be importable")
+        }
+        let images = FormatMatrix.allowedOutputs(for: .image).map(\.rawValue)
+        check(images.first == "jpg" && images.prefix(4).contains("png"), "Common image formats stay first")
+        check(images.contains("bmp") && images.contains("ico"), "Legacy image export must be available")
+        check(FormatMatrix.allowedOutputs(for: .audio).allSatisfy { $0.category.rawValue == "archive" }, "Unlinked runtime must not offer audio encoders")
         check(FormatMatrix.allowedOutputs(for: .image).contains(.webpImage), "Separate image libraries must remain usable")
 
         let audioRequirements: [(OutputFormat, String, String)] = [

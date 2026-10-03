@@ -74,12 +74,13 @@ final class HomeViewModel {
     }
 
     func importFromFiles(_ url: URL) async -> MediaFile? {
-        await importFile(
+        let media = await importFile(
             context: "Import from Files",
             metadata: ["Selected file": url.lastPathComponent]
         ) {
             try await importService.importFromFiles(at: url)
         }
+        return media?.withOriginalFilename(url.lastPathComponent)
     }
 
     func importFromPasteboard() async -> MediaFile? {
