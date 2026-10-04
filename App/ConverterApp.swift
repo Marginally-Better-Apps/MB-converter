@@ -29,7 +29,6 @@ enum AppRoute: Hashable {
     case inputDetail(MediaFile)
     case processing(MediaFile, ConversionConfig)
     case result(MediaFile, ConversionConfig, ConversionResult, fromHistory: Bool)
-    case history
 }
 
 enum RootSection: String, CaseIterable, Identifiable, Hashable {
@@ -64,6 +63,8 @@ extension EnvironmentValues {
     }
 }
 
+/// Convert and History are tabs, like Apple Music's sections. On iPad the
+/// tab bar can expand into a sidebar.
 struct ConverterRootView: View {
     @State private var session: ProcessingViewModel
 
@@ -71,82 +72,100 @@ struct ConverterRootView: View {
         _session = State(initialValue: session ?? ProcessingViewModel())
     }
 
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var convertPath: [AppRoute] = []
     @State private var historyPath: [AppRoute] = []
-    @State private var selectedSection: RootSection? = .convert
-    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
-    @State private var preferredCompactColumn: NavigationSplitViewColumn = .detail
+    @State private var selectedSection: RootSection = .convert
     @AppStorage("appColorMode") private var appColorModeRawValue = AppColorMode.system.rawValue
 
     var body: some View {
-        Group {
-            if horizontalSizeClass == .regular {
-                splitNavigation
-            } else {
-                // A compact layout has no sidebar to reveal when Done pops to root.
-                adaptiveDetail
+        sections
+            .tint(Theme.tint)
+            .background {
+                AppAppearance(mode: AppColorMode(rawValue: appColorModeRawValue) ?? .system)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .conversionWarningOpened)) { notification in
+                guard let id = notification.object as? UUID, id == session.attemptID,
+                      let input = session.input, let config = session.config else { return }
+                selectedSection = .convert
+                // Usually the existing screen is still on the stack. A notification
+                // can also restore it after a navigation/layout reconstruction.
+                if !isConversionRunning {
+                    if let result = session.result {
+                        convertPath = [.inputDetail(input), .result(input, config, result, fromHistory: false)]
+                    } else {
+                        convertPath = [.inputDetail(input), .processing(input, config)]
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var sections: some View {
+        if #available(iOS 18.0, *) {
+            TabView(selection: sectionSelection) {
+                Tab(RootSection.convert.title, systemImage: RootSection.convert.systemImage, value: RootSection.convert) {
+                    convertStack
+                }
+                Tab(RootSection.history.title, systemImage: RootSection.history.systemImage, value: RootSection.history) {
+                    historyStack
+                }
+            }
+            .tabViewStyle(.sidebarAdaptable)
+            .minimizesTabBarOnScroll()
+        } else {
+            TabView(selection: sectionSelection) {
+                convertStack
+                    .tabItem { Label(RootSection.convert.title, systemImage: RootSection.convert.systemImage) }
+                    .tag(RootSection.convert)
+                historyStack
+                    .tabItem { Label(RootSection.history.title, systemImage: RootSection.history.systemImage) }
+                    .tag(RootSection.history)
             }
         }
-        .tint(Theme.tint)
-        .preferredColorScheme(AppColorMode(rawValue: appColorModeRawValue)?.colorScheme)
-        .onAppear {
-            adaptNavigation(to: horizontalSizeClass)
-        }
-        .onChange(of: horizontalSizeClass) { _, newValue in
-            adaptNavigation(to: newValue)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .conversionWarningOpened)) { notification in
-            guard let id = notification.object as? UUID, id == session.attemptID,
-                  let input = session.input, let config = session.config else { return }
-            selectedSection = .convert
-            preferredCompactColumn = .detail
-            // Usually the existing screen is still on the stack. A notification
-            // can also restore it after a navigation/layout reconstruction.
-            if !convertPath.contains(where: { if case .processing = $0 { return true }; return false }) {
-                if let result = session.result {
-                    convertPath = [.inputDetail(input), .result(input, config, result, fromHistory: false)]
-                } else {
-                    convertPath = [.inputDetail(input), .processing(input, config)]
+    }
+
+    /// History stays out of reach while a conversion owns the Convert tab;
+    /// finishing a saved result there returns to a fresh Convert screen.
+    private var sectionSelection: Binding<RootSection> {
+        Binding(
+            get: { selectedSection },
+            set: { section in
+                guard section != selectedSection else { return }
+                guard section != .history || !isConversionRunning else {
+                    Haptics.warning()
+                    return
+                }
+                if section == .history {
+                    ConversionHistoryStore.shared.refreshForCurrentSettings()
+                }
+                selectedSection = section
+            }
+        )
+    }
+
+    private var convertStack: some View {
+        NavigationStack(path: $convertPath) {
+            HomeView(path: $convertPath, onShowHistory: {
+                sectionSelection.wrappedValue = .history
+            })
+            .navigationDestination(for: AppRoute.self) { route in
+                destination(for: route, path: $convertPath) {
+                    showConvertRoot()
                 }
             }
         }
     }
 
-    private var splitNavigation: some View {
-        NavigationSplitView(
-            columnVisibility: $columnVisibility,
-            preferredCompactColumn: $preferredCompactColumn
-        ) {
-            List(RootSection.allCases, selection: $selectedSection) { section in
-                Group {
-                    if dynamicTypeSize.isAccessibilitySize {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Image(systemName: section.systemImage)
-                            Text(section.title)
-                                .lineLimit(1)
-                        }
-                        .padding(.vertical, 4)
-                    } else {
-                        Label(section.title, systemImage: section.systemImage)
-                            .lineLimit(1)
+    private var historyStack: some View {
+        NavigationStack(path: $historyPath) {
+            ConversionHistoryListView(path: $historyPath)
+                .navigationDestination(for: AppRoute.self) { route in
+                    destination(for: route, path: $historyPath) {
+                        showConvertRoot()
                     }
                 }
-                .tag(section)
-                .disabled(section == .history && isConversionRunning)
-            }
-            .navigationTitle("MB Converter")
-            .navigationSplitViewColumnWidth(
-                min: dynamicTypeSize.isAccessibilitySize ? 260 : 200,
-                ideal: dynamicTypeSize.isAccessibilitySize ? 300 : 240,
-                max: dynamicTypeSize.isAccessibilitySize ? 360 : 300
-            )
-            .tint(Theme.tint)
-            .scrollContentBackground(.hidden)
-            .background(Theme.groupedBackground)
-        } detail: {
-            adaptiveDetail
         }
     }
 
@@ -157,81 +176,12 @@ struct ConverterRootView: View {
         }
     }
 
-    private var adaptiveDetail: some View {
-        ZStack {
-            NavigationStack(path: $convertPath) {
-                HomeView(
-                    path: $convertPath,
-                    constrainedWidth: horizontalSizeClass != .regular,
-                    showsHistoryToolbar: horizontalSizeClass != .regular,
-                    showsContentTitle: true
-                )
-                .navigationDestination(for: AppRoute.self) { route in
-                    destination(for: route, path: $convertPath) {
-                        showConvertRoot()
-                    }
-                }
-            }
-            .environment(\.isRootSectionActive, selectedSection != .history)
-            .opacity(selectedSection == .history ? 0 : 1)
-            .allowsHitTesting(selectedSection != .history)
-            .accessibilityHidden(selectedSection == .history)
-            .zIndex(selectedSection == .history ? 0 : 1)
-
-            // Compact layouts push History onto convertPath. Keeping a second,
-            // invisible stack here lets it compete for the same navigation bar.
-            if horizontalSizeClass == .regular {
-                NavigationStack(path: $historyPath) {
-                    ConversionHistoryListView(path: $historyPath)
-                        .navigationDestination(for: AppRoute.self) { route in
-                            destination(for: route, path: $historyPath) {
-                                showConvertRoot()
-                            }
-                        }
-                }
-                .environment(\.isRootSectionActive, selectedSection == .history)
-                .opacity(selectedSection == .history ? 1 : 0)
-                .allowsHitTesting(selectedSection == .history)
-                .accessibilityHidden(selectedSection != .history)
-                .zIndex(selectedSection == .history ? 1 : 0)
-            }
-        }
-        .navigationBarBackButtonHidden(horizontalSizeClass != .regular)
-    }
-
-    private func adaptNavigation(to sizeClass: UserInterfaceSizeClass?) {
-        preferredCompactColumn = .detail
-
-        if sizeClass == .regular {
-            if let historyIndex = convertPath.firstIndex(where: Self.isHistoryRoute) {
-                historyPath = Array(convertPath.dropFirst(historyIndex + 1))
-                convertPath.removeSubrange(historyIndex...)
-                selectedSection = .history
-            }
-            columnVisibility = .all
-        } else {
-            if selectedSection == .history {
-                let nestedHistoryPath = historyPath
-                historyPath.removeAll()
-                convertPath.append(.history)
-                convertPath.append(contentsOf: nestedHistoryPath)
-                selectedSection = .convert
-            }
-            columnVisibility = .detailOnly
-        }
-    }
 
     private func showConvertRoot() {
         session.dismissAttempt()
         convertPath.removeAll()
         historyPath.removeAll()
         selectedSection = .convert
-        preferredCompactColumn = .detail
-    }
-
-    private static func isHistoryRoute(_ route: AppRoute) -> Bool {
-        if case .history = route { return true }
-        return false
     }
 
     @ViewBuilder
@@ -240,23 +190,25 @@ struct ConverterRootView: View {
         path: Binding<[AppRoute]>,
         onConvertAnother: @escaping () -> Void
     ) -> some View {
-        switch route {
-        case .inputDetail(let media):
-            InputDetailView(media: media, path: path)
-        case .processing(let media, let config):
-            ProcessingView(input: media, config: config, path: path, session: session)
-        case .result(let media, let config, let result, let fromHistory):
-            ResultView(
-                input: media,
-                config: config,
-                result: result,
-                fromHistory: fromHistory,
-                path: path,
-                onConvertAnother: onConvertAnother
-            )
-        case .history:
-            ConversionHistoryListView(path: path)
+        Group {
+            switch route {
+            case .inputDetail(let media):
+                InputDetailView(media: media, path: path)
+            case .processing(let media, let config):
+                ProcessingView(input: media, config: config, path: path, session: session)
+            case .result(let media, let config, let result, let fromHistory):
+                ResultView(
+                    input: media,
+                    config: config,
+                    result: result,
+                    fromHistory: fromHistory,
+                    path: path,
+                    onConvertAnother: onConvertAnother
+                )
+            }
         }
+        // Each step of a conversion is a focused task with its own bottom actions.
+        .toolbar(.hidden, for: .tabBar)
     }
 }
 

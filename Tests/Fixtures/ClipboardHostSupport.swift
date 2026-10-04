@@ -65,7 +65,11 @@ final class UIGraphicsImageRenderer {
 enum MediaCategory: String, Sendable { case image, animatedImage, audio, video }
 enum ConversionError: Error { case engineFailed(String), cancelled }
 enum OutputFormat { case mp4_h264, mp4_hevc, mov, webm, m4a, mp3, wav, aac, flac, ogg, opus, jpg, png, heic, webpImage, tiff }
-struct MediaFile { let url: URL }
+struct MediaFile {
+    let url: URL
+    var category: MediaCategory = .image
+    func attachingLivePhoto(movieURL: URL) -> MediaFile { self }
+}
 enum MediaInspector {
     static func inspect(url: URL) async throws -> MediaFile {
         guard UIImage(data: try Data(contentsOf: url)) != nil else { throw ImportError.unsupportedType }

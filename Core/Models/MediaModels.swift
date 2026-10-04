@@ -269,6 +269,11 @@ private extension String {
 
 // MARK: - Media File (Input)
 
+/// The movie recorded with a Live Photo, imported beside its still image.
+struct LivePhotoAttachment: Hashable, Sendable {
+    let movieURL: URL
+}
+
 struct MediaFile: Identifiable, Hashable {
     let id: UUID
     let url: URL
@@ -285,6 +290,8 @@ struct MediaFile: Identifiable, Hashable {
     let videoCodec: String?
     let audioCodec: String?
     let containerFormat: String     // file extension lowercased
+    /// Set on Live Photo stills; the still stays the primary input.
+    let livePhoto: LivePhotoAttachment?
 
     init(
         id: UUID = UUID(),
@@ -300,7 +307,8 @@ struct MediaFile: Identifiable, Hashable {
         videoCodec: String? = nil,
         videoColor: VideoColorInfo? = nil,
         audioCodec: String? = nil,
-        containerFormat: String
+        containerFormat: String,
+        livePhoto: LivePhotoAttachment? = nil
     ) {
         self.id = id
         self.url = url
@@ -316,6 +324,17 @@ struct MediaFile: Identifiable, Hashable {
         self.videoColor = videoColor
         self.audioCodec = audioCodec
         self.containerFormat = containerFormat
+        self.livePhoto = livePhoto
+    }
+
+    func attachingLivePhoto(movieURL: URL) -> MediaFile {
+        MediaFile(
+            id: id, url: url, originalFilename: originalFilename, category: category,
+            sizeOnDisk: sizeOnDisk, dimensions: dimensions, duration: duration, fps: fps,
+            bitrate: bitrate, audioBitrate: audioBitrate, videoCodec: videoCodec,
+            videoColor: videoColor, audioCodec: audioCodec, containerFormat: containerFormat,
+            livePhoto: LivePhotoAttachment(movieURL: movieURL)
+        )
     }
 }
 
@@ -443,6 +462,16 @@ struct CropRegion: Hashable, Codable, Sendable {
         )
     }
 
+    /// Keeps the same framed region when the source changes resolution, such as
+    /// a Live Photo still and its smaller movie.
+    func scaled(from source: CGSize, to destination: CGSize) -> CropRegion? {
+        guard source.width > 0, source.height > 0 else { return nil }
+        let scaleX = Double(destination.width / source.width)
+        let scaleY = Double(destination.height / source.height)
+        return CropRegion(x: x * scaleX, y: y * scaleY, width: width * scaleX, height: height * scaleY)
+            .clamped(to: destination)
+    }
+
     /// Keeps the same selected pixels when the source is turned 90 degrees clockwise.
     func rotatedClockwise(in source: CGSize) -> CropRegion {
         CropRegion(
@@ -531,8 +560,10 @@ struct AudioEditSettings: Hashable, Sendable {
         volume == 1 && channels == .original
     }
 
+    /// Pitch handling follows the video's own speed setting, never the audio-only speed.
     var videoTrackEdits: AudioEditSettings {
-        AudioEditSettings(volume: volume, limiterEnabled: limiterEnabled, channels: channels)
+        AudioEditSettings(volume: volume, limiterEnabled: limiterEnabled, preservePitch: preservePitch,
+                          channels: channels)
     }
 
     func outputDuration(sourceDuration: Double) -> Double {
@@ -554,6 +585,8 @@ struct ConversionConfig: Hashable {
     var frameTimeForExtraction: Double?     // seconds; for video → image conversions
     var preferredAudioBitrateKbps: Int?     // override default for video output's audio track
     var audioEdits: AudioEditSettings
+    /// Playback rate for video output; applies to both the picture and its audio track.
+    var videoSpeed: Double
     var operationMode: OutputOperationMode
     var autoTargetLockPolicy: AutoTargetLockPolicy
     var prefersRemuxWhenPossible: Bool
@@ -579,6 +612,7 @@ struct ConversionConfig: Hashable {
         frameTimeForExtraction: Double? = nil,
         preferredAudioBitrateKbps: Int? = nil,
         audioEdits: AudioEditSettings = AudioEditSettings(),
+        videoSpeed: Double = 1,
         operationMode: OutputOperationMode = .manual,
         autoTargetLockPolicy: AutoTargetLockPolicy = .manual,
         prefersRemuxWhenPossible: Bool = false,
@@ -597,6 +631,7 @@ struct ConversionConfig: Hashable {
         self.frameTimeForExtraction = frameTimeForExtraction
         self.preferredAudioBitrateKbps = preferredAudioBitrateKbps
         self.audioEdits = audioEdits
+        self.videoSpeed = videoSpeed
         self.operationMode = operationMode
         self.autoTargetLockPolicy = autoTargetLockPolicy
         self.prefersRemuxWhenPossible = prefersRemuxWhenPossible

@@ -75,10 +75,16 @@ enum VideoOutputAudioQualityPreset: String, CaseIterable, Identifiable, Hashable
 @Observable
 final class OutputConfigViewModel {
     private(set) var input: MediaFile
-    let formats: [OutputFormat]
+    private let baseFormats: [OutputFormat]
+
+    /// Live Photos add video exports of their movie once it has been inspected.
+    var formats: [OutputFormat] {
+        livePhotoMovie == nil ? baseFormats : baseFormats + FormatMatrix.livePhotoVideoOutputs
+    }
 
     var selectedFormat: OutputFormat {
         didSet {
+            syncLivePhotoSource()
             selectedResolutionID = "original"
             // Reset FPS for new format without treating it as a user lock action.
             isApplyingAutoTarget = true
@@ -126,6 +132,12 @@ final class OutputConfigViewModel {
     var selectedResolutionID = "original"
     var customWidthText = ""
     var customHeightText = ""
+    /// Typing one custom dimension scales the other to the source's shape.
+    var preservesCustomAspectRatio = true {
+        didSet {
+            if preservesCustomAspectRatio, !oldValue { updateCustomWidth(customWidthText) }
+        }
+    }
     var selectedFPS: Double? {
         didSet {
             guard !isApplyingAutoTarget else { return }
@@ -145,6 +157,14 @@ final class OutputConfigViewModel {
             refreshAutoTargetSelections()
         }
     }
+    /// Video playback rate chosen in the video editor. Audio-only exports keep
+    /// their own speed in `audioEdits`, so the two never desynchronize.
+    var videoSpeed: Double = 1 {
+        didSet {
+            clampTargetFractionToMinimum()
+            refreshAutoTargetSelections()
+        }
+    }
 
     var shouldShowAudioEditor: Bool {
         isAudioOutput && (input.category == .audio || input.audioCodec != nil)
@@ -156,7 +176,17 @@ final class OutputConfigViewModel {
     }
 
     private var planningDuration: Double? {
-        isAudioOutput ? audioOutputDuration : input.duration
+        isAudioOutput ? audioOutputDuration : videoOutputDuration
+    }
+
+    /// Speed applies only when encoding a video into another video.
+    var effectiveVideoSpeed: Double {
+        input.category == .video && selectedFormat.category == .video ? videoSpeed : 1
+    }
+
+    /// Output length after the video speed change; equals the source otherwise.
+    var videoOutputDuration: Double? {
+        input.duration.map { $0 / effectiveVideoSpeed }
     }
     var webpQuality: Double = 0.82
     var targetFraction: Double = 1.0 {
@@ -284,9 +314,15 @@ final class OutputConfigViewModel {
 
     init(input: MediaFile) {
         self.input = input
-        self.formats = FormatMatrix.allowedOutputs(for: input.category)
+        self.baseFormats = FormatMatrix.allowedOutputs(for: input.category)
+        let livePhotoMovieURL = input.category == .image ? input.livePhoto?.movieURL : nil
+        self.livePhotoMovieURL = livePhotoMovieURL
+        if livePhotoMovieURL != nil {
+            livePhotoOriginalStill = input
+            livePhotoStill = input
+        }
         self.selectedFormat = FormatMatrix.defaultOutput(for: input.category)
-        if !formats.contains(selectedFormat), let first = formats.first {
+        if !baseFormats.contains(selectedFormat), let first = baseFormats.first {
             self.selectedFormat = first
         }
         syncCustomDimensionsFromOriginal()
@@ -364,6 +400,9 @@ final class OutputConfigViewModel {
             durationBeforeTrim = self.input.duration
         }
         self.input = input
+        if livePhotoMovie != nil, input.category == .video {
+            livePhotoMovie = input
+        }
         audioEdits = AudioEditSettings()
         sourceWasTrimmed = true
         metadataLoadToken = UUID()
@@ -376,6 +415,117 @@ final class OutputConfigViewModel {
         pngBaselineErrorConfig = nil
         clampTargetFractionToMinimum()
         refreshAutoTargetSelections()
+    }
+
+    // MARK: - Live Photo
+
+    /// The movie imported with a Live Photo still; nil for other inputs.
+    let livePhotoMovieURL: URL?
+    /// The inspected movie. Video formats are offered once it is readable.
+    private(set) var livePhotoMovie: MediaFile?
+    /// Movie time of the photo's own key photo, when the movie records it.
+    private(set) var livePhotoOriginalKeyPhotoTime: Double?
+    /// Movie time of a different key photo; nil exports the original still.
+    private(set) var livePhotoKeyPhotoTime: Double?
+    /// The imported still, kept while a movie frame is the key photo.
+    private(set) var livePhotoOriginalStill: MediaFile?
+    /// The still exported for image formats: the original or a rendered movie frame.
+    private var livePhotoStill: MediaFile?
+    /// Discovered metadata per source kind, so switching between the still and
+    /// the movie keeps each one's field choices.
+    private var metadataByCategory: [MediaCategory: (tags: [DiscoveredMetadataTag], rows: [MetadataFieldRowModel])] = [:]
+
+    var isLivePhoto: Bool { livePhotoMovieURL != nil }
+
+    /// Files this conversion owns beyond the imported still.
+    var livePhotoOwnedFileURLs: [URL] {
+        [livePhotoMovieURL, livePhotoStill.map(\.url)]
+            .compactMap { $0 }
+            .filter { $0 != livePhotoOriginalStill?.url }
+    }
+
+    func attachLivePhotoMovie(_ movie: MediaFile, originalKeyPhotoTime: Double?) {
+        guard let livePhotoMovieURL, let still = livePhotoOriginalStill, livePhotoMovie == nil,
+              movie.url == livePhotoMovieURL, movie.category == .video, movie.dimensions != nil else { return }
+        // Share the still's identity and name so results belong to this conversion.
+        livePhotoMovie = MediaFile(
+            id: still.id, url: movie.url, originalFilename: still.originalFilename, category: .video,
+            sizeOnDisk: movie.sizeOnDisk, dimensions: movie.dimensions, duration: movie.duration,
+            fps: movie.fps, bitrate: movie.bitrate, audioBitrate: movie.audioBitrate,
+            videoCodec: movie.videoCodec, videoColor: movie.videoColor, audioCodec: movie.audioCodec,
+            containerFormat: movie.containerFormat
+        )
+        livePhotoOriginalKeyPhotoTime = originalKeyPhotoTime
+    }
+
+    /// Exports a rendered movie frame as the still, or the original photo when
+    /// `rendered` is nil. A previously rendered key photo is deleted.
+    func useLivePhotoKeyPhoto(_ rendered: MediaFile?, at time: Double?) {
+        guard let original = livePhotoOriginalStill else {
+            if let rendered { try? FileManager.default.removeItem(at: rendered.url) }
+            return
+        }
+        let previous = livePhotoStill
+        let next: MediaFile
+        if let rendered, let time {
+            next = MediaFile(
+                id: original.id, url: rendered.url, originalFilename: original.originalFilename,
+                category: .image, sizeOnDisk: rendered.sizeOnDisk, dimensions: rendered.dimensions,
+                containerFormat: rendered.containerFormat
+            )
+            livePhotoKeyPhotoTime = time
+        } else {
+            next = original
+            livePhotoKeyPhotoTime = nil
+        }
+        livePhotoStill = next
+        if input.category == .image {
+            switchLivePhotoSource(to: next)
+        }
+        if let previous, previous.url != original.url, previous.url != next.url {
+            try? FileManager.default.removeItem(at: previous.url)
+        }
+        clampTargetFractionToMinimum()
+        refreshAutoTargetSelections()
+    }
+
+    private func syncLivePhotoSource() {
+        guard let still = livePhotoStill else { return }
+        switchLivePhotoSource(to: selectedFormat.category == .video ? (livePhotoMovie ?? still) : still)
+    }
+
+    private func switchLivePhotoSource(to next: MediaFile) {
+        let previous = input
+        guard next.url != previous.url else { return }
+        // Keep the same framed region on the full-size still, a key frame, or the movie.
+        if let crop = cropRegion, let from = previous.dimensions, let to = next.dimensions {
+            cropRegion = crop.scaled(from: mediaRotation.applied(to: from), to: mediaRotation.applied(to: to))
+        }
+        if next.category != previous.category {
+            // A key frame carries the photo's metadata; the movie has its own tags.
+            if hasCompletedMetadataDiscovery {
+                metadataByCategory[previous.category] = (discoveredMetadataTags, metadataFieldRows)
+            }
+            metadataLoadToken = UUID()
+            if let cached = metadataByCategory[next.category] {
+                discoveredMetadataTags = cached.tags
+                metadataFieldRows = cached.rows
+                hasCompletedMetadataDiscovery = true
+                isLoadingDiscoveredMetadata = false
+            } else {
+                discoveredMetadataTags = []
+                metadataFieldRows = []
+                hasCompletedMetadataDiscovery = false
+                isLoadingDiscoveredMetadata = true
+            }
+        }
+        input = next
+        customWidthText = ""
+        customHeightText = ""
+        syncCustomDimensionsFromOriginal()
+        pngBaseline = nil
+        pngBaselineConfig = nil
+        pngBaselineErrorConfig = nil
     }
 
     /// Cache invalidation should begin only after discovery establishes the initial
@@ -393,7 +543,9 @@ final class OutputConfigViewModel {
     /// Compare the effective output with the source, so reverting edits also
     /// disables Convert. A different container or codec is still a conversion.
     private var wouldProduceUnchangedOutput: Bool {
+        // A Live Photo's movie is never a file the user had; even an unchanged copy is new output.
         guard !sourceWasTrimmed,
+              !(isLivePhoto && input.category == .video),
               selectedFormat.category == input.category,
               matchesSourceContainer,
               !hasMetadataChanges else { return false }
@@ -407,7 +559,8 @@ final class OutputConfigViewModel {
         case .audio:
             return canRemuxCurrentAudioOutput
         case .image:
-            guard normalizedCropRegion == nil,
+            guard livePhotoKeyPhotoTime == nil,
+                  normalizedCropRegion == nil,
                   mediaRotation == .none,
                   !isMirrored,
                   resolvedDimensions == nil || resolvedDimensions == input.dimensions else { return false }
@@ -724,7 +877,7 @@ final class OutputConfigViewModel {
                 return "Auto: \(resolution), \(fps), video \(MetadataFormatter.bitrateText(plan.videoBitrateKbps * 1000))\(audioLine)\(reachability)\(singlePassVideoTargetSuffix)"
             }
 
-            let duration = input.duration ?? 1
+            let duration = videoOutputDuration ?? 1
             let audio = selectedFormat.category == .video
                 ? videoAudioBitrateKbps(for: targetSizeBytes)
                 : 0
@@ -765,22 +918,37 @@ final class OutputConfigViewModel {
         refreshAutoTargetSelections()
     }
 
+    /// Custom sizes can only scale down: the source (after cropping) is the largest size.
+    var customDimensionLimit: CGSize? { effectiveSourceDimensions }
+
     func updateCustomWidth(_ text: String) {
-        customWidthText = text
-        guard let width = Double(text), width > 0, let source = effectiveSourceDimensions else { return }
-        let ratio = source.height / source.width
-        customHeightText = "\(max(1, Int((width * ratio).rounded())))"
+        let source = effectiveSourceDimensions
+        customWidthText = Self.customDimensionText(text, maximum: source?.width)
+        guard let width = Double(customWidthText), width > 0, let source else { return }
+        if preservesCustomAspectRatio {
+            customHeightText = "\(max(1, Int((width * source.height / source.width).rounded())))"
+        }
         clampTargetFractionToMinimum()
         refreshAutoTargetSelections()
     }
 
     func updateCustomHeight(_ text: String) {
-        customHeightText = text
-        guard let height = Double(text), height > 0, let source = effectiveSourceDimensions else { return }
-        let ratio = source.width / source.height
-        customWidthText = "\(max(1, Int((height * ratio).rounded())))"
+        let source = effectiveSourceDimensions
+        customHeightText = Self.customDimensionText(text, maximum: source?.height)
+        guard let height = Double(customHeightText), height > 0, let source else { return }
+        if preservesCustomAspectRatio {
+            customWidthText = "\(max(1, Int((height * source.width / source.height).rounded())))"
+        }
         clampTargetFractionToMinimum()
         refreshAutoTargetSelections()
+    }
+
+    /// Digits only, capped at `maximum` pixels.
+    static func customDimensionText(_ text: String, maximum: CGFloat?) -> String {
+        let digits = String(text.filter(\.isASCII).filter(\.isNumber).prefix(6))
+        guard let value = Int(digits) else { return digits }
+        guard let maximum else { return "\(value)" }
+        return "\(min(value, max(1, Int(maximum.rounded()))))"
     }
 
     func applyMegabytesText() {
@@ -810,6 +978,7 @@ final class OutputConfigViewModel {
             frameTimeForExtraction: 0,
             preferredAudioBitrateKbps: preferredAudioKbpsForExport(),
             audioEdits: isAudioOutput ? audioEdits : videoTrackAudioEdits,
+            videoSpeed: effectiveVideoSpeed,
             operationMode: mode,
             autoTargetLockPolicy: mode == .autoTarget ? currentAutoTargetLockPolicy : .manual,
             prefersRemuxWhenPossible: prefersRemuxWhenPossible,
@@ -879,7 +1048,7 @@ final class OutputConfigViewModel {
         guard let dimensions = effectiveSourceDimensions else {
             return input
         }
-        if let source = input.dimensions, dimensions == source {
+        if let source = input.dimensions, dimensions == source, effectiveVideoSpeed == 1 {
             return input
         }
 
@@ -890,7 +1059,7 @@ final class OutputConfigViewModel {
             category: input.category,
             sizeOnDisk: input.sizeOnDisk,
             dimensions: dimensions,
-            duration: input.duration,
+            duration: videoOutputDuration,
             fps: input.fps,
             bitrate: input.bitrate,
             audioBitrate: input.audioBitrate,
@@ -941,7 +1110,7 @@ final class OutputConfigViewModel {
             // `targetSizeBytes` depends on `targetMinimumSizeBytes`, which calls this method, so
             // passing `targetSizeBytes` into `videoAudioBitrateKbps` causes infinite recursion.
             return BitrateCalculator.minimumVideoTargetBytes(
-                durationSec: input.duration ?? 0,
+                durationSec: videoOutputDuration ?? 0,
                 includesAudio: input.audioCodec != nil,
                 dimensions: effectiveVideoDimensions,
                 fps: effectiveVideoFPS,
@@ -1096,6 +1265,7 @@ final class OutputConfigViewModel {
             && mediaRotation == .none
             && resolvedDimensions == nil
             && selectedFPS == nil
+            && effectiveVideoSpeed == 1
             && (!includesVideoOutputAudio || audioEdits.videoTrackIsIdentity)
             && selectedFormat.canRemuxVideoCodec(input.videoCodec)
             && selectedFormat.canRemuxAudioCodec(input.audioCodec)

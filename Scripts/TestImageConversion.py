@@ -53,7 +53,7 @@ final class DiagnosticsLog: @unchecked Sendable {
         "Core/Inspection/FFprobeVideoMetadata.swift", "Core/Inspection/MediaInspector.swift",
         "Core/Conversion/FFmpegCommandRunner.swift", "Core/Conversion/MediaPreviewRenderer.swift",
         "Features/OutputConfig/OutputConfigViewModel.swift",
-        "Tests/PNGDimensionsTests.swift", "Tests/PNGViewModelTests.swift",
+        "Tests/PNGDimensionsTests.swift", "Tests/PNGViewModelTests.swift", "Tests/LivePhotoViewModelTests.swift",
         "Tests/WebPFixtures.swift", "Tests/WebPRegressionTests.swift"
     ]]
     sources += [converter or ROOT / "Core/Conversion/ImageConverter.swift",

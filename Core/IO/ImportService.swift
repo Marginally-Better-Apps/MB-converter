@@ -2,6 +2,7 @@ import AVFoundation
 import CoreTransferable
 import Foundation
 import ImageIO
+import Photos
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -407,6 +408,35 @@ struct ImportService {
             return try replaceFilenameExtension(of: imported.url, with: preferredExtension)
         }
         return imported.url
+    }
+
+    /// Live Photos also carry a short movie. Copy it beside the still so video
+    /// outputs and key photo choices can use it. Regular photos return nil.
+    func importLivePhotoMovie(from item: PhotosPickerItem) async -> URL? {
+        #if os(iOS)
+        // Only Live Photos provide this representation; a still fails immediately.
+        guard let livePhoto = try? await item.loadTransferable(type: PHLivePhoto.self) else { return nil }
+        let resources = PHAssetResource.assetResources(for: livePhoto)
+        // An edited Live Photo's full-size movie matches the edited still.
+        guard let movie = resources.first(where: { $0.type == .fullSizePairedVideo })
+                ?? resources.first(where: { $0.type == .pairedVideo }) else { return nil }
+        let outputURL = ImportStorage.url(originalName: movie.originalFilename, fallbackExtension: "mov")
+        do {
+            let options = PHAssetResourceRequestOptions()
+            options.isNetworkAccessAllowed = true
+            try await PHAssetResourceManager.default().writeData(for: movie, toFile: outputURL, options: options)
+            TempStorage.allowAccessWhileLocked(at: outputURL)
+            return outputURL
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            // The still still imports; only the video options are unavailable.
+            DiagnosticsLog.shared.record(error: error, context: "Import Live Photo movie",
+                                         metadata: ["Filename": movie.originalFilename])
+            return nil
+        }
+        #else
+        return nil
+        #endif
     }
 
     func importFromFiles(at url: URL) async throws -> URL {

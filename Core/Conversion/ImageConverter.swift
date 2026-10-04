@@ -65,8 +65,9 @@ final class ImageConverter: Converter {
             workingImage = try croppedImage(workingImage, to: crop)
         }
 
-        if config.cropRegion != nil || config.outputFormat == .png,
-           let target = commandConfig.targetDimensions,
+        // Thumbnail decoding keeps the source shape, so finish at the exact
+        // target size, which may have a different aspect ratio.
+        if let target = commandConfig.targetDimensions,
            (target.width < CGFloat(workingImage.width) || target.height < CGFloat(workingImage.height)) {
             workingImage = try resizedImage(workingImage, to: target)
         }
@@ -141,19 +142,13 @@ final class ImageConverter: Converter {
 
     func measurePNGBaselineWithFallback(input: MediaFile, config: ConversionConfig) async throws -> PNGSizeBaseline {
         let image = try await withReadableSource(at: input.url) { source in
-            guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-                throw ConversionError.invalidInput("Couldn't read image")
-            }
-            return image
+            try uprightImage(from: source)
         }
         return try measurePNGBaseline(image: image, config: config)
     }
 
     private func measurePNGBaseline(source: CGImageSource, config: ConversionConfig) throws -> PNGSizeBaseline {
-        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-            throw ConversionError.invalidInput("Couldn't read image")
-        }
-        return try measurePNGBaseline(image: image, config: config)
+        try measurePNGBaseline(image: try uprightImage(from: source), config: config)
     }
 
     private func measurePNGBaseline(image: CGImage, config: ConversionConfig) throws -> PNGSizeBaseline {
@@ -273,7 +268,7 @@ final class ImageConverter: Converter {
         var tiff: [String: Any] = [:]
         var png: [String: Any] = [:]
         var xmp: [String: Any] = [:]
-        for entry in policy.retainedImageTags {
+        for entry in policy.retainedImageTags where !isOrientationTag(entry) {
             let value = coercedImageTagValue(entry.value)
             switch entry.scope {
             case .exif: exif[entry.dictionaryKey] = value
@@ -292,6 +287,12 @@ final class ImageConverter: Converter {
         if !png.isEmpty { out[kCGImagePropertyPNGDictionary] = png as CFDictionary }
         if !xmp.isEmpty { out["{XMP}" as CFString] = xmp as CFDictionary }
         return out.isEmpty ? nil : out
+    }
+
+    /// Decoding applies the source orientation to the pixels, so writing the
+    /// source tag again would turn the output a second time in viewers.
+    private static func isOrientationTag(_ entry: ImageMetadataEntry) -> Bool {
+        entry.scope == .tiff && entry.dictionaryKey.caseInsensitiveCompare("Orientation") == .orderedSame
     }
 
     private static func coercedImageTagValue(_ string: String) -> Any {
@@ -466,14 +467,16 @@ final class ImageConverter: Converter {
         if config.cropRegion == nil,
            let target = commandConfig.targetDimensions,
            target.width < editingSourceDimensions.width || target.height < editingSourceDimensions.height {
-            // Leave PNG a pixel of headroom so thumbnail rounding can be trimmed to the selected dimensions.
-            let maxPixel = Int(ceil(max(target.width, target.height))) + (config.outputFormat == .png ? 1 : 0)
+            // Large enough to cover both target dimensions, even when the target
+            // doesn't keep the source's aspect ratio, plus a pixel of headroom so
+            // thumbnail rounding can be trimmed to the exact target.
+            let scale = max(target.width / editingSourceDimensions.width,
+                            target.height / editingSourceDimensions.height)
+            let longEdge = max(editingSourceDimensions.width, editingSourceDimensions.height)
+            let maxPixel = Int(ceil(longEdge * min(1, scale))) + 1
             workingImage = try decodeThumbnail(source: source, maxPixelSize: maxPixel)
         } else {
-            guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-                throw ConversionError.invalidInput("Couldn't read image")
-            }
-            workingImage = cgImage
+            workingImage = try uprightImage(from: source)
         }
 
         return DecodedImage(image: workingImage, sourceDimensions: sourceDimensions, config: commandConfig)
@@ -498,20 +501,31 @@ final class ImageConverter: Converter {
         return try decode(source)
     }
 
+    /// Upright dimensions; crop and rotation edits are relative to the displayed image.
     private func sourceImageDimensions(from source: CGImageSource) throws -> CGSize {
-        guard
-            let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-            let width = props[kCGImagePropertyPixelWidth] as? Int,
-            let height = props[kCGImagePropertyPixelHeight] as? Int
-        else {
+        guard let dimensions = ImageOrientation.orientedDimensions(of: source) else {
             throw ConversionError.invalidInput("Couldn't read image metadata")
         }
-        return CGSize(width: width, height: height)
+        return dimensions
+    }
+
+    /// Full-resolution decode with the source orientation tag applied.
+    private func uprightImage(from source: CGImageSource) throws -> CGImage {
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw ConversionError.invalidInput("Couldn't read image")
+        }
+        let upright = ImageOrientation.displayEdits(for: ImageOrientation.orientation(of: source))
+        var working = try rotatedImage(image, rotation: upright.rotation)
+        if upright.mirrored {
+            working = try mirroredImage(working)
+        }
+        return working
     }
 
     private func decodeThumbnail(source: CGImageSource, maxPixelSize: Int) throws -> CGImage {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixelSize),
             kCGImageSourceShouldCacheImmediately: true
         ]
@@ -521,9 +535,7 @@ final class ImageConverter: Converter {
         // Some large HEICs cannot use ImageIO's thumbnail decode at aggressive
         // downscales, even though their full-resolution image is readable.
         try checkCancellation()
-        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-            throw ConversionError.engineFailed("Image decode failed")
-        }
+        let image = try uprightImage(from: source)
         let scale = min(1, CGFloat(max(1, maxPixelSize)) / CGFloat(max(image.width, image.height)))
         return try resizedImage(image, to: CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale))
     }
@@ -540,13 +552,23 @@ final class ImageConverter: Converter {
         return cropped
     }
 
+    /// Quarter turns and mirrors move pixels without changing color. Keep camera
+    /// wide-color spaces such as Display P3; other spaces render through sRGB.
+    private func editingColorSpace(for image: CGImage) -> CGColorSpace? {
+        if let space = image.colorSpace, space.model == .rgb, space.supportsOutput,
+           !CGColorSpaceUsesITUR_2100TF(space), !CGColorSpaceUsesExtendedRange(space) {
+            return space
+        }
+        return CGColorSpace(name: CGColorSpace.sRGB)
+    }
+
     private func rotatedImage(_ image: CGImage, rotation: MediaRotation) throws -> CGImage {
         guard rotation != .none else { return image }
 
         let sourceWidth = CGFloat(image.width)
         let sourceHeight = CGFloat(image.height)
         let destinationSize = rotation.applied(to: CGSize(width: sourceWidth, height: sourceHeight))
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+        guard let colorSpace = editingColorSpace(for: image),
               let context = CGContext(
                 data: nil,
                 width: Int(destinationSize.width),
@@ -582,7 +604,7 @@ final class ImageConverter: Converter {
     }
 
     private func mirroredImage(_ image: CGImage) throws -> CGImage {
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+        guard let colorSpace = editingColorSpace(for: image),
               let context = CGContext(
                 data: nil,
                 width: image.width,

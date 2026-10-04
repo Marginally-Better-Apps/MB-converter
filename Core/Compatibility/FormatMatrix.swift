@@ -42,6 +42,11 @@ enum FormatMatrix {
         return formats.filter { CodecCapability.canEncode($0) }
     }
 
+    /// Video exports offered for a Live Photo's movie, beside its still formats.
+    static var livePhotoVideoOutputs: [OutputFormat] {
+        [OutputFormat.mp4_h264, .mp4_hevc, .mov, .webm].filter { CodecCapability.canEncode($0) }
+    }
+
     /// Detects the input category from a file URL.
     /// Returns nil if the file type is unknown or unsupported.
     static func detectCategory(from url: URL) -> MediaCategory? {

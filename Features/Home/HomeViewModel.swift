@@ -68,7 +68,10 @@ final class HomeViewModel {
     }
 
     func importFromPhotos(_ item: PhotosPickerItem) async -> MediaFile? {
-        await importFile(context: "Import from Photos") {
+        await importFile(
+            context: "Import from Photos",
+            livePhotoMovie: { [importService] in await importService.importLivePhotoMovie(from: item) }
+        ) {
             try await importService.importFromPhotos(item)
         }
     }
@@ -121,6 +124,7 @@ final class HomeViewModel {
     private func importFile(
         context: String,
         metadata: [String: String] = [:],
+        livePhotoMovie: (() async -> URL?)? = nil,
         _ operation: () async throws -> URL
     ) async -> MediaFile? {
         isImporting = true
@@ -133,7 +137,11 @@ final class HomeViewModel {
         do {
             let url = try await operation()
             do {
-                let media = try await importService.validatedMediaFile(at: url)
+                var media = try await importService.validatedMediaFile(at: url)
+                // Keep the Live Photo movie with its still for video exports.
+                if media.category == .image, let movieURL = await livePhotoMovie?() {
+                    media = media.attachingLivePhoto(movieURL: movieURL)
+                }
                 Haptics.success()
                 return media
             } catch {

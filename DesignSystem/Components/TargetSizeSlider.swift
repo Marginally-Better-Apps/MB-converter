@@ -4,7 +4,7 @@ struct TargetSizeHeader: View {
     let title: String
     let suggestedMegabytes: [Int]
     let targetSizeBytes: Int64
-    var titleFont: Font = .subheadline.weight(.semibold)
+    var titleFont: Font = .headline
     let onSelect: (Int) -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -43,12 +43,15 @@ struct TargetSizeHeader: View {
                     onSelect(megabytes)
                 } label: {
                     Text("\(megabytes) MB")
-                        .font(.caption.weight(.semibold))
+                        .font(.footnote.weight(.semibold))
+                        .monospacedDigit()
                         .fixedSize()
-                        .padding(.horizontal, 10)
-                        .frame(minHeight: 44)
-                        .foregroundStyle(isSelected ? Theme.background : Theme.tint)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .foregroundStyle(isSelected ? Color.white : Theme.tint)
                         .background(isSelected ? Theme.tint : Theme.secondaryFill, in: Capsule())
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Set target size to \(megabytes) megabytes")
@@ -75,29 +78,33 @@ struct TargetSizeSlider: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     if showsRemuxBadge {
                         Text("Remux")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.primary)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(Theme.tint)
                         Button {
                             Haptics.impact(.light)
                             isRemuxInfoPresented = true
                         } label: {
                             Image(systemName: "info.circle")
-                                .font(.caption.weight(.semibold))
+                                .font(.body)
                                 .foregroundStyle(Theme.textMuted)
+                                .frame(minWidth: 32, minHeight: 32)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("What is remux?")
                     } else {
                         Text(valueLabel ?? MetadataFormatter.bytes(targetBytes))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.primary)
+                            .font(.title2.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.tint)
                     }
                 }
 
                 Spacer(minLength: 0)
 
                 Text(minimumLabel ?? "Min: \(MetadataFormatter.bytes(minimumSizeBytes))")
-                    .font(.caption)
+                    .font(.footnote)
+                    .monospacedDigit()
                     .foregroundStyle(Theme.textMuted)
                     .multilineTextAlignment(.trailing)
             }
@@ -112,13 +119,13 @@ struct TargetSizeSlider: View {
                 }
             )
             .disabled(minimumFraction >= 1)
-            .tint(Theme.primary)
+            .tint(Theme.tint)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityValue(valueLabel ?? MetadataFormatter.bytes(targetBytes))
 
             if let estimatedLabel, !estimatedLabel.isEmpty {
                 Text(estimatedLabel)
-                    .font(.caption)
+                    .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
             }
         }
@@ -148,20 +155,21 @@ struct PNGDimensionsSlider: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Dimensions")
-                .font(.subheadline.weight(.semibold))
+                .font(.headline)
                 .foregroundStyle(Theme.text)
             Text(viewModel.pngDimensionsLabel)
-                .font(.subheadline.monospacedDigit().weight(.semibold))
-                .foregroundStyle(Theme.primary)
+                .font(.title2.weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(Theme.tint)
             Slider(value: $viewModel.pngDimensionScale,
                    in: viewModel.pngMinimumScale < 1 ? viewModel.pngMinimumScale...1 : 0...1,
                    onEditingChanged: { editing in if !editing { Haptics.selection() } })
                 .disabled(viewModel.pngMinimumScale >= 1)
-                .tint(Theme.primary)
+                .tint(Theme.tint)
                 .accessibilityLabel("PNG dimensions")
                 .accessibilityValue(viewModel.pngDimensionsLabel)
             Text(viewModel.pngSizeEstimateLabel)
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(Theme.textMuted)
         }
     }

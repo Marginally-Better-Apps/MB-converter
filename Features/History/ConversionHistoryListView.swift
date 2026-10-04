@@ -14,7 +14,8 @@ struct ConversionHistoryListView: View {
         List {
             Section {
                 historySummary
-                    .listRowBackground(Theme.surface)
+            } footer: {
+                Text(store.storageSummaryDescription)
             }
 
             if entries.isEmpty {
@@ -24,15 +25,12 @@ struct ConversionHistoryListView: View {
                         systemImage: "clock.arrow.circlepath",
                         description: Text("Converted files will appear here.")
                     )
-                    .foregroundStyle(Theme.text)
                     .frame(maxWidth: .infinity)
-                    .listRowBackground(Theme.surface)
                 }
             } else {
                 Section("Conversions") {
                     ForEach(entries) { entry in
                         historyRow(entry: entry)
-                            .listRowBackground(Theme.surface)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
                                     Haptics.warning()
@@ -43,15 +41,27 @@ struct ConversionHistoryListView: View {
                             }
                     }
                 }
+
+                if store.isEnabled {
+                    Section {
+                        Button(role: .destructive) {
+                            Haptics.warning()
+                            isClearAllConfirming = true
+                        } label: {
+                            Text("Clear History")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
             }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Theme.background)
-        .tint(Theme.primary)
+        .background { AmbientBackground() }
+        .tint(Theme.tint)
         .navigationTitle(isRootSectionActive ? "History" : "")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.large)
+        .settingsToolbarButton()
         .onAppear {
             guard previewEntries == nil else { return }
             store = ConversionHistoryStore.shared
@@ -88,57 +98,32 @@ struct ConversionHistoryListView: View {
     }
 
     private var historySummary: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(store.storageSummaryTitle)
-                        .font(.headline)
-                        .foregroundStyle(Theme.text)
-                    Text(store.storageSummaryDescription)
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.textMuted)
-                }
-            } icon: {
-                Image(systemName: store.isEnabled ? "externaldrive.fill" : "hourglass")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.primary)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        Theme.secondary.opacity(0.2),
-                        in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    )
+        HStack(spacing: 14) {
+            IconTile(systemImage: store.isEnabled ? "externaldrive.fill" : "hourglass")
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(store.storageSummaryTitle)
+                    .font(.body)
+                    .foregroundStyle(Theme.text)
+                Text("\(entries.count) \(entries.count == 1 ? "conversion" : "conversions")")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textMuted)
             }
-            .labelStyle(.titleAndIcon)
 
-            Divider()
+            Spacer(minLength: 8)
 
-            LabeledContent("Storage Used") {
+            VStack(alignment: .trailing, spacing: 2) {
                 Text(MetadataFormatter.bytes(storageBytes))
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Theme.primary)
+                    .font(.headline)
                     .monospacedDigit()
-            }
-            .foregroundStyle(Theme.text)
-
-            if store.isEnabled && !entries.isEmpty {
-                Button(role: .destructive) {
-                    Haptics.warning()
-                    isClearAllConfirming = true
-                } label: {
-                    Label("Clear History", systemImage: "trash")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.destructive)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Theme.separator, lineWidth: 1)
-                        }
-                }
-                .buttonStyle(.plain)
+                    .foregroundStyle(Theme.tint)
+                Text("Storage Used")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textMuted)
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 
     private var entries: [ConversionHistoryEntry] {
@@ -174,17 +159,7 @@ struct ConversionHistoryListView: View {
         } label: {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(entry.input.originalFilename)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Theme.text)
-                    Text(
-                        "\(entry.result.outputFormat.displayName) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))"
-                    )
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.textMuted)
-                    Text(entry.createdAt, format: .dateTime)
-                        .font(.caption)
-                        .foregroundStyle(Theme.textMuted)
+                    rowText(entry: entry)
                 }
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -197,36 +172,42 @@ struct ConversionHistoryListView: View {
                         showsChrome: false,
                         isInteractive: false
                     )
-                    .frame(width: 72, height: 72)
+                    .frame(width: 60, height: 60)
+                    .background(Theme.background)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .accessibilityHidden(true)
 
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(entry.input.originalFilename)
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Theme.text)
-                            .lineLimit(2)
-                        Text(
-                            "\(entry.result.outputFormat.displayName) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))"
-                        )
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.textMuted)
-                        Text(entry.createdAt, format: .dateTime)
-                            .font(.caption)
-                            .foregroundStyle(Theme.textMuted)
+                    VStack(alignment: .leading, spacing: 3) {
+                        rowText(entry: entry)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Image(systemName: "chevron.forward")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Theme.textMuted.opacity(0.7))
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.textTertiary)
                         .accessibilityHidden(true)
                 }
+                .padding(.vertical, 2)
             }
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
         .accessibilityHint("Opens the converted file")
+    }
+
+    @ViewBuilder
+    private func rowText(entry: ConversionHistoryEntry) -> some View {
+        Text(entry.input.originalFilename)
+            .font(.body.weight(.medium))
+            .foregroundStyle(Theme.text)
+            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+            .truncationMode(.middle)
+        Text("\(entry.result.outputFormat.displayName) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))")
+            .font(.subheadline)
+            .foregroundStyle(Theme.textMuted)
+        Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
+            .font(.caption)
+            .foregroundStyle(Theme.textTertiary)
     }
 }
 

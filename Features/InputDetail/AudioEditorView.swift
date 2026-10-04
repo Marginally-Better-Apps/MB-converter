@@ -93,7 +93,6 @@ struct AudioEditorView: View {
     let duration: Double
     @Binding var settings: AudioEditSettings
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
     @State private var live: AudioEditSettings
     @State private var preview = AudioEditorPreview()
@@ -102,9 +101,6 @@ struct AudioEditorView: View {
     @State private var interactionStart: AudioEditSettings?
     @State private var preservePitchPopoverPresented = false
     @State private var volumeOptionsPopoverPresented = false
-
-    private let sliderLabelWidth: CGFloat = 88
-    private let sliderColumnSpacing: CGFloat = 12
 
     init(url: URL, filename: String? = nil, duration: Double, settings: Binding<AudioEditSettings>) {
         self.url = url
@@ -123,22 +119,22 @@ struct AudioEditorView: View {
         NavigationStack {
             GeometryReader { geometry in
                 ScrollView {
-                    VStack(spacing: 0) {
+                    VStack(spacing: 16) {
                         audioPreview
                             .frame(minHeight: 180, maxHeight: .infinity)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 12)
-                            .padding(.bottom, 10)
-                            .background(Theme.background, ignoresSafeAreaEdges: [])
 
                         editingControls
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .frame(minHeight: geometry.size.height)
+                    .frame(maxWidth: 720)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
-            .background(Theme.surface.ignoresSafeArea())
+            .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Edit Audio")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -170,10 +166,6 @@ struct AudioEditorView: View {
                     .accessibilityLabel("Undo last audio edit")
                 }
             }
-            .toolbarBackground(Theme.surface, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(Theme.surface, for: .bottomBar)
-            .toolbarBackground(.visible, for: .bottomBar)
         }
         .tint(Theme.tint)
         .onAppear { PreviewAudioSession.configureForPlayback() }
@@ -195,13 +187,14 @@ struct AudioEditorView: View {
         }
     }
 
+    /// Album-style artwork in the icon's gradient, like Now Playing in Music.
     private var audioPreview: some View {
         ZStack {
-            Color(white: 0.08)
+            Theme.brandGradient
 
-            VStack(spacing: 16) {
+            VStack(spacing: 14) {
                 Image(systemName: "waveform")
-                    .font(.system(size: 48, weight: .light))
+                    .font(.system(size: 64, weight: .regular))
                     .accessibilityHidden(true)
                 Text(filename)
                     .font(.headline)
@@ -214,44 +207,38 @@ struct AudioEditorView: View {
             .padding(24)
             .frame(maxWidth: 560)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Theme.separator, lineWidth: 1)
-        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
     }
 
     private var editingControls: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 12) {
             trimControl
 
-            VStack(spacing: 4) {
+            VStack(spacing: 0) {
                 channelControl
+                Divider()
                 volumeControl
+                Divider()
                 speedControl
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         }
-        .frame(maxWidth: 720)
         .frame(maxWidth: .infinity)
         .foregroundStyle(Theme.text)
-        .background(Theme.surface.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) {
-            Rectangle().fill(Theme.separator).frame(height: 1)
-        }
     }
 
     private var trimControl: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
+                CardHeader(title: "Trim")
                 Spacer()
                 Text(VideoTrimTimeline.timestamp(live.outputDuration(sourceDuration: duration)))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(Theme.textMuted)
                     .accessibilityLabel("Output duration")
             }
-            .padding(.horizontal, 20)
 
             VideoTrimTimeline(
                 url: url, duration: duration,
@@ -281,13 +268,13 @@ struct AudioEditorView: View {
             )
             if preview.isPreparing {
                 ProgressView(value: preview.progress) {
-                    Text("Preparing preview…").font(.caption)
+                    Text("Preparing preview…")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textMuted)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 8)
             }
         }
-        .padding(.top, 10)
+        .surfaceCard()
     }
 
     private var volumeControl: some View {
@@ -305,11 +292,7 @@ struct AudioEditorView: View {
         Button {
             volumeOptionsPopoverPresented = true
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Theme.tint)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            optionsGlyph
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Volume options")
@@ -319,65 +302,34 @@ struct AudioEditorView: View {
                 Button {
                     performEdit { live.limiterEnabled.toggle() }
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: live.limiterEnabled ? "square" : "checkmark.square.fill")
-                            .foregroundStyle(Theme.tint)
-                        Text("Allow clipping")
-                            .foregroundStyle(Theme.text)
-                        Spacer(minLength: 0)
-                    }
-                    .font(.body)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
+                    checkmarkMenuRow("Allow clipping", isOn: !live.limiterEnabled)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(RowButtonStyle())
                 .accessibilityValue(live.limiterEnabled ? "Off" : "On")
                 .accessibilityIdentifier("audioRemoveLimiterToggle")
             }
-            .padding(8)
-            .frame(width: 220)
+            .padding(.vertical, 6)
+            .frame(width: 240)
             .presentationCompactAdaptation(.popover)
         }
     }
 
     private var speedControl: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
-            : AnyLayout(HStackLayout(spacing: sliderColumnSpacing))
-
-        return layout {
-            HStack(spacing: 8) {
-                Image(systemName: "speedometer")
-                    .frame(width: 20)
-                    .accessibilityHidden(true)
-                Text("Speed")
-            }
-            .font(.subheadline)
-            .frame(width: sliderLabelWidth, alignment: .leading)
-
-            HStack(spacing: sliderColumnSpacing) {
-                Slider(value: sliderBinding(\.speed), in: 0.5...2, step: 0.05, onEditingChanged: sliderInteraction)
-                    .accessibilityLabel("Export speed")
-                    .accessibilityValue(String(format: "%.2f times", live.speed))
-                    .accessibilityIdentifier("audioSpeedSlider")
-                    .frame(minWidth: 80)
-                sliderValue(String(format: "%.2f×", live.speed))
-                    .accessibilityIdentifier("audioSpeedValue")
-                preservePitchMenuButton
-            }
+        sliderRow("Speed", systemImage: "speedometer",
+                  value: String(format: "%.2f×", live.speed), identifier: "audioSpeedValue",
+                  trailing: { preservePitchMenuButton }) {
+            Slider(value: sliderBinding(\.speed), in: 0.5...2, step: 0.05, onEditingChanged: sliderInteraction)
+                .accessibilityLabel("Export speed")
+                .accessibilityValue(String(format: "%.2f times", live.speed))
+                .accessibilityIdentifier("audioSpeedSlider")
         }
-        .frame(minHeight: 44)
     }
 
     private var preservePitchMenuButton: some View {
         Button {
             preservePitchPopoverPresented = true
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Theme.tint)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            optionsGlyph
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Speed options")
@@ -387,31 +339,64 @@ struct AudioEditorView: View {
                 Button {
                     performEdit { live.preservePitch.toggle() }
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: live.preservePitch ? "checkmark.square.fill" : "square")
-                            .foregroundStyle(Theme.tint)
-                        Text("Preserve pitch")
-                            .foregroundStyle(Theme.text)
-                        Spacer(minLength: 0)
-                    }
-                    .font(.body)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
+                    checkmarkMenuRow("Preserve pitch", isOn: live.preservePitch)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(RowButtonStyle())
                 .accessibilityValue(live.preservePitch ? "On" : "Off")
                 .accessibilityIdentifier("audioPreservePitchToggle")
             }
-            .padding(8)
-            .frame(width: 220)
+            .padding(.vertical, 6)
+            .frame(width: 240)
             // Keep the content transparent so the system popover supplies one surface.
             .presentationCompactAdaptation(.popover)
         }
     }
 
+    /// The "more options" glyph beside a slider, with a full 44 pt target.
+    private var optionsGlyph: some View {
+        Image(systemName: "ellipsis")
+            .font(.footnote.weight(.bold))
+            .foregroundStyle(Theme.tint)
+            .frame(width: 30, height: 30)
+            .background(Theme.secondaryFill, in: Circle())
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+    }
+
+    /// A popover row styled like a native menu item: checkmark leading when on.
+    private func checkmarkMenuRow(_ title: String, isOn: Bool) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Theme.text)
+                .frame(width: 20)
+                .opacity(isOn ? 1 : 0)
+                .accessibilityHidden(true)
+            Text(title)
+                .foregroundStyle(Theme.text)
+            Spacer(minLength: 0)
+        }
+        .font(.body)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    /// Row title with a quiet leading symbol.
+    private func rowLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(Theme.textMuted)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+            Text(title)
+        }
+        .font(.subheadline)
+    }
+
     private var channelControl: some View {
         HStack {
-            Label("Channels", systemImage: "hifispeaker.2").font(.subheadline)
+            rowLabel("Channels", systemImage: "hifispeaker.2")
             Spacer()
             PopoverDropdown(
                 title: live.channels.label,
@@ -425,40 +410,15 @@ struct AudioEditorView: View {
             .accessibilityIdentifier("audioChannelPicker")
         }
         .frame(minHeight: 44)
+        .padding(.vertical, 4)
     }
 
     private func sliderRow<Content: View, Trailing: View>(_ title: String, systemImage: String, value: String,
                                                          identifier: String, @ViewBuilder trailing: () -> Trailing,
                                                          @ViewBuilder slider: () -> Content) -> some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
-            : AnyLayout(HStackLayout(spacing: sliderColumnSpacing))
-
-        return layout {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .frame(width: 20)
-                    .accessibilityHidden(true)
-                Text(title)
-            }
-            .font(.subheadline)
-            .frame(width: sliderLabelWidth, alignment: .leading)
-            HStack(spacing: sliderColumnSpacing) {
-                slider()
-                    .frame(minWidth: 80)
-                sliderValue(value)
-                    .accessibilityIdentifier(identifier)
-                trailing()
-            }
-        }
-        .frame(minHeight: 44)
-    }
-
-    private func sliderValue(_ value: String) -> some View {
-        Text(value)
-            .font(.subheadline.monospacedDigit())
-            .frame(minWidth: 52, alignment: .trailing)
-            .fixedSize()
+        EditorSliderRow(title: title, systemImage: systemImage, value: value, valueIdentifier: identifier,
+                        slider: slider, accessory: trailing)
+            .padding(.vertical, 4)
     }
 
     private func sliderInteraction(_ editing: Bool) {

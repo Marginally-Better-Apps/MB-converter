@@ -160,6 +160,8 @@ enum MediaTagDiscovery {
         let k = key.lowercased()
         if k == "{pointsize}" || k == "{width}" || k == "{height}" { return true }
         if scope == .iptc, k == "objectdata" { return true }
+        // Exports write upright pixels, so the source orientation tag never applies.
+        if scope == .tiff, k == "orientation" { return true }
         return false
     }
 

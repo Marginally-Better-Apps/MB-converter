@@ -203,17 +203,33 @@ struct MediaPreview: View {
         }
     }
 
+    /// Placeholder artwork in the icon's gradient, like an untitled album in Music.
     private var audioArtwork: some View {
         ZStack {
-            Color(white: 0.12)
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 56))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.45), radius: 8, y: 2)
+            Theme.brandGradient
+            Image(systemName: "waveform")
+                .font(.system(size: compact ? 96 : 128, weight: .regular))
+                .foregroundStyle(.white.opacity(0.35))
+                .accessibilityHidden(true)
+            MediaPlayGlyph()
                 .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Glass play button drawn over media. Media stays dark-backed, so the glass
+/// always uses its dark appearance to keep the white glyph legible.
+private struct MediaPlayGlyph: View {
+    var body: some View {
+        Image(systemName: "play.fill")
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundStyle(.white)
+            // Optical centering for the triangle.
+            .offset(x: 2)
+            .frame(width: 56, height: 56)
+            .glassSurface(in: Circle())
+            .environment(\.colorScheme, .dark)
     }
 }
 
@@ -228,11 +244,7 @@ private struct VideoPlayIndicator: View {
                 .insetBy(dx: imagePadding, dy: imagePadding)
             let center = indicatorCenter(in: bounds)
 
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 56))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.45), radius: 8, y: 2)
+            MediaPlayGlyph()
                 .position(center)
         }
     }
@@ -348,25 +360,46 @@ private struct CropPreviewOverlay: View {
     }
 }
 
+/// A Live Photo still's movie, used to choose the exported key photo.
+struct LivePhotoEditing {
+    let movieURL: URL
+    let originalStillURL: URL
+    /// Size of the original photo.
+    let stillDimensions: CGSize
+    /// Upright size of the movie's frames, which a chosen key photo has.
+    let movieDimensions: CGSize
+    /// Movie time of the photo's own key photo, when known.
+    let originalKeyPhotoTime: Double?
+    /// The movie frame currently used as the key photo; nil for the original.
+    let keyPhotoTime: Double?
+}
+
 /// Crop, rotation, and inline trimming. Local edit state keeps output planning off the drag path.
 struct CropEditorView: View {
     let category: MediaCategory
     let sourceDimensions: CGSize
+    let livePhoto: LivePhotoEditing?
     let onTrimVideo: @MainActor (URL, VideoTrimRange) async throws -> Void
+    let onSelectKeyPhoto: @MainActor (Double?) async throws -> Void
     let showsVideoAudioControls: Bool
+    let showsVideoSpeedControls: Bool
     @Binding var cropRegion: CropRegion?
     @Binding var mediaRotation: MediaRotation
     @Binding var isMirrored: Bool
     @Binding var audioEdits: AudioEditSettings
+    @Binding var videoSpeed: Double
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
     @State private var playback = TrimVideoPlayback()
     @State private var liveCrop: CropRegion
     @State private var liveRotation: MediaRotation
     @State private var liveIsMirrored: Bool
     @State private var liveAudioEdits: AudioEditSettings
+    @State private var liveVideoSpeed: Double
+    @State private var liveKeyPhotoTime: Double?
+    @State private var keyPhotoDuration: Double = 0
+    @State private var keyPhotoRequests: AsyncStream<Double?>.Continuation?
     @State private var undoHistory: [CropEditState] = []
     @State private var interactionStartState: CropEditState?
     @State private var previewImage: UIImage?
@@ -378,13 +411,12 @@ struct CropEditorView: View {
     @State private var previewTime: Double = 0
     @State private var previewRequests: AsyncStream<Double>.Continuation?
     @State private var activeVideoURL: URL
+    @State private var savingMessage = "Saving trim…"
+    @State private var saveErrorTitle = "Couldn't use trimmed video"
     @State private var trimErrorMessage = ""
     @State private var isTrimErrorPresented = false
-    @State private var xText = ""
-    @State private var yText = ""
-    @State private var widthText = ""
-    @State private var heightText = ""
     @State private var volumeOptionsPopoverPresented = false
+    @State private var speedOptionsPopoverPresented = false
 
     init(
         url: URL,
@@ -394,18 +426,28 @@ struct CropEditorView: View {
         mediaRotation: Binding<MediaRotation>,
         isMirrored: Binding<Bool>,
         showsVideoAudioControls: Bool,
+        showsVideoSpeedControls: Bool = false,
         audioEdits: Binding<AudioEditSettings>,
-        onTrimVideo: @escaping @MainActor (URL, VideoTrimRange) async throws -> Void
+        videoSpeed: Binding<Double> = .constant(1),
+        livePhoto: LivePhotoEditing? = nil,
+        onTrimVideo: @escaping @MainActor (URL, VideoTrimRange) async throws -> Void,
+        onSelectKeyPhoto: @escaping @MainActor (Double?) async throws -> Void = { _ in }
     ) {
         self.category = category
         self.sourceDimensions = sourceDimensions
+        self.livePhoto = category == .image ? livePhoto : nil
         self.onTrimVideo = onTrimVideo
+        self.onSelectKeyPhoto = onSelectKeyPhoto
+        self._liveKeyPhotoTime = State(initialValue: livePhoto?.keyPhotoTime)
         self.showsVideoAudioControls = showsVideoAudioControls
+        self.showsVideoSpeedControls = showsVideoSpeedControls && category == .video
         self._cropRegion = cropRegion
         self._mediaRotation = mediaRotation
         self._isMirrored = isMirrored
         self._audioEdits = audioEdits
+        self._videoSpeed = videoSpeed
         self._liveAudioEdits = State(initialValue: audioEdits.wrappedValue)
+        self._liveVideoSpeed = State(initialValue: videoSpeed.wrappedValue)
         let initialRotation = (category == .image || category == .video) ? mediaRotation.wrappedValue : .none
         let initialDimensions = initialRotation.applied(to: sourceDimensions)
         let initial = cropRegion.wrappedValue?.clamped(to: initialDimensions)
@@ -427,44 +469,48 @@ struct CropEditorView: View {
                 isMirrored: liveIsMirrored,
                 player: playback.player,
                 onUserGestureBegan: { beginUndoableInteraction() },
-                onUserGestureEnded: {
-                    syncTextFromLive()
-                    endUndoableInteraction()
-                }
+                onUserGestureEnded: { endUndoableInteraction() }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.surface.opacity(0.92))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Theme.separator, lineWidth: 1)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 10)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Theme.background, ignoresSafeAreaEdges: [])
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if category == .video {
                     VStack(spacing: 0) {
                         // Keep the video length timeline fixed while the edit controls scroll.
                         videoTrimControl
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                cropControls
-                                if showsVideoAudioControls {
-                                    videoAudioControls
+                        if showsVideoSpeedControls || showsVideoAudioControls {
+                            Rectangle()
+                                .fill(Theme.separator)
+                                .frame(height: 1)
+                                .accessibilityHidden(true)
+                            ScrollView {
+                                VStack(spacing: 12) {
+                                    if showsVideoSpeedControls {
+                                        videoSpeedControls
+                                    }
+                                    if showsVideoAudioControls {
+                                        videoAudioControls
+                                    }
                                 }
+                                .padding(.horizontal, 16)
+                                .padding(.top, 12)
+                                .padding(.bottom, 12)
                             }
+                            // Portrait media needs the height more than the controls do.
+                            .frame(maxHeight: editingSourceDimensions.height > editingSourceDimensions.width ? 210 : 280)
+                            .scrollBounceBehavior(.basedOnSize)
                         }
-                        .frame(maxHeight: 280)
-                        .scrollBounceBehavior(.basedOnSize)
                     }
-                } else {
-                    cropControls
+                } else if let livePhoto {
+                    keyPhotoControl(livePhoto)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
                 }
             }
-            .background(Theme.surface.ignoresSafeArea())
+            .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Edit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -524,14 +570,13 @@ struct CropEditorView: View {
                     .accessibilityLabel("Undo last edit")
                 }
             }
-            .toolbarBackground(Theme.surface, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(Theme.surface, for: .bottomBar)
-            .toolbarBackground(.visible, for: .bottomBar)
         }
+        .tint(Theme.tint)
         .task(id: activeVideoURL) {
             previewImage = nil
             switch category {
+            case .image where livePhoto != nil:
+                await updateKeyPhotoPreviewFrames()
             case .image, .animatedImage:
                 let image = await UIImage.previewImage(from: activeVideoURL)
                 guard !Task.isCancelled else { return }
@@ -546,9 +591,13 @@ struct CropEditorView: View {
         .disabled(isSavingEdits)
         .overlay {
             if isSavingEdits {
-                ProgressView("Saving trim…")
-                    .padding(24)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                ProgressView(savingMessage)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                    .controlSize(.large)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 22)
+                    .glassSurface(in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
             }
         }
         .task(id: activeVideoURL) { await loadTrimRange() }
@@ -556,12 +605,15 @@ struct CropEditorView: View {
             if phase != .active { playback.pause() }
         }
         .onChange(of: liveAudioEdits.volume) { _, _ in applyPreviewAudioVolume() }
+        .onChange(of: liveVideoSpeed) { _, _ in applyPreviewRate() }
+        .onChange(of: liveKeyPhotoTime) { _, time in keyPhotoRequests?.yield(time) }
+        .onChange(of: liveAudioEdits.preservePitch) { _, _ in applyPreviewRate() }
         .onDisappear {
             saveTask?.cancel()
             playback.stop()
             PreviewAudioSession.deactivate()
         }
-        .alert("Couldn't use trimmed video", isPresented: $isTrimErrorPresented) {
+        .alert(saveErrorTitle, isPresented: $isTrimErrorPresented) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(trimErrorMessage)
@@ -572,7 +624,6 @@ struct CropEditorView: View {
                let full = CropRegion.fullFrame(source: editingSourceDimensions) {
                 liveCrop = full
             }
-            syncTextFromLive()
         }
     }
 
@@ -614,41 +665,73 @@ struct CropEditorView: View {
         }
     }
 
-    private var cropControls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Image(systemName: "crop")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(Theme.tint)
-                    .frame(width: 36, height: 36)
-                    .background(Theme.secondaryFill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Crop region")
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(Theme.text)
-                    Text("Drag the frame or enter exact pixel values")
-                        .font(.caption)
-                        .foregroundStyle(Theme.textMuted)
-                }
-
-                Spacer(minLength: 0)
-            }
-
-            LazyVGrid(columns: cropFieldColumns, alignment: .leading, spacing: 10) {
-                cropField("X", text: $xText)
-                cropField("Y", text: $yText)
-                cropField("Width", text: $widthText)
-                cropField("Height", text: $heightText)
-            }
+    /// Shows the original photo, or the chosen movie frame at full preview size.
+    private func updateKeyPhotoPreviewFrames() async {
+        guard let livePhoto else { return }
+        let (requests, continuation) = AsyncStream<Double?>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        keyPhotoRequests = continuation
+        continuation.yield(liveKeyPhotoTime)
+        defer { continuation.finish() }
+        let asset = AVURLAsset(url: livePhoto.movieURL)
+        if let duration = try? await asset.load(.duration).seconds, duration.isFinite, duration > 0 {
+            keyPhotoDuration = duration
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(Theme.surface)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Theme.separator)
-                .frame(height: 1)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 1920, height: 1920)
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        var originalImage: UIImage?
+        await withTaskCancellationHandler {
+            for await time in requests {
+                guard !Task.isCancelled else { return }
+                if let time {
+                    guard let (frame, _) = try? await generator.image(
+                        at: CMTime(seconds: time, preferredTimescale: 600)
+                    ) else { continue }
+                    guard !Task.isCancelled else { return }
+                    previewImage = UIImage(cgImage: frame)
+                } else {
+                    if originalImage == nil {
+                        originalImage = await UIImage.previewImage(from: livePhoto.originalStillURL)
+                    }
+                    guard !Task.isCancelled else { return }
+                    previewImage = originalImage
+                }
+            }
+        } onCancel: {
+            generator.cancelAllCGImageGeneration()
+        }
+    }
+
+    @ViewBuilder
+    private func keyPhotoControl(_ livePhoto: LivePhotoEditing) -> some View {
+        if keyPhotoDuration > 0 {
+            LivePhotoKeyPhotoTimeline(
+                movieURL: livePhoto.movieURL,
+                duration: keyPhotoDuration,
+                originalTime: livePhoto.originalKeyPhotoTime,
+                selection: Binding(
+                    get: { liveKeyPhotoTime ?? livePhoto.originalKeyPhotoTime ?? keyPhotoDuration / 2 },
+                    set: { time in
+                        let isOriginal = livePhoto.originalKeyPhotoTime.map { abs(time - $0) < 0.000_001 } ?? false
+                        setKeyPhotoTime(isOriginal ? nil : time)
+                    }
+                ),
+                isOriginal: liveKeyPhotoTime == nil,
+                onInteractionBegan: beginUndoableInteraction,
+                onInteractionEnded: endUndoableInteraction,
+                onUseOriginal: {
+                    Haptics.selection()
+                    performUndoableEdit { setKeyPhotoTime(nil) }
+                }
+            )
+            .surfaceCard()
+        } else {
+            ProgressView("Loading Live Photo…")
+                .font(.footnote)
+                .foregroundStyle(Theme.textMuted)
+                .surfaceCard()
         }
     }
 
@@ -675,34 +758,111 @@ struct CropEditorView: View {
                 onInteractionBegan: beginUndoableInteraction,
                 onInteractionEnded: endUndoableInteraction
             )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
         } else if isLoadingTrim {
             ProgressView("Loading timeline…")
                 .font(.footnote)
+                .foregroundStyle(Theme.textMuted)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
-                .padding(.vertical, 10)
+                .padding(.bottom, 12)
         } else {
             Label("Video trimming isn't available for this file on this device.", systemImage: "info.circle")
                 .font(.footnote)
                 .foregroundStyle(Theme.textMuted)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
-                .padding(.vertical, 10)
+                .padding(.bottom, 12)
+        }
+    }
+
+    private var videoSpeedControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                CardHeader(title: "Playback")
+                Spacer(minLength: 12)
+                if videoDuration > 0 {
+                    Text(VideoTrimTimeline.timestamp((liveTrim?.duration ?? videoDuration) / liveVideoSpeed))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Theme.textMuted)
+                        .accessibilityLabel("Output duration")
+                        .accessibilityValue(VideoTrimTimeline.timestamp((liveTrim?.duration ?? videoDuration) / liveVideoSpeed))
+                        .accessibilityIdentifier("videoSpeedOutputDuration")
+                }
+            }
+
+            videoSpeedControl
+        }
+        .surfaceCard()
+    }
+
+    private var videoSpeedControl: some View {
+        EditorSliderRow(
+            title: "Speed",
+            systemImage: "speedometer",
+            value: String(format: "%.2f×", liveVideoSpeed),
+            valueIdentifier: "videoSpeedValue"
+        ) {
+            Slider(value: videoSpeedBinding, in: AudioExportParameters.videoSpeedRange, step: 0.05,
+                   onEditingChanged: audioSliderInteraction)
+                .accessibilityLabel("Video speed")
+                .accessibilityValue(String(format: "%.2f times", liveVideoSpeed))
+                .accessibilityIdentifier("videoSpeedSlider")
+        } accessory: {
+            if showsVideoAudioControls {
+                speedOptionsMenuButton
+            }
+        }
+    }
+
+    private var videoSpeedBinding: Binding<Double> {
+        Binding(get: { liveVideoSpeed }, set: { value in
+            if interactionStartState != nil {
+                liveVideoSpeed = value
+            } else {
+                // Accessibility adjustments may not send slider touch callbacks.
+                performUndoableEdit { liveVideoSpeed = value }
+            }
+        })
+    }
+
+    private var speedOptionsMenuButton: some View {
+        Button {
+            speedOptionsPopoverPresented = true
+        } label: {
+            optionsGlyph
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Video speed options")
+        .accessibilityIdentifier("videoSpeedOptions")
+        .popover(isPresented: $speedOptionsPopoverPresented) {
+            VStack(spacing: 0) {
+                Button {
+                    performUndoableEdit { liveAudioEdits.preservePitch.toggle() }
+                } label: {
+                    checkmarkMenuRow("Preserve pitch", isOn: liveAudioEdits.preservePitch)
+                }
+                .buttonStyle(RowButtonStyle())
+                .accessibilityValue(liveAudioEdits.preservePitch ? "On" : "Off")
+                .accessibilityIdentifier("videoPreservePitchToggle")
+            }
+            .padding(.vertical, 6)
+            .frame(width: 240)
+            .presentationCompactAdaptation(.popover)
         }
     }
 
     private var videoAudioControls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Audio", systemImage: "waveform")
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(Theme.text)
+        VStack(alignment: .leading, spacing: 8) {
+            CardHeader(title: "Audio")
 
             videoVolumeControl
 
+            Divider()
+
             HStack {
-                Label("Channels", systemImage: "hifispeaker.2")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.text)
+                editorRowLabel("Channels", systemImage: "hifispeaker.2")
                 Spacer(minLength: 12)
                 PopoverDropdown(
                     title: liveAudioEdits.channels.label,
@@ -715,40 +875,25 @@ struct CropEditorView: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .accessibilityIdentifier("videoAudioChannelPicker")
             }
+            .frame(minHeight: 44)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(Theme.surface)
-        .overlay(alignment: .top) {
-            Rectangle().fill(Theme.separator).frame(height: 1)
-        }
+        .surfaceCard()
     }
 
     private var videoVolumeControl: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
-            : AnyLayout(HStackLayout(spacing: 12))
-
-        return layout {
-            Label("Volume", systemImage: liveAudioEdits.volume == 0 ? "speaker.slash" : "speaker.wave.2")
-                .font(.subheadline)
-                .frame(width: 88, alignment: .leading)
-                .foregroundStyle(Theme.text)
-
-            HStack(spacing: 12) {
-                Slider(value: videoVolumeBinding, in: 0...2, step: 0.05, onEditingChanged: audioSliderInteraction)
-                    .accessibilityLabel("Video audio volume")
-                    .accessibilityValue("\(Int((liveAudioEdits.volume * 100).rounded())) percent")
-                    .accessibilityIdentifier("videoAudioVolumeSlider")
-                    .frame(minWidth: 80)
-                Text("\(Int((liveAudioEdits.volume * 100).rounded()))%")
-                    .font(.subheadline.monospacedDigit())
-                    .frame(minWidth: 52, alignment: .trailing)
-                    .accessibilityIdentifier("videoAudioVolumeValue")
-                volumeOptionsMenuButton
-            }
+        EditorSliderRow(
+            title: "Volume",
+            systemImage: liveAudioEdits.volume == 0 ? "speaker.slash" : "speaker.wave.2",
+            value: "\(Int((liveAudioEdits.volume * 100).rounded()))%",
+            valueIdentifier: "videoAudioVolumeValue"
+        ) {
+            Slider(value: videoVolumeBinding, in: 0...2, step: 0.05, onEditingChanged: audioSliderInteraction)
+                .accessibilityLabel("Video audio volume")
+                .accessibilityValue("\(Int((liveAudioEdits.volume * 100).rounded())) percent")
+                .accessibilityIdentifier("videoAudioVolumeSlider")
+        } accessory: {
+            volumeOptionsMenuButton
         }
-        .frame(minHeight: 44)
     }
 
     private var videoVolumeBinding: Binding<Double> {
@@ -766,11 +911,7 @@ struct CropEditorView: View {
         Button {
             volumeOptionsPopoverPresented = true
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Theme.tint)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            optionsGlyph
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Video audio volume options")
@@ -780,25 +921,59 @@ struct CropEditorView: View {
                 Button {
                     performUndoableEdit { liveAudioEdits.limiterEnabled.toggle() }
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: liveAudioEdits.limiterEnabled ? "square" : "checkmark.square.fill")
-                            .foregroundStyle(Theme.tint)
-                        Text("Allow clipping")
-                            .foregroundStyle(Theme.text)
-                        Spacer(minLength: 0)
-                    }
-                    .font(.body)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
+                    checkmarkMenuRow("Allow clipping", isOn: !liveAudioEdits.limiterEnabled)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(RowButtonStyle())
                 .accessibilityValue(liveAudioEdits.limiterEnabled ? "Off" : "On")
                 .accessibilityIdentifier("videoAudioRemoveLimiterToggle")
             }
-            .padding(8)
-            .frame(width: 220)
+            .padding(.vertical, 6)
+            .frame(width: 240)
             .presentationCompactAdaptation(.popover)
         }
+    }
+
+    /// Row title with a quiet leading symbol.
+    private func editorRowLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(Theme.textMuted)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+            Text(title)
+                .foregroundStyle(Theme.text)
+        }
+        .font(.subheadline)
+    }
+
+    /// The "more options" glyph beside a slider, with a full 44 pt target.
+    private var optionsGlyph: some View {
+        Image(systemName: "ellipsis")
+            .font(.footnote.weight(.bold))
+            .foregroundStyle(Theme.tint)
+            .frame(width: 30, height: 30)
+            .background(Theme.secondaryFill, in: Circle())
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+    }
+
+    /// A popover row styled like a native menu item: checkmark leading when on.
+    private func checkmarkMenuRow(_ title: String, isOn: Bool) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Theme.text)
+                .frame(width: 20)
+                .opacity(isOn ? 1 : 0)
+                .accessibilityHidden(true)
+            Text(title)
+                .foregroundStyle(Theme.text)
+            Spacer(minLength: 0)
+        }
+        .font(.body)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private func loadTrimRange() async {
@@ -806,6 +981,7 @@ struct CropEditorView: View {
         if videoDuration > 0 {
             playback.prepare(url: activeVideoURL, onPositionChange: { previewTime = $0 })
             applyPreviewAudioVolume()
+            applyPreviewRate()
             if let liveTrim { playback.seek(to: previewTime, range: liveTrim) }
             return
         }
@@ -821,6 +997,7 @@ struct CropEditorView: View {
         liveTrim = VideoTrimRange(start: 0, end: duration)
         playback.prepare(url: activeVideoURL, onPositionChange: { previewTime = $0 })
         applyPreviewAudioVolume()
+        applyPreviewRate()
     }
 
     private func seekPreview(to seconds: Double) {
@@ -842,16 +1019,26 @@ struct CropEditorView: View {
         playback.player?.volume = Float(min(1, max(0, liveAudioEdits.volume)))
     }
 
+    private func applyPreviewRate() {
+        guard showsVideoSpeedControls else { return }
+        playback.setRate(Float(liveVideoSpeed), preservesPitch: liveAudioEdits.preservePitch)
+    }
+
     private func saveEdits() {
         guard !isSavingEdits else { return }
         playback.pause()
         endUndoableInteraction()
+        if livePhoto != nil, liveKeyPhotoTime != livePhoto?.keyPhotoTime {
+            saveKeyPhoto()
+            return
+        }
         guard let liveTrim, !liveTrim.isFullDuration(videoDuration) else {
             applyLiveToBinding()
             dismiss()
             return
         }
         isSavingEdits = true
+        savingMessage = "Saving trim…"
         saveTask = Task { @MainActor in
             defer { isSavingEdits = false }
             do {
@@ -861,79 +1048,66 @@ struct CropEditorView: View {
             } catch is CancellationError {
                 return
             } catch {
+                saveErrorTitle = "Couldn't use trimmed video"
                 trimErrorMessage = error.localizedDescription
                 isTrimErrorPresented = true
             }
         }
     }
 
-    private var cropFieldColumns: [GridItem] {
-        if dynamicTypeSize.isAccessibilitySize {
-            return [GridItem(.flexible())]
+    private func saveKeyPhoto() {
+        // Apply crop in the current still's coordinates first; the model then
+        // rescales it to the size of the new key photo.
+        applyLiveToBinding()
+        isSavingEdits = true
+        savingMessage = "Saving key photo…"
+        let time = liveKeyPhotoTime
+        saveTask = Task { @MainActor in
+            defer { isSavingEdits = false }
+            do {
+                try await onSelectKeyPhoto(time)
+                dismiss()
+            } catch is CancellationError {
+                return
+            } catch {
+                saveErrorTitle = "Couldn't use key photo"
+                trimErrorMessage = error.localizedDescription
+                isTrimErrorPresented = true
+            }
         }
-        return [GridItem(.adaptive(minimum: 140), spacing: 12)]
     }
 
     private func applyLiveToBinding() {
-        guard let clamped = liveCrop.clamped(to: editingSourceDimensions) else { return }
-        cropRegion = clamped.isEffectivelyFullFrame(for: editingSourceDimensions) ? nil : clamped
+        // The binding is in the current input's pixels, even while a different
+        // key photo is being chosen.
+        let inputDimensions = liveRotation.applied(to: sourceDimensions)
+        guard let clamped = liveCrop.clamped(to: editingSourceDimensions),
+              let crop = editingSourceDimensions == inputDimensions
+                ? clamped : clamped.scaled(from: editingSourceDimensions, to: inputDimensions) else { return }
+        cropRegion = crop.isEffectivelyFullFrame(for: inputDimensions) ? nil : crop
         mediaRotation = (category == .image || category == .video) ? liveRotation : .none
         isMirrored = (category == .image || category == .video) && liveIsMirrored
         if category == .video { audioEdits = liveAudioEdits }
-    }
-
-    private func cropField(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.textMuted)
-            TextField(title, text: text, onEditingChanged: { isEditing in
-                if isEditing {
-                    beginUndoableInteraction()
-                } else {
-                    endUndoableInteraction()
-                }
-            })
-                .keyboardType(.numberPad)
-                .font(.subheadline.monospacedDigit().weight(.semibold))
-                .foregroundStyle(Theme.text)
-                .tint(Theme.tint)
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 12)
-                .frame(height: 42)
-                .background(Theme.background, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .stroke(Theme.separator, lineWidth: 1)
-                }
-                .onChange(of: text.wrappedValue) { _, _ in
-                    applyTextToLive()
-                }
-        }
-    }
-
-    private func syncTextFromLive() {
-        let crop = liveCrop.clamped(to: editingSourceDimensions) ?? liveCrop
-        xText = "\(Int(crop.x.rounded()))"
-        yText = "\(Int(crop.y.rounded()))"
-        widthText = "\(Int(crop.width.rounded()))"
-        heightText = "\(Int(crop.height.rounded()))"
-    }
-
-    private func applyTextToLive() {
-        guard let x = Double(xText),
-              let y = Double(yText),
-              let width = Double(widthText),
-              let height = Double(heightText),
-              width > 0,
-              height > 0,
-              let next = CropRegion(x: x, y: y, width: width, height: height).clamped(to: editingSourceDimensions)
-        else { return }
-        liveCrop = next
+        if showsVideoSpeedControls { videoSpeed = liveVideoSpeed }
     }
 
     private var editingSourceDimensions: CGSize {
-        liveRotation.applied(to: sourceDimensions)
+        liveRotation.applied(to: keyPhotoSourceDimensions(for: liveKeyPhotoTime))
+    }
+
+    /// The input's size, or the size of a different Live Photo key photo while it is chosen.
+    private func keyPhotoSourceDimensions(for time: Double?) -> CGSize {
+        guard let livePhoto, time != livePhoto.keyPhotoTime else { return sourceDimensions }
+        return time == nil ? livePhoto.stillDimensions : livePhoto.movieDimensions
+    }
+
+    /// Movie frames are smaller than the photo, so keep the same framed region at the new size.
+    private func setKeyPhotoTime(_ time: Double?) {
+        let previousDimensions = editingSourceDimensions
+        liveKeyPhotoTime = time
+        guard editingSourceDimensions != previousDimensions,
+              let scaled = liveCrop.scaled(from: previousDimensions, to: editingSourceDimensions) else { return }
+        liveCrop = scaled
     }
 
     private var canUndo: Bool {
@@ -943,7 +1117,8 @@ struct CropEditorView: View {
     /// Add future editor values here so one undo restores the complete edit state.
     private var currentEditState: CropEditState {
         CropEditState(crop: liveCrop, rotation: liveRotation, isMirrored: liveIsMirrored,
-                      trim: liveTrim, audioEdits: liveAudioEdits)
+                      trim: liveTrim, audioEdits: liveAudioEdits, videoSpeed: liveVideoSpeed,
+                      keyPhotoTime: liveKeyPhotoTime)
     }
 
     private func beginUndoableInteraction() {
@@ -982,9 +1157,10 @@ struct CropEditorView: View {
         liveRotation = previousState.rotation
         liveIsMirrored = previousState.isMirrored
         liveAudioEdits = previousState.audioEdits
+        liveVideoSpeed = previousState.videoSpeed
+        liveKeyPhotoTime = previousState.keyPhotoTime
         liveTrim = previousState.trim ?? (videoDuration > 0 ? VideoTrimRange(start: 0, end: videoDuration) : nil)
         seekPreview(to: liveTrim?.start ?? 0)
-        syncTextFromLive()
     }
 
     private func rotateClockwise() {
@@ -995,7 +1171,6 @@ struct CropEditorView: View {
             if let clamped = liveCrop.clamped(to: editingSourceDimensions) {
                 liveCrop = clamped
             }
-            syncTextFromLive()
         }
     }
 }
@@ -1006,6 +1181,8 @@ private struct CropEditState: Hashable {
     let isMirrored: Bool
     let trim: VideoTrimRange?
     let audioEdits: AudioEditSettings
+    let videoSpeed: Double
+    let keyPhotoTime: Double?
 }
 
 // Fast dimming: four bands instead of even-odd fill each frame.
@@ -1081,16 +1258,31 @@ private struct CropCanvasView: View {
     @State private var activeDrag: ActiveCropDrag?
 
     private let minimumCropSize = 8.0
+    /// Margin around the media so the corner brackets and size label stay visible at the edges.
+    private let canvasInset: CGFloat = 14
+    /// How far the dark mat extends past the media.
+    private let matMargin: CGFloat = 10
 
     var body: some View {
         GeometryReader { proxy in
-            let bounds = CGRect(origin: .zero, size: proxy.size)
+            let bounds = CGRect(origin: .zero, size: proxy.size).insetBy(dx: canvasInset, dy: canvasInset)
             let contentRect = CropLayout.aspectFitRect(source: sourceDimensions, in: bounds)
             let crop = liveCrop.clamped(to: sourceDimensions) ?? liveCrop
             let displayRect = CropLayout.displayRect(for: crop, source: sourceDimensions, in: contentRect)
 
             ZStack {
-                Theme.background
+                // Media editing always happens on a dark canvas, like Photos. It
+                // hugs the media with a small margin and an edge so it reads as
+                // a mat behind the image rather than part of it.
+                let mat = contentRect.insetBy(dx: -matMargin, dy: -matMargin)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    }
+                    .frame(width: max(0, mat.width), height: max(0, mat.height))
+                    .position(x: mat.midX, y: mat.midY)
 
                 if let player {
                     CropVideoSurface(player: player)
@@ -1120,11 +1312,12 @@ private struct CropCanvasView: View {
                 CropShadeBands(
                     contentRect: contentRect,
                     cropRect: displayRect,
-                    shadeColor: Theme.background,
-                    opacity: 0.54
+                    shadeColor: .black,
+                    opacity: 0.55
                 )
                 CropFrameChrome(displayRect: displayRect, crop: crop, showsHandles: true, usesThemeAccent: false)
             }
+            .environment(\.colorScheme, .dark)
             .contentShape(Rectangle())
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0.5, coordinateSpace: .local)
@@ -1239,57 +1432,89 @@ private struct CropFrameChrome: View {
     var showsHandles: Bool
     var usesThemeAccent: Bool
 
-    private var lineColor: Color { Theme.tint }
-    private var labelBackground: Color { Theme.surface }
-    private var labelForeground: Color { Theme.text }
-    private var handleColor: Color { Theme.tint }
+    /// Thickness of the corner brackets and edge bars.
+    private let handleThickness: CGFloat = 3
+    private let cornerLength: CGFloat = 20
+    private let edgeBarLength: CGFloat = 18
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(lineColor, lineWidth: usesThemeAccent ? 2 : 2.5)
-                .frame(width: displayRect.width, height: displayRect.height)
-                .position(x: displayRect.midX, y: displayRect.midY)
+            if showsHandles {
+                // Photos-style chrome: a hairline frame with heavy corners,
+                // shadowed so it reads over light and dark media alike.
+                ZStack(alignment: .topLeading) {
+                    Path { $0.addRect(displayRect) }
+                        .stroke(usesThemeAccent ? Theme.tint : Color.white.opacity(0.9), lineWidth: 1)
+                    handlePath
+                        .stroke(
+                            usesThemeAccent ? Theme.tint : Color.white,
+                            style: StrokeStyle(lineWidth: handleThickness, lineCap: .butt, lineJoin: .miter)
+                        )
+                }
+                .compositingGroup()
+                .shadow(color: .black.opacity(0.4), radius: 2)
+            } else {
+                Rectangle()
+                    .stroke(usesThemeAccent ? Theme.tint : Color.white, lineWidth: 2)
+                    .frame(width: displayRect.width, height: displayRect.height)
+                    .position(x: displayRect.midX, y: displayRect.midY)
+            }
 
             Text("\(Int(crop.width.rounded())) × \(Int(crop.height.rounded()))")
                 .font(.caption2.monospacedDigit().weight(.semibold))
-                .foregroundStyle(labelForeground)
-                .padding(.horizontal, 8)
+                .foregroundStyle(showsHandles ? Color.white : Theme.text)
+                .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(labelBackground.opacity(0.96), in: Capsule())
-                .overlay {
-                    Capsule()
-                        .stroke(Theme.tint.opacity(0.28), lineWidth: 1)
-                }
-                .position(x: displayRect.midX, y: max(displayRect.minY - 12, 14))
-
-            if showsHandles {
-                ForEach(0..<8, id: \.self) { index in
-                    let point = handlePoints[index]
-                    Circle()
-                        .fill(handleColor)
-                        .frame(width: 13, height: 13)
-                        .overlay(
-                            Circle().stroke(Theme.surface.opacity(0.95), lineWidth: 2)
-                        )
-                        .position(point)
-                }
-            }
+                .glassSurface(in: Capsule())
+                .position(x: displayRect.midX, y: labelCenterY)
         }
         .allowsHitTesting(false)
     }
 
-    private var handlePoints: [CGPoint] {
-        [
-            CGPoint(x: displayRect.minX, y: displayRect.minY),
-            CGPoint(x: displayRect.midX, y: displayRect.minY),
-            CGPoint(x: displayRect.maxX, y: displayRect.minY),
-            CGPoint(x: displayRect.maxX, y: displayRect.midY),
-            CGPoint(x: displayRect.maxX, y: displayRect.maxY),
-            CGPoint(x: displayRect.midX, y: displayRect.maxY),
-            CGPoint(x: displayRect.minX, y: displayRect.maxY),
-            CGPoint(x: displayRect.minX, y: displayRect.midY)
-        ]
+    /// Above the frame when there is room; otherwise just inside its top edge
+    /// so it never covers the top bar.
+    private var labelCenterY: CGFloat {
+        guard showsHandles else { return max(displayRect.minY - 12, 14) }
+        return displayRect.minY >= 34 ? displayRect.minY - 21 : displayRect.minY + 21
+    }
+
+    /// Corner brackets and edge-midpoint bars, drawn just outside the frame line.
+    private var handlePath: Path {
+        let outer = displayRect.insetBy(dx: -handleThickness / 2, dy: -handleThickness / 2)
+        let armX = min(cornerLength, displayRect.width / 2)
+        let armY = min(cornerLength, displayRect.height / 2)
+        let minimumEdgeForBar = cornerLength * 2 + edgeBarLength + 16
+
+        var path = Path()
+        path.move(to: CGPoint(x: outer.minX, y: outer.minY + armY))
+        path.addLine(to: CGPoint(x: outer.minX, y: outer.minY))
+        path.addLine(to: CGPoint(x: outer.minX + armX, y: outer.minY))
+
+        path.move(to: CGPoint(x: outer.maxX - armX, y: outer.minY))
+        path.addLine(to: CGPoint(x: outer.maxX, y: outer.minY))
+        path.addLine(to: CGPoint(x: outer.maxX, y: outer.minY + armY))
+
+        path.move(to: CGPoint(x: outer.maxX, y: outer.maxY - armY))
+        path.addLine(to: CGPoint(x: outer.maxX, y: outer.maxY))
+        path.addLine(to: CGPoint(x: outer.maxX - armX, y: outer.maxY))
+
+        path.move(to: CGPoint(x: outer.minX + armX, y: outer.maxY))
+        path.addLine(to: CGPoint(x: outer.minX, y: outer.maxY))
+        path.addLine(to: CGPoint(x: outer.minX, y: outer.maxY - armY))
+
+        if displayRect.width >= minimumEdgeForBar {
+            path.move(to: CGPoint(x: displayRect.midX - edgeBarLength / 2, y: outer.minY))
+            path.addLine(to: CGPoint(x: displayRect.midX + edgeBarLength / 2, y: outer.minY))
+            path.move(to: CGPoint(x: displayRect.midX - edgeBarLength / 2, y: outer.maxY))
+            path.addLine(to: CGPoint(x: displayRect.midX + edgeBarLength / 2, y: outer.maxY))
+        }
+        if displayRect.height >= minimumEdgeForBar {
+            path.move(to: CGPoint(x: outer.minX, y: displayRect.midY - edgeBarLength / 2))
+            path.addLine(to: CGPoint(x: outer.minX, y: displayRect.midY + edgeBarLength / 2))
+            path.move(to: CGPoint(x: outer.maxX, y: displayRect.midY - edgeBarLength / 2))
+            path.addLine(to: CGPoint(x: outer.maxX, y: displayRect.midY + edgeBarLength / 2))
+        }
+        return path
     }
 }
 
@@ -1331,11 +1556,7 @@ private struct PreviewChrome: ViewModifier {
         if enabled {
             content
                 .background(Theme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Theme.accent, lineWidth: 1)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         } else {
             content
         }
@@ -1365,7 +1586,9 @@ private extension UIImage {
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             return nil
         }
-        return UIImage(cgImage: image)
+        // Show the photo as it was taken; previews match the inspected upright dimensions.
+        return UIImage(cgImage: image, scale: 1,
+                       orientation: UIImage.Orientation(ImageOrientation.orientation(of: source)))
     }
 
     /// First frame of a video for inline previews (not for playback).
@@ -1416,6 +1639,22 @@ private extension UIImage {
     }
 }
 
+private extension UIImage.Orientation {
+    init(_ orientation: CGImagePropertyOrientation) {
+        switch orientation {
+        case .up: self = .up
+        case .upMirrored: self = .upMirrored
+        case .down: self = .down
+        case .downMirrored: self = .downMirrored
+        case .left: self = .left
+        case .leftMirrored: self = .leftMirrored
+        case .right: self = .right
+        case .rightMirrored: self = .rightMirrored
+        @unknown default: self = .up
+        }
+    }
+}
+
 private struct FullImagePreview: View {
     let image: UIImage
     @Environment(\.dismiss) private var dismiss
@@ -1431,17 +1670,26 @@ private struct FullImagePreview: View {
                 Haptics.impact(.light)
                 dismiss()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(.black.opacity(0.45), in: Circle())
+                FullScreenCloseGlyph()
             }
             .accessibilityLabel("Close image preview")
             .accessibilityHint("Dismisses the full-screen preview")
             .padding(.top, 16)
             .padding(.leading, 16)
         }
+    }
+}
+
+/// Glass close button for full-screen media, which is always on black.
+private struct FullScreenCloseGlyph: View {
+    var body: some View {
+        Image(systemName: "xmark")
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 44, height: 44)
+            .glassSurface(in: Circle(), interactive: true)
+            .contentShape(Circle())
+            .environment(\.colorScheme, .dark)
     }
 }
 
@@ -1733,11 +1981,7 @@ private struct FullAudioPlayer: View {
                 playback.stop()
                 dismiss()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(.black.opacity(0.45), in: Circle())
+                FullScreenCloseGlyph()
             }
             .accessibilityLabel("Close audio preview")
             .padding(.top, 16)
@@ -1761,21 +2005,30 @@ private struct PlaybackPreparationView: View {
     let playback: MediaPreviewPlayback
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 10) {
             if let message = playback.errorMessage {
                 Image(systemName: "play.slash")
-                    .font(.system(size: 42, weight: .semibold))
-                Text("Preview Unavailable").font(.headline)
-                Text(message).font(.subheadline)
+                    .font(.system(size: 40, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .padding(.bottom, 6)
+                Text("Preview Unavailable").font(.title3.weight(.semibold))
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
             } else {
                 if playback.progress > 0 {
                     ProgressView(value: playback.progress)
-                        .frame(maxWidth: 240)
+                        .frame(maxWidth: 220)
+                        .padding(.bottom, 8)
                 } else {
                     ProgressView()
+                        .controlSize(.large)
+                        .padding(.bottom, 8)
                 }
                 Text("Preparing preview…").font(.headline)
-                Text("Close to cancel.").font(.subheadline)
+                Text("Close to cancel.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
             }
         }
         .tint(.white)

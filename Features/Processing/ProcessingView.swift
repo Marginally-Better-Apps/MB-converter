@@ -29,27 +29,17 @@ struct ProcessingView: View {
     }
 
     var body: some View {
-        ZStack {
-            Theme.background.ignoresSafeArea()
-
+        // Scrolls only when the content is taller than the screen.
+        ViewThatFits(in: .vertical) {
+            content
+                .frame(maxHeight: .infinity, alignment: .top)
             ScrollView {
-                VStack(spacing: 20) {
-                    statusHeader
-                    progressCard
-                    activityCard
-                    Text(viewModel.backgroundMode.description)
-                        .font(.footnote)
-                        .foregroundStyle(Theme.textMuted)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: 620)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 28)
+                content
             }
             .scrollBounceBehavior(.basedOnSize)
         }
-        .safeAreaInset(edge: .bottom) {
+        .background { AmbientBackground() }
+        .floatingBottomBar {
             cancelAction
         }
         .navigationTitle(isRootSectionActive ? "Converting" : "")
@@ -86,71 +76,85 @@ struct ProcessingView: View {
         }
     }
 
-    private var statusHeader: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 30, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Theme.tint)
-                .frame(width: 64, height: 64)
-                .background(Theme.secondaryFill, in: Circle())
-                .accessibilityHidden(true)
+    private var content: some View {
+        VStack(spacing: 28) {
+            progressHero
+            activityCard
+            Text(viewModel.backgroundMode.description)
+                .font(.footnote)
+                .foregroundStyle(Theme.textMuted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+        }
+        .frame(maxWidth: 620)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 24)
+    }
 
-            VStack(spacing: 5) {
+    /// A large ring like an Apple Watch activity ring, with the status beneath.
+    private var progressHero: some View {
+        VStack(spacing: 22) {
+            ZStack {
+                ProgressRing(progress: viewModel.progressIsDeterminate ? viewModel.overallProgress : nil)
+                    .frame(width: 196, height: 196)
+
+                VStack(spacing: 2) {
+                    if viewModel.progressIsDeterminate, let progressText = viewModel.overallProgressText {
+                        Text(progressText)
+                            .font(.system(size: 40, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.text)
+                            .contentTransition(.numericText())
+                    } else if !viewModel.progressIsDeterminate {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 34, weight: .semibold))
+                            .foregroundStyle(Theme.tint)
+                    }
+                    Text(viewModel.elapsedText)
+                        .font(.subheadline.weight(.medium))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textMuted)
+                }
+                .accessibilityHidden(true)
+            }
+            .padding(.top, 8)
+            .accessibilityElement()
+            .accessibilityLabel(viewModel.progressIsDeterminate ? "Conversion progress" : "Conversion in progress. Estimating time remaining.")
+            .accessibilityValue(viewModel.progressIsDeterminate ? (viewModel.overallProgressText ?? "0 percent") : "")
+
+            VStack(spacing: 6) {
                 Text(viewModel.passLabel)
                     .font(.title2.bold())
                     .foregroundStyle(Theme.text)
                     .multilineTextAlignment(.center)
 
-                Text("\(input.originalFilename) · \(config.outputFormat.displayName)")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.textMuted)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var progressCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Overall Progress")
-                    .font(.headline)
-                    .foregroundStyle(Theme.text)
-
-                Spacer()
-
-                if let progressText = viewModel.overallProgressText {
-                    Text(progressText)
-                        .font(.headline.monospacedDigit())
+                HStack(spacing: 6) {
+                    Text(input.originalFilename)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Image(systemName: "arrow.right")
+                        .font(.caption.weight(.semibold))
+                        .accessibilityHidden(true)
+                    Text(config.outputFormat.displayName)
+                        .fontWeight(.semibold)
                         .foregroundStyle(Theme.tint)
+                        .fixedSize()
                 }
-            }
+                .font(.subheadline)
+                .foregroundStyle(Theme.textMuted)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(input.originalFilename) to \(config.outputFormat.displayName)")
 
-            if viewModel.progressIsDeterminate {
-                ProgressView(value: viewModel.overallProgress, total: 1)
-                    .progressViewStyle(.linear)
-                    .tint(Theme.tint)
-                    .accessibilityLabel("Conversion progress")
-                    .accessibilityValue(viewModel.overallProgressText ?? "0 percent")
-            } else {
-                HStack(spacing: 12) {
-                    ProgressView()
-                        .controlSize(.regular)
-                        .tint(Theme.tint)
-
+                if !viewModel.progressIsDeterminate {
                     Text("Estimating time remaining…")
-                        .font(.subheadline)
+                        .font(.footnote)
                         .foregroundStyle(Theme.textMuted)
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Conversion in progress. Estimating time remaining.")
             }
         }
-        .padding(20)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .frame(maxWidth: .infinity)
     }
 
     private var activityCard: some View {
@@ -162,8 +166,7 @@ struct ProcessingView: View {
             )
 
             Divider()
-                .overlay(Theme.separator)
-                .padding(.leading, 32)
+                .padding(.leading, 62)
 
             activityRow(
                 title: "Elapsed",
@@ -172,8 +175,7 @@ struct ProcessingView: View {
             )
 
             Divider()
-                .overlay(Theme.separator)
-                .padding(.leading, 32)
+                .padding(.leading, 62)
 
             activityRow(
                 title: "Encoder",
@@ -183,8 +185,7 @@ struct ProcessingView: View {
             )
 
             Divider()
-                .overlay(Theme.separator)
-                .padding(.leading, 32)
+                .padding(.leading, 62)
 
             activityRow(
                 title: "Output",
@@ -192,8 +193,7 @@ struct ProcessingView: View {
                 value: viewModel.encoderOutputText
             )
         }
-        .padding(.horizontal, 16)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
     }
 
     private func activityRow(
@@ -202,47 +202,64 @@ struct ProcessingView: View {
         value: String,
         alignsValueLeading: Bool = false
     ) -> some View {
-        LabeledContent {
-            Text(value)
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(Theme.textMuted)
-                .multilineTextAlignment(alignsValueLeading ? .leading : .trailing)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(
-                    maxWidth: alignsValueLeading ? .infinity : nil,
-                    alignment: .trailing
-                )
-        } label: {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Theme.text)
+        HStack(alignment: .center, spacing: 14) {
+            IconTile(systemImage: systemImage)
+
+            ViewThatFits(in: .horizontal) {
+                // Centered so a title sits mid-row beside a two-line value.
+                HStack(alignment: .center, spacing: 12) {
+                    titleText(title)
+                    Spacer(minLength: 8)
+                    valueText(value, alignsLeading: alignsValueLeading)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    titleText(title)
+                    valueText(value, alignsLeading: true)
+                }
+            }
         }
-        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 
+    private func titleText(_ title: String) -> some View {
+        Text(title)
+            .font(.body)
+            .foregroundStyle(Theme.text)
+            .fixedSize()
+    }
+
+    private func valueText(_ value: String, alignsLeading: Bool) -> some View {
+        Text(value)
+            .font(.subheadline.monospacedDigit())
+            .foregroundStyle(Theme.textMuted)
+            .multilineTextAlignment(alignsLeading ? .leading : .trailing)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     private var cancelAction: some View {
-        Button("Cancel Conversion", role: .cancel) {
+        Button(role: .cancel) {
             Haptics.warning()
             viewModel.dismissAttempt()
             if !path.isEmpty {
                 path.removeLast()
             }
+        } label: {
+            Text("Cancel Conversion")
+                .font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 30)
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 14))
+        .glassButtonStyle()
+        .buttonBorderShape(.capsule)
         .controlSize(.large)
         .tint(Theme.tint)
         .disabled(!viewModel.isRunning)
-        .frame(maxWidth: 620)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: 520)
         .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-                .overlay(Theme.separator)
-        }
+        .padding(.top, 8)
+        .padding(.bottom, 6)
     }
 
     @MainActor

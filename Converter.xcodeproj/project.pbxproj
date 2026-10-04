@@ -11,6 +11,7 @@
 		E92000000000000000000002 /* DesignSystem/Components/MediaPreviewPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92000000000000000000001 /* DesignSystem/Components/MediaPreviewPlayback.swift */; };
 		E91000000000000000000002 /* Core/Conversion/MediaPreviewRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E91000000000000000000001 /* Core/Conversion/MediaPreviewRenderer.swift */; };
 		66FE1412E1414DF5925C3E64 /* DesignSystem/Components/VideoTrimTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A058E5470DFF44E49FD5466D /* DesignSystem/Components/VideoTrimTimeline.swift */; };
+		1B7E00000000000000000002 /* Core/Conversion/LivePhotoKeyPhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7E00000000000000000001 /* Core/Conversion/LivePhotoKeyPhoto.swift */; };
 		27DF6E28853C411AA320730F /* Core/Conversion/VideoTrimmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D6E538F8BF14F2CB5D36924 /* Core/Conversion/VideoTrimmer.swift */; };
 		7FD27FD33065C22000B5C378 /* libwebp in Frameworks */ = {isa = PBXBuildFile; productRef = C3D4E5F60718293A4B5C6D7E /* libwebp */; };
 		E80000000000000000000002 /* Core/Inspection/AudioWaveformThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80000000000000000000001 /* Core/Inspection/AudioWaveformThumbnail.swift */; };
@@ -39,6 +40,7 @@
 		4BF3A50D9B32DDFE52917C7F /* Core/Conversion/ImageConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B5815CB64C6A94C7D3F9FA7 /* Core/Conversion/ImageConverter.swift */; };
 		76EF36980B835BBA131FC699 /* DesignSystem/Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D038AD9308CAA6F50A8DAB33 /* DesignSystem/Theme.swift */; };
 		E20000000000000000000002 /* DesignSystem/Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000000000000000000001 /* DesignSystem/Haptics.swift */; };
+		1C0A00000000000000000002 /* DesignSystem/LiquidGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C0A00000000000000000001 /* DesignSystem/LiquidGlass.swift */; };
 		D1A600000000000000000002 /* Core/Diagnostics/DiagnosticsLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A600000000000000000001 /* Core/Diagnostics/DiagnosticsLog.swift */; };
 		D1A600000000000000000004 /* Features/Diagnostics/DiagnosticsLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A600000000000000000003 /* Features/Diagnostics/DiagnosticsLogView.swift */; };
 		787FBE6716A41B0C918450B2 /* Features/Processing/ProcessingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8FF6CBC213A8BCC191A89D7 /* Features/Processing/ProcessingView.swift */; };
@@ -60,6 +62,7 @@
 		B14BD0C943CC81906C89178F /* Core/Conversion/FFmpegCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F8559C440514ECFD6C7E34E /* Core/Conversion/FFmpegCommandRunner.swift */; };
 		A8B1C2D3E4F5061728394A5B7 /* Core/Conversion/FFmpegEncodingStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8B1C2D3E4F5061728394A5B6 /* Core/Conversion/FFmpegEncodingStats.swift */; };
 		B4F5F5C856D46D7B3DEBCB9B /* Features/Home/HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D145BFF386BD076D949E58 /* Features/Home/HomeView.swift */; };
+		1C0A00000000000000000004 /* Features/Settings/SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C0A00000000000000000003 /* Features/Settings/SettingsView.swift */; };
 		CAD5323895BC1027B5370F43 /* MBFFmpeg in Frameworks */ = {isa = PBXBuildFile; productRef = 3AB25EE446E6B66FA9E3FFA0 /* MBFFmpeg */; };
 		C0DEC0DE0000000000000002 /* Core/Compatibility/FFmpegRuntimeInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000001 /* Core/Compatibility/FFmpegRuntimeInfo.swift */; };
 		C0DEC0DE0000000000000004 /* Core/Compatibility/CodecCapability.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000003 /* Core/Compatibility/CodecCapability.swift */; };
@@ -94,6 +97,7 @@
 		E92000000000000000000001 /* DesignSystem/Components/MediaPreviewPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/Components/MediaPreviewPlayback.swift; sourceTree = "<group>"; };
 		E91000000000000000000001 /* Core/Conversion/MediaPreviewRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/MediaPreviewRenderer.swift; sourceTree = "<group>"; };
 		A058E5470DFF44E49FD5466D /* DesignSystem/Components/VideoTrimTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/Components/VideoTrimTimeline.swift; sourceTree = "<group>"; };
+		1B7E00000000000000000001 /* Core/Conversion/LivePhotoKeyPhoto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/LivePhotoKeyPhoto.swift; sourceTree = "<group>"; };
 		2D6E538F8BF14F2CB5D36924 /* Core/Conversion/VideoTrimmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/VideoTrimmer.swift; sourceTree = "<group>"; };
 		E80000000000000000000001 /* Core/Inspection/AudioWaveformThumbnail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Inspection/AudioWaveformThumbnail.swift; sourceTree = "<group>"; };
 		E70000000000000000000001 /* Core/IO/RemoteFileDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/IO/RemoteFileDownloader.swift; sourceTree = "<group>"; };
@@ -155,7 +159,9 @@
 		B2C3D4E5F60718293A4B5D2 /* Core/Conversion/FFmpegMetadataOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/FFmpegMetadataOptions.swift; sourceTree = "<group>"; };
 		B2C3D4E5F60718293A4B5D4 /* Features/InputDetail/InputMetadataEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/InputDetail/InputMetadataEditor.swift; sourceTree = "<group>"; };
 		E20000000000000000000001 /* DesignSystem/Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/Haptics.swift; sourceTree = "<group>"; };
+		1C0A00000000000000000001 /* DesignSystem/LiquidGlass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/LiquidGlass.swift; sourceTree = "<group>"; };
 		F7D145BFF386BD076D949E58 /* Features/Home/HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Home/HomeView.swift; sourceTree = "<group>"; };
+		1C0A00000000000000000003 /* Features/Settings/SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsView.swift; sourceTree = "<group>"; };
 		7AD68D1D1DEB0F9E55F71BD7 /* Core/Conversion/AudioEditRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Conversion/AudioEditRenderer.swift; sourceTree = "<group>"; };
 		DC926F5D7FE5310B801F44D3 /* Features/InputDetail/AudioEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/InputDetail/AudioEditorView.swift; sourceTree = "<group>"; };
 		892EBEBB5D1BC72BFE09C3D3 /* AudioEditorPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEditorPreviewTests.swift; sourceTree = "<group>"; };
@@ -193,6 +199,7 @@
 				A10100000000000000000001 /* App/PrivacyInfo.xcprivacy */,
 				D038AD9308CAA6F50A8DAB33 /* DesignSystem/Theme.swift */,
 				E20000000000000000000001 /* DesignSystem/Haptics.swift */,
+				1C0A00000000000000000001 /* DesignSystem/LiquidGlass.swift */,
 				D1A600000000000000000001 /* Core/Diagnostics/DiagnosticsLog.swift */,
 				D1A600000000000000000003 /* Features/Diagnostics/DiagnosticsLogView.swift */,
 				F90000000000000000000003 /* Features/Diagnostics/OpenSourceLicensesView.swift */,
@@ -222,6 +229,7 @@
 				7AD68D1D1DEB0F9E55F71BD7 /* Core/Conversion/AudioEditRenderer.swift */,
 				E91000000000000000000001 /* Core/Conversion/MediaPreviewRenderer.swift */,
 				2D6E538F8BF14F2CB5D36924 /* Core/Conversion/VideoTrimmer.swift */,
+				1B7E00000000000000000001 /* Core/Conversion/LivePhotoKeyPhoto.swift */,
 				327F1AE2132AF8DA2D340276 /* Core/Conversion/AudioConverter.swift */,
 				B1E2A3C4D5E6F708192A3B4C4 /* Core/Conversion/AudioExportParameters.swift */,
 				B2C3D4E5F60718293A4B5D2 /* Core/Conversion/FFmpegMetadataOptions.swift */,
@@ -234,6 +242,7 @@
 				17949D7ED22F4550A4443107 /* DesignSystem/Components/TargetSizeSlider.swift */,
 				9C9E5183B1886143DFEDA4EC /* Features/Home/HomeViewModel.swift */,
 				F7D145BFF386BD076D949E58 /* Features/Home/HomeView.swift */,
+				1C0A00000000000000000003 /* Features/Settings/SettingsView.swift */,
 				H10000000000000000000002 /* Features/History/ConversionHistoryListView.swift */,
 				4AA15805B061664047C07F98 /* Features/InputDetail/InputDetailViewModel.swift */,
 				DEF78FDFBD40B5E3C782DBA6 /* Features/InputDetail/InputDetailView.swift */,
@@ -391,6 +400,7 @@
 				E30000000000000000000001 /* App/AppColorMode.swift in Sources */,
 				76EF36980B835BBA131FC699 /* DesignSystem/Theme.swift in Sources */,
 				E20000000000000000000002 /* DesignSystem/Haptics.swift in Sources */,
+				1C0A00000000000000000002 /* DesignSystem/LiquidGlass.swift in Sources */,
 				D1A600000000000000000002 /* Core/Diagnostics/DiagnosticsLog.swift in Sources */,
 				D1A600000000000000000004 /* Features/Diagnostics/DiagnosticsLogView.swift in Sources */,
 				F90000000000000000000004 /* Features/Diagnostics/OpenSourceLicensesView.swift in Sources */,
@@ -422,6 +432,7 @@
 				6C609C5812C96F7FEA74DD19 /* Core/Conversion/AudioEditRenderer.swift in Sources */,
 				E91000000000000000000002 /* Core/Conversion/MediaPreviewRenderer.swift in Sources */,
 				27DF6E28853C411AA320730F /* Core/Conversion/VideoTrimmer.swift in Sources */,
+				1B7E00000000000000000002 /* Core/Conversion/LivePhotoKeyPhoto.swift in Sources */,
 				A6D7F0963184D47F16C5F801 /* Core/Conversion/AudioConverter.swift in Sources */,
 				B1E2A3C4D5E6F708192A3B4C5 /* Core/Conversion/AudioExportParameters.swift in Sources */,
 				FCFB165BA3433BF5F9DF63A7 /* Core/Conversion/AnimatedImageConverter.swift in Sources */,
@@ -433,6 +444,7 @@
 				96BE8436821BA69295FDBF50 /* DesignSystem/Components/TargetSizeSlider.swift in Sources */,
 				F0F29380B5FB09A3711664DC /* Features/Home/HomeViewModel.swift in Sources */,
 				B4F5F5C856D46D7B3DEBCB9B /* Features/Home/HomeView.swift in Sources */,
+				1C0A00000000000000000004 /* Features/Settings/SettingsView.swift in Sources */,
 				H10000000000000000000003 /* Features/History/ConversionHistoryListView.swift in Sources */,
 				7E5245C73D8B207FE0AC1C63 /* Features/InputDetail/InputDetailViewModel.swift in Sources */,
 				FA41140E1A7B188431235FDC /* Features/InputDetail/InputDetailView.swift in Sources */,

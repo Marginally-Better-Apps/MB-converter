@@ -14,6 +14,7 @@ struct InputDetailView: View {
     @State private var trimmedMediaURL: URL?
     @State private var selectedEditor: Editor?
     @State private var cachedRun: CachedRun?
+    @State private var previewWidth: CGFloat = 0
 
     private enum Editor: String, Identifiable {
         case advancedOutput
@@ -23,6 +24,7 @@ struct InputDetailView: View {
     }
 
     private struct CachedRun {
+        let inputURL: URL
         let config: ConversionConfig
         let result: ConversionResult
     }
@@ -30,38 +32,46 @@ struct InputDetailView: View {
     init(media: MediaFile, path: Binding<[AppRoute]>) {
         self._path = path
         self._viewModel = State(initialValue: InputDetailViewModel(media: media))
-        self._outputConfigViewModel = State(initialValue: OutputConfigViewModel(input: media))
+        let outputConfigViewModel = OutputConfigViewModel(input: media)
+        outputConfigViewModel.removeAllMetadata = UserDefaults.standard.bool(
+            forKey: InputMetadataEditor.removeAllMetadataDefaultsKey
+        )
+        self._outputConfigViewModel = State(initialValue: outputConfigViewModel)
     }
 
     var body: some View {
         @Bindable var outputConfigViewModel = outputConfigViewModel
 
-        ZStack {
-            Theme.background.ignoresSafeArea()
-
-            ScrollView {
-                VStack(spacing: 16) {
-                    previewAndMetadataCard(viewModel: outputConfigViewModel)
-
-                    essentialOutputSection(viewModel: outputConfigViewModel)
-
-                    editorLinks(viewModel: outputConfigViewModel)
+        ScrollView {
+            Group {
+                if usesSideBySideLayout {
+                    HStack(alignment: .top, spacing: 24) {
+                        mediaCard(viewModel: outputConfigViewModel)
+                            .frame(minWidth: 300, maxWidth: 460)
+                        settingsColumn(viewModel: outputConfigViewModel)
+                    }
+                } else {
+                    VStack(spacing: 26) {
+                        mediaCard(viewModel: outputConfigViewModel)
+                        settingsColumn(viewModel: outputConfigViewModel)
+                    }
                 }
-                .frame(maxWidth: 920)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
             }
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    dismissKeyboard()
-                }
-            )
-            .scrollDismissesKeyboard(.interactively)
-            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxWidth: 980)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
         }
-        .safeAreaInset(edge: .bottom) {
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                dismissKeyboard()
+            }
+        )
+        .scrollDismissesKeyboard(.interactively)
+        .scrollBounceBehavior(.basedOnSize)
+        .background(Theme.background.ignoresSafeArea())
+        .floatingBottomBar {
             convertActionBar(viewModel: outputConfigViewModel)
         }
         .simultaneousGesture(
@@ -81,6 +91,9 @@ struct InputDetailView: View {
         .task(id: outputConfigViewModel.pngBaselineRequest) {
             await outputConfigViewModel.preparePNGBaseline()
         }
+        .task(id: outputConfigViewModel.livePhotoMovieURL) {
+            await loadLivePhotoMovie()
+        }
         .onChange(of: path) { _, newPath in
             guard let last = newPath.last else { return }
             guard case .result(let media, let config, let result, let fromHistory) = last,
@@ -91,7 +104,7 @@ struct InputDetailView: View {
             if let previous = cachedRun, previous.result.url != result.url {
                 try? FileManager.default.removeItem(at: previous.result.url)
             }
-            cachedRun = CachedRun(config: config, result: result)
+            cachedRun = CachedRun(inputURL: media.url, config: config, result: result)
         }
         .onChange(of: outputConfigViewModel.cacheInvalidationConfig) { oldConfig, newConfig in
             guard let oldConfig, let newConfig else { return }
@@ -114,7 +127,10 @@ struct InputDetailView: View {
                     isMirrored: $outputConfigViewModel.isMirrored,
                     showsVideoAudioControls: outputConfigViewModel.selectedFormat.category == .video
                         && outputConfigViewModel.input.audioCodec != nil,
+                    showsVideoSpeedControls: outputConfigViewModel.selectedFormat.category == .video,
                     audioEdits: $outputConfigViewModel.audioEdits,
+                    videoSpeed: $outputConfigViewModel.videoSpeed,
+                    livePhoto: livePhotoEditing(viewModel: outputConfigViewModel),
                     onTrimVideo: { [outputConfigViewModel] sourceURL, range in
                         let ownedURL = try await outputConfigViewModel.trimVideo(sourceURL: sourceURL) {
                             try await VideoTrimmer.trimmedMedia(sourceURL: sourceURL, range: range)
@@ -125,6 +141,9 @@ struct InputDetailView: View {
                         if let previousTrimmedURL {
                             try? FileManager.default.removeItem(at: previousTrimmedURL)
                         }
+                    },
+                    onSelectKeyPhoto: { time in
+                        try await selectLivePhotoKeyPhoto(at: time)
                     }
                 )
                 .presentationDetents([.large])
@@ -146,6 +165,9 @@ struct InputDetailView: View {
             if let trimmedMediaURL {
                 try? FileManager.default.removeItem(at: trimmedMediaURL)
                 self.trimmedMediaURL = nil
+            }
+            for url in outputConfigViewModel.livePhotoOwnedFileURLs {
+                try? FileManager.default.removeItem(at: url)
             }
         }
         .navigationTitle(isRootSectionActive ? viewModel.media.originalFilename : "")
@@ -193,164 +215,206 @@ struct InputDetailView: View {
         }
     }
 
-    @ViewBuilder
-    private func previewAndMetadataCard(viewModel: OutputConfigViewModel) -> some View {
-        Group {
-            if usesSideBySidePreviewLayout {
-                HStack(alignment: .top, spacing: 24) {
-                    previewColumn(viewModel: viewModel)
-                    metadataSummaryColumn
+    /// The media on a solid card, with glass controls floating over it.
+    private func mediaCard(viewModel: OutputConfigViewModel) -> some View {
+        VStack(spacing: 0) {
+            mediaPreview(viewModel: viewModel)
+                .padding(12)
+
+            Divider()
+                .padding(.horizontal, 16)
+
+            InfoStrip(rows: MetadataFormatter.summaryRows(
+                for: viewModel.input,
+                durationBeforeTrim: viewModel.durationBeforeTrim
+            ))
+            .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 4)
+            .padding(.vertical, 14)
+
+            if let summary = editSummary(viewModel: viewModel) {
+                Label {
+                    Text(summary)
+                } icon: {
+                    Image(systemName: "pencil.and.outline")
+                        .foregroundStyle(Theme.tint)
                 }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    previewColumn(viewModel: viewModel)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Divider()
-                            .overlay(Theme.separator)
-                        metadataSummaryColumn
-                    }
-                }
+                .font(.footnote)
+                .foregroundStyle(Theme.textMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
     }
 
-    @ViewBuilder
-    private func previewColumn(viewModel: OutputConfigViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            MediaPreview(
-                url: viewModel.input.url,
-                category: viewModel.isAudioOutput ? .audio : viewModel.input.category,
-                compact: true,
-                showsChrome: false,
-                showsMediaBorder: true,
-                sourceDimensions: viewModel.input.dimensions,
-                displayCropRect: viewModel.cropRectForDisplay,
-                mediaRotation: viewModel.mediaRotation,
-                isMirrored: viewModel.isMirrored,
-                isInteractive: !viewModel.shouldShowAudioEditor,
-                preferredHeight: 280
-            )
-            .frame(
-                minWidth: usesSideBySidePreviewLayout ? 280 : nil,
-                idealWidth: usesSideBySidePreviewLayout ? 360 : nil,
-                maxWidth: usesSideBySidePreviewLayout ? 420 : .infinity,
-                alignment: .topLeading
-            )
-            .overlay {
-                if viewModel.shouldShowAudioEditor {
-                    Button {
-                        isShowingAudioEditor = true
-                    } label: {
-                        Color.clear.contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Preview and edit audio")
-                    .overlay(alignment: .topTrailing) {
-                        editMediaButton(viewModel: viewModel).padding(8)
-                    }
-                } else if viewModel.shouldShowCrop, let dimensions = viewModel.input.dimensions {
-                    GeometryReader { proxy in
-                        let displayedSize = viewModel.mediaRotation.applied(to: dimensions)
-                        let bounds = CGRect(origin: .zero, size: proxy.size).insetBy(dx: 2, dy: 2)
-                        let scale = min(
-                            bounds.width / max(displayedSize.width, 1),
-                            bounds.height / max(displayedSize.height, 1)
-                        )
-                        let width = displayedSize.width * scale
-                        let height = displayedSize.height * scale
-
-                        editMediaButton(viewModel: viewModel)
-                            .padding(8)
-                            .frame(width: width, height: height, alignment: .topTrailing)
-                            .position(x: bounds.midX, y: bounds.midY)
-                    }
-                }
-            }
-            if viewModel.isAudioOutput, !viewModel.audioEdits.isIdentity,
-               let duration = viewModel.audioOutputDuration {
-                Text("Edited audio · \(VideoTrimTimeline.timestamp(duration)) · \(Int((viewModel.audioEdits.volume * 100).rounded()))% · \(String(format: "%.2f×", viewModel.audioEdits.speed)) · \(viewModel.audioEdits.channels.label)")
-                    .font(.caption)
-                    .foregroundStyle(Theme.textMuted)
-            } else if viewModel.input.category == .video,
-                      viewModel.input.audioCodec != nil,
-                      viewModel.selectedFormat.category == .video,
-                      !viewModel.audioEdits.videoTrackIsIdentity {
-                Text("Edited video audio · \(Int((viewModel.audioEdits.volume * 100).rounded()))% · \(viewModel.audioEdits.channels.label)")
-                    .font(.caption)
-                    .foregroundStyle(Theme.textMuted)
+    private func mediaPreview(viewModel: OutputConfigViewModel) -> some View {
+        MediaPreview(
+            url: viewModel.input.url,
+            category: viewModel.isAudioOutput ? .audio : viewModel.input.category,
+            compact: true,
+            showsChrome: false,
+            showsMediaBorder: false,
+            sourceDimensions: viewModel.input.dimensions,
+            displayCropRect: viewModel.cropRectForDisplay,
+            mediaRotation: viewModel.mediaRotation,
+            isMirrored: viewModel.isMirrored,
+            isInteractive: !viewModel.shouldShowAudioEditor,
+            preferredHeight: previewHeight(viewModel: viewModel)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.media, style: .continuous))
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { previewWidth = proxy.size.width }
+                    .onChange(of: proxy.size.width) { _, width in previewWidth = width }
             }
         }
+        .overlay {
+            if viewModel.shouldShowAudioEditor {
+                Button {
+                    isShowingAudioEditor = true
+                } label: {
+                    Color.clear.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Preview and edit audio")
+                .overlay(alignment: .topTrailing) {
+                    editMediaButton(viewModel: viewModel).padding(10)
+                }
+            } else if viewModel.shouldShowCrop, let dimensions = viewModel.input.dimensions {
+                GeometryReader { proxy in
+                    let displayedSize = viewModel.mediaRotation.applied(to: dimensions)
+                    let bounds = CGRect(origin: .zero, size: proxy.size).insetBy(dx: 2, dy: 2)
+                    let scale = min(
+                        bounds.width / max(displayedSize.width, 1),
+                        bounds.height / max(displayedSize.height, 1)
+                    )
+                    let width = displayedSize.width * scale
+                    let height = displayedSize.height * scale
+
+                    ZStack {
+                        if viewModel.isLivePhoto {
+                            livePhotoBadge
+                                .padding(10)
+                                .frame(width: width, height: height, alignment: .topLeading)
+                        }
+                        editMediaButton(viewModel: viewModel)
+                            .padding(10)
+                            .frame(width: width, height: height, alignment: .topTrailing)
+                    }
+                    .position(x: bounds.midX, y: bounds.midY)
+                }
+            }
+        }
+    }
+
+    /// Fits the media's shape so wide videos don't sit in a tall letterbox.
+    private func previewHeight(viewModel: OutputConfigViewModel) -> CGFloat {
+        let maximum: CGFloat = usesSideBySideLayout ? 380 : 320
+        guard !viewModel.isAudioOutput, viewModel.input.category != .audio,
+              let dimensions = viewModel.input.dimensions, previewWidth > 0 else {
+            return viewModel.isAudioOutput || viewModel.input.category == .audio ? 200 : 260
+        }
+        let displayed = viewModel.mediaRotation.applied(to: dimensions)
+        guard displayed.width > 0, displayed.height > 0 else { return 260 }
+        let fitted = (previewWidth - 4) * displayed.height / displayed.width + 4
+        return min(maximum, max(180, fitted.rounded()))
+    }
+
+    private func editSummary(viewModel: OutputConfigViewModel) -> String? {
+        if viewModel.isAudioOutput, !viewModel.audioEdits.isIdentity,
+           let duration = viewModel.audioOutputDuration {
+            return "Edited audio · \(VideoTrimTimeline.timestamp(duration)) · \(Int((viewModel.audioEdits.volume * 100).rounded()))% · \(String(format: "%.2f×", viewModel.audioEdits.speed)) · \(viewModel.audioEdits.channels.label)"
+        } else if viewModel.input.category == .video,
+                  viewModel.selectedFormat.category == .video {
+            return videoEditSummary(viewModel: viewModel)
+        } else if viewModel.input.category == .image,
+                  let keyPhotoTime = viewModel.livePhotoKeyPhotoTime {
+            return "Key photo from Live Photo · \(VideoTrimTimeline.timestamp(keyPhotoTime))"
+        }
+        return nil
+    }
+
+    private func videoEditSummary(viewModel: OutputConfigViewModel) -> String? {
+        let editsAudio = viewModel.input.audioCodec != nil && !viewModel.audioEdits.videoTrackIsIdentity
+        let audio = "\(Int((viewModel.audioEdits.volume * 100).rounded()))% · \(viewModel.audioEdits.channels.label)"
+        guard viewModel.effectiveVideoSpeed != 1, let duration = viewModel.videoOutputDuration else {
+            return editsAudio ? "Edited video audio · \(audio)" : nil
+        }
+        let speed = "Edited video · \(String(format: "%.2f×", viewModel.effectiveVideoSpeed)) · \(VideoTrimTimeline.timestamp(duration))"
+        return editsAudio ? "\(speed) · audio \(audio)" : speed
+    }
+
+    /// Matches the Live Photo marker in Photos: a small static tag, not glass
+    /// like the Edit button, so it doesn't read as tappable.
+    private var livePhotoBadge: some View {
+        Label("LIVE", systemImage: "livephoto")
+            .labelStyle(LivePhotoTagLabelStyle())
+            .font(.caption2.weight(.semibold))
+            .tracking(0.6)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .fixedSize()
+            .accessibilityLabel("Live Photo")
+            .accessibilityHint("Choose a video format to export the motion, or edit to pick the key photo.")
     }
 
     @ViewBuilder
     private func editMediaButton(viewModel: OutputConfigViewModel) -> some View {
         if viewModel.shouldShowCrop || viewModel.shouldShowAudioEditor {
-            Button("Edit") {
+            Button {
                 Haptics.impact(.light)
                 if viewModel.shouldShowAudioEditor { isShowingAudioEditor = true }
                 else { isShowingCropEditor = true }
+            } label: {
+                Label("Edit", systemImage: viewModel.shouldShowAudioEditor ? "waveform" : "crop.rotate")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .glassSurface(in: Capsule(), interactive: true)
+                    .contentShape(Capsule())
             }
-            .font(.subheadline.weight(.semibold))
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 10))
-            .tint(Theme.tint)
+            .buttonStyle(.plain)
             .fixedSize()
-            .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Theme.tint, lineWidth: 1)
-                    .allowsHitTesting(false)
-            }
-            .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 3)
             .accessibilityLabel(viewModel.shouldShowAudioEditor ? "Edit audio" : (viewModel.input.category == .video ? "Edit video" : "Edit image"))
         }
     }
 
-    private var usesSideBySidePreviewLayout: Bool {
+    private var usesSideBySideLayout: Bool {
         horizontalSizeClass == .regular && !dynamicTypeSize.isAccessibilitySize
     }
 
-    private var metadataSummaryColumn: some View {
-        LazyVGrid(
-            columns: Array(
-                repeating: GridItem(.flexible(), spacing: 12, alignment: .leading),
-                count: 3
-            ),
-            alignment: .leading,
-            spacing: 14
-        ) {
-            ForEach(MetadataFormatter.summaryRows(
-                for: outputConfigViewModel.input,
-                durationBeforeTrim: outputConfigViewModel.durationBeforeTrim
-            )) { row in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(row.label)
-                        .font(.caption)
-                        .foregroundStyle(Theme.textMuted)
-                    Text(row.value)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Theme.text)
-                }
+    private func settingsColumn(viewModel: OutputConfigViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader(title: "Output")
+                essentialOutputSection(viewModel: viewModel)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader(title: "Options")
+                editorLinks(viewModel: viewModel)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func essentialOutputSection(viewModel: OutputConfigViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             Group {
                 if dynamicTypeSize.isAccessibilitySize {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Format")
+                            .font(.headline)
                             .foregroundStyle(Theme.text)
                         FormatPicker(
                             formats: viewModel.formats,
                             inputCategory: viewModel.input.category,
+                            isLivePhoto: viewModel.isLivePhoto,
                             selection: Binding(
                                 get: { viewModel.selectedFormat },
                                 set: { viewModel.selectedFormat = $0 }
@@ -361,11 +425,13 @@ struct InputDetailView: View {
                 } else {
                     HStack(alignment: .center, spacing: 16) {
                         Text("Format")
+                            .font(.headline)
                             .foregroundStyle(Theme.text)
                         Spacer(minLength: 12)
                         FormatPicker(
                             formats: viewModel.formats,
                             inputCategory: viewModel.input.category,
+                            isLivePhoto: viewModel.isLivePhoto,
                             selection: Binding(
                                 get: { viewModel.selectedFormat },
                                 set: { viewModel.selectedFormat = $0 }
@@ -377,11 +443,10 @@ struct InputDetailView: View {
             }
 
             if viewModel.shouldShowPNGDimensions {
-                Divider().overlay(Theme.separator)
+                Divider()
                 PNGDimensionsSlider(viewModel: viewModel)
             } else if viewModel.shouldShowTargetSize {
                 Divider()
-                    .overlay(Theme.separator)
                 VStack(alignment: .leading, spacing: 12) {
                     TargetSizeHeader(
                         title: viewModel.targetControlTitle,
@@ -405,10 +470,15 @@ struct InputDetailView: View {
                 }
             } else if viewModel.shouldShowWebPQuality {
                 Divider()
-                    .overlay(Theme.separator)
-                VStack(alignment: .leading, spacing: 10) {
-                    LabeledContent("Quality", value: "\(Int((viewModel.webpQuality * 100).rounded()))%")
-                        .font(.subheadline.weight(.semibold))
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Quality")
+                        .font(.headline)
+                        .foregroundStyle(Theme.text)
+                    Text("\(Int((viewModel.webpQuality * 100).rounded()))%")
+                        .font(.title2.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.tint)
+                        .accessibilityHidden(true)
                     Slider(
                         value: Binding(
                             get: { viewModel.webpQuality },
@@ -417,22 +487,26 @@ struct InputDetailView: View {
                         in: 0...1,
                         step: 0.01
                     )
-                        .tint(Theme.tint)
+                    .tint(Theme.tint)
+                    .accessibilityLabel("Quality")
+                    .accessibilityValue("\(Int((viewModel.webpQuality * 100).rounded())) percent")
                     Text("Faster single-pass encoding; the final file size is estimated.")
                         .font(.footnote)
                         .foregroundStyle(Theme.textMuted)
                 }
             } else if let note = viewModel.losslessNote {
                 Divider()
-                    .overlay(Theme.separator)
-                Text(note)
-                    .font(.footnote)
-                    .foregroundStyle(Theme.textMuted)
+                Label {
+                    Text(note)
+                } icon: {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(Theme.tint)
+                }
+                .font(.footnote)
+                .foregroundStyle(Theme.textMuted)
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .surfaceCard(padding: 18)
     }
 
     @ViewBuilder
@@ -440,6 +514,7 @@ struct InputDetailView: View {
         VStack(spacing: 0) {
             if hasAdvancedOutputOptions(viewModel) {
                 Button {
+                    Haptics.impact(.light)
                     selectedEditor = .advancedOutput
                 } label: {
                     editorLinkLabel(
@@ -450,22 +525,23 @@ struct InputDetailView: View {
                 }
 
                 Divider()
-                    .padding(.leading, 56)
-                    .overlay(Theme.separator)
+                    .padding(.leading, dynamicTypeSize.isAccessibilitySize ? 16 : 62)
             }
 
             Button {
+                Haptics.impact(.light)
                 selectedEditor = .metadata
             } label: {
                 editorLinkLabel(
                     title: "Metadata",
-                    systemImage: "info.circle",
+                    systemImage: "info.circle.fill",
                     detail: metadataSummary(viewModel)
                 )
             }
         }
-        .buttonStyle(.plain)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .buttonStyle(RowButtonStyle())
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
     }
 
     @ViewBuilder
@@ -494,32 +570,30 @@ struct InputDetailView: View {
     }
 
     private func editorLinkLabel(title: String, systemImage: String, detail: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Theme.tint)
-                .frame(width: 32, height: 32)
-                .background(Theme.secondaryFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        HStack(spacing: 14) {
+            IconTile(systemImage: systemImage)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.body)
                     .foregroundStyle(Theme.text)
                 Text(detail)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
-                    .lineLimit(2)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
             }
+            .multilineTextAlignment(.leading)
 
             Spacer(minLength: 8)
 
             Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.textMuted)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.textTertiary)
+                .accessibilityHidden(true)
         }
-        .frame(minHeight: 52)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+        .frame(minHeight: 62)
         .contentShape(Rectangle())
     }
 
@@ -569,37 +643,82 @@ struct InputDetailView: View {
             Haptics.impact(.medium)
             handleConvertTap(viewModel: viewModel)
         } label: {
-            Label("Convert", systemImage: "arrow.triangle.2.circlepath")
-                .font(.headline)
-                .frame(maxWidth: .infinity)
+            PrimaryActionLabel(title: "Convert", systemImage: "arrow.triangle.2.circlepath")
         }
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.roundedRectangle(radius: 14))
+        .glassButtonStyle(prominent: true)
+        .buttonBorderShape(.capsule)
         .controlSize(.large)
         .tint(Theme.tint)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-                .overlay(Theme.separator)
-        }
         .disabled(!viewModel.canConvert)
         .accessibilityHint(viewModel.canConvert
             ? "Starts the conversion using the selected settings."
             : "Change an output setting to convert this file.")
+        .frame(maxWidth: 520)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
     }
 
     private func handleConvertTap(viewModel: OutputConfigViewModel) {
         guard viewModel.canConvert else { return }
         let config = viewModel.makeConfig()
         if let cachedRun,
+           cachedRun.inputURL == viewModel.input.url,
            cachedRun.config == config,
            FileManager.default.fileExists(atPath: cachedRun.result.url.path) {
             path.append(.result(viewModel.input, config, cachedRun.result, fromHistory: false))
         } else {
             path.append(.processing(viewModel.input, config))
         }
+    }
+
+    private func livePhotoEditing(viewModel: OutputConfigViewModel) -> LivePhotoEditing? {
+        guard viewModel.input.category == .image, viewModel.livePhotoMovie != nil,
+              let movieURL = viewModel.livePhotoMovieURL,
+              let original = viewModel.livePhotoOriginalStill else { return nil }
+        guard let stillDimensions = original.dimensions,
+              let movieDimensions = viewModel.livePhotoMovie?.dimensions else { return nil }
+        return LivePhotoEditing(
+            movieURL: movieURL,
+            originalStillURL: original.url,
+            stillDimensions: stillDimensions,
+            movieDimensions: movieDimensions,
+            originalKeyPhotoTime: viewModel.livePhotoOriginalKeyPhotoTime,
+            keyPhotoTime: viewModel.livePhotoKeyPhotoTime
+        )
+    }
+
+    /// The movie is inspected after import; video formats appear when it is readable.
+    private func loadLivePhotoMovie() async {
+        let viewModel = outputConfigViewModel
+        guard let movieURL = viewModel.livePhotoMovieURL, viewModel.livePhotoMovie == nil else { return }
+        do {
+            let movie = try await MediaInspector.inspect(url: movieURL)
+            let keyPhotoTime = await LivePhotoKeyPhoto.originalTime(in: movieURL)
+            try Task.checkCancellation()
+            viewModel.attachLivePhotoMovie(movie, originalKeyPhotoTime: keyPhotoTime)
+        } catch {
+            guard !Task.isCancelled else { return }
+            DiagnosticsLog.shared.record(error: error, context: "Inspect Live Photo movie",
+                                         metadata: ["Filename": viewModel.input.originalFilename])
+        }
+    }
+
+    private func selectLivePhotoKeyPhoto(at time: Double?) async throws {
+        let viewModel = outputConfigViewModel
+        guard let movieURL = viewModel.livePhotoMovieURL,
+              let original = viewModel.livePhotoOriginalStill else { return }
+        var rendered: MediaFile?
+        if let time {
+            let still = try await LivePhotoKeyPhoto.render(movieURL: movieURL, at: time, metadataFrom: original.url)
+            guard !Task.isCancelled else {
+                try? FileManager.default.removeItem(at: still.url)
+                throw CancellationError()
+            }
+            rendered = still
+        }
+        invalidateCachedRun()
+        viewModel.useLivePhotoKeyPhoto(rendered, at: time)
     }
 
     private func invalidateCachedRun() {
@@ -619,6 +738,9 @@ struct InputDetailView: View {
         Haptics.warning()
         invalidateCachedRun()
         try? FileManager.default.removeItem(at: viewModel.media.url)
+        for url in outputConfigViewModel.livePhotoOwnedFileURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
         if let trimmedMediaURL {
             try? FileManager.default.removeItem(at: trimmedMediaURL)
             self.trimmedMediaURL = nil
@@ -765,5 +887,15 @@ private func dismissKeyboard() {
             ),
             path: .constant([])
         )
+    }
+}
+
+/// Tight icon spacing for the Live Photo tag.
+private struct LivePhotoTagLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 3) {
+            configuration.icon
+            configuration.title
+        }
     }
 }

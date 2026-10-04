@@ -22,7 +22,7 @@ struct PopoverDropdown<Option: Identifiable>: View {
         Button {
             isPresented = true
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 if let leadingSymbol {
                     Image(systemName: leadingSymbol)
                 }
@@ -37,18 +37,17 @@ struct PopoverDropdown<Option: Identifiable>: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Theme.textMuted)
                 }
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .accessibilityHidden(true)
             }
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(isEnabled ? Theme.tint : Theme.textMuted)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(isEnabled ? Theme.secondaryFill : Theme.disabledFill, in: Capsule())
             .frame(minHeight: 44)
-            .background(
-                isEnabled ? Theme.secondaryFill : Theme.disabledFill,
-                in: RoundedRectangle(cornerRadius: 10)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(options.isEmpty)
@@ -61,10 +60,11 @@ struct PopoverDropdown<Option: Identifiable>: View {
                     ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
                         if let heading = sectionHeading(at: index) {
                             Text(heading)
-                                .font(.caption.weight(.semibold))
+                                .font(.footnote.weight(.semibold))
                                 .foregroundStyle(Theme.textMuted)
                                 .padding(.horizontal, 12)
-                                .frame(minHeight: optionHeight, alignment: .leading)
+                                .frame(minHeight: optionHeight, alignment: .bottomLeading)
+                                .padding(.bottom, 2)
                                 .accessibilityAddTraits(.isHeader)
                         }
                         optionButton(option)
@@ -74,8 +74,8 @@ struct PopoverDropdown<Option: Identifiable>: View {
             }
             .scrollBounceBehavior(.basedOnSize)
             .frame(idealWidth: 280, maxWidth: 320, idealHeight: menuHeight, maxHeight: menuHeight)
+            // The system popover supplies Liquid Glass on iOS 26.
             .presentationCompactAdaptation(.popover)
-            .presentationBackground(Theme.groupedSurface)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -101,23 +101,27 @@ struct PopoverDropdown<Option: Identifiable>: View {
                 onSelect(option)
             }
         } label: {
-            HStack(spacing: 12) {
-                if let symbol = optionSymbol(option) {
-                    Image(systemName: symbol)
+            // Native menu rows: checkmark leading, symbol trailing.
+            HStack(spacing: 10) {
+                if let isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.tint)
+                        .frame(width: 18)
+                        .opacity(isSelected(option) ? 1 : 0)
                         .accessibilityHidden(true)
                 }
                 Text(optionTitle(option))
+                    .foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
-                if let isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.body.weight(.semibold))
-                        .opacity(isSelected(option) ? 1 : 0)
+                if let symbol = optionSymbol(option) {
+                    Image(systemName: symbol)
+                        .foregroundStyle(Theme.textMuted)
                         .accessibilityHidden(true)
                 }
             }
             .font(.body)
-            .foregroundStyle(Theme.tint)
             .padding(.horizontal, 12)
             .frame(minHeight: optionHeight)
             .contentShape(Rectangle())

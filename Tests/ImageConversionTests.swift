@@ -11,6 +11,7 @@ struct ImageConversionTests {
         if let fixture = ProcessInfo.processInfo.environment["MB_IMAGE_TEST_FALLBACK"] {
             try await verifyDecodeFallback(URL(fileURLWithPath: fixture))
         }
+        try await verifyEXIFOrientation()
         try await PNGDimensionsTests.run()
         try await WebPRegressionTests.run()
         let large = ProcessInfo.processInfo.environment["MB_IMAGE_TEST_LARGE"] == "1"
@@ -22,8 +23,11 @@ struct ImageConversionTests {
                               sizeOnDisk: Int64(try Data(contentsOf: source).count),
                               dimensions: CGSize(width: width, height: height), containerFormat: "heic")
         try await PNGDimensionsTests.benchmark(input: input)
+        try await LivePhotoViewModelTests.run(still: source)
 
-        for target in [nil, CGSize(width: 512, height: 384)] as [CGSize?] {
+        // The last size doesn't keep the source's aspect ratio (custom size with
+        // Preserve aspect ratio off); a thumbnail decode alone would keep the source shape.
+        for target in [nil, CGSize(width: 512, height: 384), CGSize(width: 512, height: height - 36)] as [CGSize?] {
             let events = Events()
             let started = Date()
             let result = try await ImageConverter().convert(
@@ -103,6 +107,65 @@ struct ImageConversionTests {
         try require(try Data(contentsOf: url) == original, "Fallback inspection and conversion must not modify the source")
         log("FFmpeg image fallback: import, dimensions, rotation, scaling, PNG baseline and metadata passed")
     }
+
+    /// Portrait camera photos store sideways pixels with a "rotate 90° clockwise"
+    /// tag. Inspection, crop and export must all use the displayed orientation.
+    private static func verifyEXIFOrientation() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".tiff")
+        defer { try? FileManager.default.removeItem(at: url) }
+        // Stored 40×20 with a red left half and a blue right half; displayed 20×40, red on top.
+        let context = CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        context.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        context.setFillColor(red: 0, green: 0, blue: 1, alpha: 1)
+        context.fill(CGRect(x: 20, y: 0, width: 20, height: 20))
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.tiff.identifier as CFString, 1, nil),
+              let image = context.makeImage() else { throw Failure(message: "Cannot create oriented fixture") }
+        CGImageDestinationAddImage(destination, image, [kCGImagePropertyOrientation: 6] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { throw Failure(message: "Cannot encode oriented fixture") }
+
+        let input = try await MediaInspector.inspect(url: url)
+        try require(input.dimensions == CGSize(width: 20, height: 40), "Inspection must report upright dimensions")
+        var config = ConversionConfig(outputFormat: .png)
+        // A retained source tag would turn the upright pixels a second time in viewers.
+        config.metadata.stripAll = false
+        config.metadata.retainedImageTags = [ImageMetadataEntry(scope: .tiff, dictionaryKey: "Orientation",
+            value: "6", imagePropertyKey: "tiff|Orientation")]
+        let baseline = try await ImageConverter().measurePNGBaselineWithFallback(input: input, config: config)
+        try require(baseline.dimensions == CGSize(width: 20, height: 40), "PNG baseline must measure upright pixels")
+        let output = try await ImageConverter().convert(input: input, config: config, progress: { _ in })
+        defer { try? FileManager.default.removeItem(at: output.url) }
+        try require(output.dimensions == CGSize(width: 20, height: 40), "Export must keep upright dimensions")
+        let source = CGImageSourceCreateWithURL(output.url as CFURL, nil)!
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+        try require((properties[kCGImagePropertyOrientation] as? Int ?? 1) == 1, "Export must not keep the source orientation tag")
+        let exported = CGImageSourceCreateImageAtIndex(source, 0, nil)!
+        try require(isRed(pixel(of: exported, x: 10, y: 5)) && !isRed(pixel(of: exported, x: 10, y: 35)),
+                    "Export must apply the orientation tag to the pixels")
+
+        config.cropRegion = CropRegion(x: 0, y: 0, width: 20, height: 20)
+        let cropped = try await ImageConverter().convert(input: input, config: config, progress: { _ in })
+        defer { try? FileManager.default.removeItem(at: cropped.url) }
+        let croppedImage = CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(cropped.url as CFURL, nil)!, 0, nil)!
+        try require(cropped.dimensions == CGSize(width: 20, height: 20)
+                    && isRed(pixel(of: croppedImage, x: 10, y: 18)),
+                    "Crop coordinates must refer to the upright image")
+        log("EXIF orientation: inspection, PNG baseline, export pixels, crop and metadata passed")
+    }
+
+    private static func pixel(of image: CGImage, x: Int, y: Int) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8,
+                                bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let offset = (y * image.width + x) * 4
+        return Array(bytes[offset..<offset + 3])
+    }
+
+    private static func isRed(_ rgb: [UInt8]) -> Bool { rgb[0] > 200 && rgb[2] < 60 }
 
     private static func log(_ message: String) {
         FileHandle.standardOutput.write(Data((message + "\n").utf8))

@@ -46,7 +46,11 @@ final class VideoConverter: Converter {
             )
         }
 
-        let duration = input.duration.flatMap { $0 > 0 ? $0 : nil }
+        guard config.videoSpeed.isFinite, AudioExportParameters.videoSpeedRange.contains(config.videoSpeed) else {
+            throw ConversionError.invalidInput("Choose a video speed between 0.5× and 2×.")
+        }
+        // Planning, bitrate and progress use the output timeline after the speed change.
+        let duration = input.duration.flatMap { $0 > 0 ? $0 / config.videoSpeed : nil }
         let canStreamCopy = Self.shouldRemux(input: input, config: config)
 
         if let issue = CodecCapability.decodeIssue(videoCodec: input.videoCodec), !canStreamCopy {
@@ -79,18 +83,31 @@ final class VideoConverter: Converter {
         let audioFilterArgument: String
         if hasAudio {
             var sourceChannels = 2
-            if config.audioEdits.channels == .right {
+            var sourceSampleRate = 44_100
+            let shiftsPitch = config.videoSpeed != 1 && !config.audioEdits.preservePitch
+            if config.audioEdits.channels == .right || shiftsPitch {
                 let probe = await Task.detached(priority: .userInitiated) {
                     FFmpegMediaProbe.probe(at: input.url)
                 }.value
                 try Task.checkCancellation()
-                guard let channels = probe?.streams.first(where: { $0.codecType == "audio" })?.channels else {
-                    throw ConversionError.invalidInput("The source audio channels could not be read.")
+                let audioStream = probe?.streams.first(where: { $0.codecType == "audio" })
+                if config.audioEdits.channels == .right {
+                    guard let channels = audioStream?.channels else {
+                        throw ConversionError.invalidInput("The source audio channels could not be read.")
+                    }
+                    sourceChannels = channels
                 }
-                sourceChannels = channels
+                if shiftsPitch {
+                    guard let sampleRate = audioStream?.sampleRate, sampleRate > 0 else {
+                        throw ConversionError.invalidInput("The source audio sample rate could not be read.")
+                    }
+                    sourceSampleRate = sampleRate
+                }
             }
             if let filter = AudioExportParameters.videoTrackFilter(config.audioEdits,
-                                                                  sourceChannels: sourceChannels) {
+                                                                  sourceChannels: sourceChannels,
+                                                                  speed: config.videoSpeed,
+                                                                  sourceSampleRate: sourceSampleRate) {
                 audioFilterArgument = " -af \(FFmpegCommandRunner.quoted(filter))"
             } else {
                 audioFilterArgument = ""
@@ -176,7 +193,7 @@ final class VideoConverter: Converter {
         } else {
             audioArguments = " -an"
         }
-        let filters = Self.videoFilters(input: input, config: commandConfig)
+        let filters = Self.videoFilters(input: input, config: commandConfig, includesSpeed: true)
         let fps = Self.fpsArgument(input: input, config: commandConfig)
         let inputPath = FFmpegCommandRunner.quoted(input.url.path)
         let outputPath = FFmpegCommandRunner.quoted(outputURL.path)
@@ -384,6 +401,7 @@ final class VideoConverter: Converter {
     private static func shouldRemux(input: MediaFile, config: ConversionConfig) -> Bool {
         config.prefersRemuxWhenPossible
             && config.audioEdits.videoTrackIsIdentity
+            && config.videoSpeed == 1
             && !(input.videoColor?.isHDR == true && config.outputFormat != .mp4_hevc)
             && config.cropRegion == nil
             && config.mediaRotation == .none
@@ -405,7 +423,8 @@ final class VideoConverter: Converter {
         CodecCapability.encoderName(for: format)
     }
 
-    private static func videoFilters(input: MediaFile, config: ConversionConfig) -> String {
+    private static func videoFilters(input: MediaFile, config: ConversionConfig,
+                                     includesSpeed: Bool = false) -> String {
         var filters: [String] = []
 
         switch config.mediaRotation {
@@ -434,6 +453,15 @@ final class VideoConverter: Converter {
             let rawH = Int(target.height.rounded())
             if let dims = VideoEncodeDimensions.even(width: rawW, height: rawH) {
                 filters.append("scale=\(dims.width):\(dims.height)")
+            }
+        }
+
+        if includesSpeed, config.videoSpeed != 1 {
+            filters.append("setpts=PTS/\(AudioExportParameters.number(config.videoSpeed))")
+            // Retimed frames would otherwise change the frame rate (2x of 30 fps is 60 fps).
+            // Keep the source or selected rate by dropping or repeating frames.
+            if let outputFPS = [config.targetFPS, input.fps].compactMap({ $0 }).filter({ $0 > 0 }).min() {
+                filters.append("fps=\(AudioExportParameters.number(outputFPS))")
             }
         }
 
@@ -486,7 +514,7 @@ final class VideoConverter: Converter {
             dimensions = rotatedSource
         }
 
-        guard dimensions != input.dimensions else { return input }
+        guard dimensions != input.dimensions || config.videoSpeed != 1 else { return input }
 
         return MediaFile(
             id: input.id,
@@ -495,7 +523,7 @@ final class VideoConverter: Converter {
             category: input.category,
             sizeOnDisk: input.sizeOnDisk,
             dimensions: dimensions,
-            duration: input.duration,
+            duration: input.duration.map { $0 / config.videoSpeed },
             fps: input.fps,
             bitrate: input.bitrate,
             audioBitrate: input.audioBitrate,

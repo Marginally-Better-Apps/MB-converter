@@ -7,10 +7,11 @@ struct MetadataCard: View {
     var compactList: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             Text(title)
                 .font(.headline)
                 .foregroundStyle(Theme.text)
+                .accessibilityAddTraits(.isHeader)
 
             if compactList {
                 VStack(alignment: .leading, spacing: 12) {
@@ -46,12 +47,7 @@ struct MetadataCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Theme.accent, lineWidth: 1)
-        )
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
     }
 
     init(title: String = "Metadata", media: MediaFile) {

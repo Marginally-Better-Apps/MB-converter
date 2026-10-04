@@ -51,8 +51,12 @@ enum AudioExportParameters {
         return filters.joined(separator: ",")
     }
 
-    /// Video audio edits preserve the video's duration and synchronization.
-    static func videoTrackFilter(_ edits: AudioEditSettings, sourceChannels: Int) -> String? {
+    static let videoSpeedRange: ClosedRange<Double> = 0.5...2
+
+    /// Video audio edits preserve synchronization: the track changes speed only
+    /// together with the picture, using the same tempo graph as audio exports.
+    static func videoTrackFilter(_ edits: AudioEditSettings, sourceChannels: Int,
+                                 speed: Double = 1, sourceSampleRate: Int = 44_100) -> String? {
         var filters: [String] = []
         switch edits.channels {
         case .left: filters.append("pan=mono|c0=c0")
@@ -60,6 +64,14 @@ enum AudioExportParameters {
         case .mono: filters.append("aformat=channel_layouts=mono")
         case .stereo: filters.append("aformat=channel_layouts=stereo")
         case .original: break
+        }
+        if speed != 1 {
+            if edits.preservePitch {
+                filters.append("atempo=\(number(speed))")
+            } else {
+                let shiftedSampleRate = Int((Double(sourceSampleRate) * speed).rounded())
+                filters.append("asetrate=\(shiftedSampleRate),aresample=\(sourceSampleRate)")
+            }
         }
         if edits.volume != 1 { filters.append("volume=\(number(edits.volume))") }
         if edits.volume > 1, edits.limiterEnabled {

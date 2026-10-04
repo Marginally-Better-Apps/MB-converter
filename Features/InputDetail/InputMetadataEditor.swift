@@ -3,6 +3,9 @@ import SwiftUI
 import UIKit
 
 struct InputMetadataEditor: View {
+    /// Remembers Remove All Metadata for the next conversion.
+    static let removeAllMetadataDefaultsKey = "removeAllMetadata"
+
     @Bindable var viewModel: OutputConfigViewModel
     let isMenuInteractionDisabled: Bool
     let onBack: () -> Void
@@ -33,20 +36,18 @@ struct InputMetadataEditor: View {
             } else {
                 Section("Groups") {
                     ForEach(groupedRows) { group in
+                        // The default list button style gives the Settings-style row highlight.
                         Button {
                             selectedGroup = group.kind
                         } label: {
-                            metadataGroupRow(group)
+                            metadataGroupRow(group, isEnabled: !viewModel.removeAllMetadata)
                         }
-                        .buttonStyle(.plain)
                         .disabled(viewModel.removeAllMetadata)
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Theme.groupedBackground)
         .navigationTitle(isRootSectionActive ? "Metadata" : "")
         .navigationBarTitleDisplayMode(.inline)
         .modifier(ConversionEditorNavigation(
@@ -62,6 +63,8 @@ struct InputMetadataEditor: View {
         }
         .tint(Theme.tint)
         .onChange(of: viewModel.removeAllMetadata) { _, isRemovingAll in
+            // The next conversion starts with the same choice.
+            UserDefaults.standard.set(isRemovingAll, forKey: Self.removeAllMetadataDefaultsKey)
             if !isRemovingAll, viewModel.metadataFieldRows.isEmpty, !viewModel.discoveredMetadataTags.isEmpty {
                 viewModel.resetMetadataRowsFromDiscovery()
             }
@@ -72,27 +75,25 @@ struct InputMetadataEditor: View {
         }
     }
 
-    private func metadataGroupRow(_ group: MetadataFieldGroup) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: group.systemImage)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Theme.tint)
-                .frame(width: 32, height: 32)
-                .background(Theme.secondaryFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    private func metadataGroupRow(_ group: MetadataFieldGroup, isEnabled: Bool) -> some View {
+        HStack(spacing: 14) {
+            IconTile(systemImage: group.systemImage, isEnabled: isEnabled)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(group.title)
-                    .foregroundStyle(Theme.text)
+                    .font(.body)
+                    .foregroundStyle(isEnabled ? Theme.text : Theme.textTertiary)
                 Text(groupSummary(group))
-                    .font(.caption)
-                    .foregroundStyle(Theme.textMuted)
+                    .font(.subheadline)
+                    .foregroundStyle(isEnabled ? Theme.textMuted : Theme.textTertiary)
             }
 
             Spacer(minLength: 8)
 
             Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.textMuted)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.textTertiary)
+                .accessibilityHidden(true)
         }
         .contentShape(Rectangle())
         .padding(.vertical, 2)
@@ -110,11 +111,11 @@ struct InputMetadataEditor: View {
             ?? MetadataFieldGroup(kind: kind, indices: [])
 
         ZStack {
-            Theme.groupedBackground.ignoresSafeArea()
+            Theme.background.ignoresSafeArea()
 
             ScrollViewReader { scrollProxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 20) {
                         Toggle(
                             "Include \(group.title) Metadata",
                             isOn: Binding(
@@ -129,10 +130,11 @@ struct InputMetadataEditor: View {
                         )
                         .tint(Theme.tint)
                         .disabled(group.indices.isEmpty)
-                        .padding(16)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 14)
                         .background(
-                            Theme.groupedSurface,
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            Theme.surface,
+                            in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
                         )
 
                         if kind == .location,
@@ -176,7 +178,9 @@ struct InputMetadataEditor: View {
                     }
                     .frame(maxWidth: 900)
                     .frame(maxWidth: .infinity)
-                    .padding(16)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 28)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .task(id: addedMetadataRowID) {
@@ -653,13 +657,12 @@ private enum StandardImageMetadataCatalog {
         .init(title: "Scene Type", group: .capture, scope: .exif, key: "SceneType", defaultValue: "", systemImage: "photo"),
         .init(title: "Subsecond Original Time", group: .capture, scope: .exif, key: "SubsecTimeOriginal", defaultValue: "", systemImage: "clock"),
 
-        // File / authorship (7)
+        // File / authorship (6)
         .init(title: "Image Description", group: .file, scope: .tiff, key: "ImageDescription", defaultValue: "", systemImage: "doc.text"),
         .init(title: "Artist", group: .file, scope: .tiff, key: "Artist", defaultValue: "", systemImage: "person"),
         .init(title: "Copyright", group: .file, scope: .tiff, key: "Copyright", defaultValue: "", systemImage: "c.circle"),
         .init(title: "Software", group: .file, scope: .tiff, key: "Software", defaultValue: "", systemImage: "app"),
         .init(title: "Modified Date", group: .file, scope: .tiff, key: "DateTime", defaultValue: "", systemImage: "calendar"),
-        .init(title: "Orientation", group: .file, scope: .tiff, key: "Orientation", defaultValue: "", systemImage: "rotate.right"),
         .init(title: "User Comment", group: .file, scope: .exif, key: "UserComment", defaultValue: "", systemImage: "text.bubble"),
 
         // IPTC / misc (4)
@@ -721,11 +724,15 @@ private struct MetadataFieldCard: View {
     let isHighlighted: Bool
     let onUserEdit: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .subheadline) private var calendarGlyphSize: CGFloat = 28
     @State private var isDatePickerPresented = false
     @State private var pickerDate = Date()
 
+    private static let cornerRadius: CGFloat = 18
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(row.tag.label)
@@ -757,9 +764,9 @@ private struct MetadataFieldCard: View {
                 Text("Will be removed")
                     .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 6)
             } else if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     valueField
 
                     if isCalendarEligibleDateField {
@@ -767,7 +774,7 @@ private struct MetadataFieldCard: View {
                     }
                 }
             } else {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     valueField
 
                     if isCalendarEligibleDateField {
@@ -776,12 +783,13 @@ private struct MetadataFieldCard: View {
                 }
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            isHighlighted ? Theme.secondary : Theme.groupedSurface,
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            isHighlighted ? Theme.secondary : Theme.surface,
+            in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
         )
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isHighlighted)
         .sheet(isPresented: $isDatePickerPresented) {
             DateTimePickerSheet(
                 date: $pickerDate,
@@ -801,15 +809,28 @@ private struct MetadataFieldCard: View {
 
     private var valueField: some View {
         TextField("Value", text: valueBinding, axis: .vertical)
-            .textFieldStyle(.roundedBorder)
+            .textFieldStyle(.plain)
             .font(.subheadline)
             .foregroundStyle(Theme.text)
             .lineLimit(1...3)
             .focused(focusedRowID, equals: row.id)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                // The whole well focuses the field, as the bordered style did.
+                RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous)
+                    .fill(Theme.fieldFill)
+                    .onTapGesture {
+                        focusedRowID.wrappedValue = row.id
+                    }
+                    .accessibilityHidden(true)
+            }
     }
 
+    @ViewBuilder
     private func dateButton(showsLabel: Bool) -> some View {
-        Button {
+        let button = Button {
             focusedRowID.wrappedValue = nil
             dismissKeyboard()
             pickerDate = DateMetadataValueCodec.parse(row.value) ?? Date()
@@ -817,17 +838,23 @@ private struct MetadataFieldCard: View {
         } label: {
             if showsLabel {
                 Label("Choose Date", systemImage: "calendar")
+                    .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
             } else {
                 Image(systemName: "calendar")
                     .font(.subheadline.weight(.semibold))
-                    .frame(width: 32, height: 32)
+                    .frame(width: calendarGlyphSize, height: calendarGlyphSize)
             }
         }
         .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 8))
         .tint(Theme.tint)
         .accessibilityLabel("Choose date")
+
+        if showsLabel {
+            button.buttonBorderShape(.capsule)
+        } else {
+            button.buttonBorderShape(.circle)
+        }
     }
 
     private var includeBinding: Binding<Bool> {
@@ -867,7 +894,7 @@ private struct DateTimePickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
+            ScrollView {
                 DatePicker(
                     "Date & Time",
                     selection: $date,
@@ -875,21 +902,28 @@ private struct DateTimePickerSheet: View {
                 )
                 .datePickerStyle(.graphical)
                 .labelsHidden()
-                .tint(Theme.primary)
-
-                Spacer(minLength: 0)
+                .tint(Theme.tint)
+                .padding(10)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+                .frame(maxWidth: 520)
+                .frame(maxWidth: .infinity)
+                .padding(16)
             }
-            .padding()
+            .scrollBounceBehavior(.basedOnSize)
+            .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Set Date & Time")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply", action: onApply)
+                        .fontWeight(.semibold)
                 }
             }
         }
+        .tint(Theme.tint)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
@@ -952,40 +986,47 @@ private struct MetadataLocationCard: View {
     @State private var isEditorPresented = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Map Preview", systemImage: "mappin.and.ellipse")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.text)
-                Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Label {
+                    Text("Map Preview")
+                        .foregroundStyle(Theme.text)
+                } icon: {
+                    Image(systemName: "mappin.and.ellipse")
+                        .foregroundStyle(Theme.tint)
+                }
+                .font(.subheadline.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+
+                Spacer(minLength: 8)
+
                 Button("Edit") {
                     dismissKeyboard()
                     isEditorPresented = true
                 }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.primary)
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .tint(Theme.tint)
             }
 
             LocationPreviewMap(coordinate: coordinate)
             .frame(height: 180)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.media, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.media, style: .continuous))
             .onTapGesture {
                 dismissKeyboard()
                 isEditorPresented = true
             }
 
             Text("\(coordinate.latitude, specifier: "%.5f"), \(coordinate.longitude, specifier: "%.5f")")
-                .font(.caption.monospacedDigit())
+                .font(.caption.monospaced())
                 .foregroundStyle(Theme.textMuted)
         }
-        .padding(12)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Theme.accent.opacity(0.65), lineWidth: 1)
-        )
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         .sheet(isPresented: $isEditorPresented) {
             LocationEditorSheet(coordinate: $coordinate)
         }
@@ -1047,6 +1088,7 @@ private struct LocationEditorSheet: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var search = LocationSearchModel()
     @State private var draftCoordinate: CLLocationCoordinate2D
+    @FocusState private var isSearchFocused: Bool
 
     init(coordinate: Binding<CLLocationCoordinate2D>) {
         self._coordinate = coordinate
@@ -1056,13 +1098,29 @@ private struct LocationEditorSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
-                TextField("Search for a place or address", text: $search.query)
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
-                    .padding(12)
-                    .background(Theme.background.opacity(0.6))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .padding(.horizontal)
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(Theme.textMuted)
+                        .accessibilityHidden(true)
+
+                    TextField("Search for a place or address", text: $search.query)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .focused($isSearchFocused)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background {
+                    // The whole well focuses the field.
+                    RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous)
+                        .fill(Theme.fieldFill)
+                        .onTapGesture {
+                            isSearchFocused = true
+                        }
+                        .accessibilityHidden(true)
+                }
+                .padding(.horizontal)
 
                 if !search.results.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -1074,25 +1132,28 @@ private struct LocationEditorSheet: View {
                                         draftCoordinate = coordinate
                                     }
                                 } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
+                                    VStack(alignment: .leading, spacing: 3) {
                                         Text(completion.title)
-                                            .font(.caption.weight(.semibold))
+                                            .font(.subheadline.weight(.semibold))
                                             .foregroundStyle(Theme.text)
                                             .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                                         if !completion.subtitle.isEmpty {
                                             Text(completion.subtitle)
-                                                .font(.caption2)
+                                                .font(.caption)
                                                 .foregroundStyle(Theme.textMuted)
                                                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                                         }
                                     }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(Theme.background.opacity(0.55))
-                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .background(
+                                        Theme.surface,
+                                        in: RoundedRectangle(cornerRadius: Theme.Radius.media, style: .continuous)
+                                    )
+                                    .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.media, style: .continuous))
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(PressableButtonStyle())
                                 .containerRelativeFrame(
                                     .horizontal,
                                     count: dynamicTypeSize.isAccessibilitySize ? 1 : 2,
@@ -1109,15 +1170,17 @@ private struct LocationEditorSheet: View {
 
                 EditableLocationMap(coordinate: $draftCoordinate)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
                     .padding(.horizontal)
 
                 Text("Search, pan the map, then tap or long-press to place the pin.")
                     .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
-                    .padding(.horizontal)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
             }
             .padding(.vertical)
+            .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Edit Location")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1131,9 +1194,11 @@ private struct LocationEditorSheet: View {
                         coordinate = draftCoordinate
                         dismiss()
                     }
+                    .fontWeight(.semibold)
                 }
             }
         }
+        .tint(Theme.tint)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }

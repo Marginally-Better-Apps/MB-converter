@@ -38,11 +38,9 @@ enum MediaInspector {
     ) async throws -> MediaFile {
         let dimensions: CGSize
         if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-           let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-           let width = props[kCGImagePropertyPixelWidth] as? Int,
-           let height = props[kCGImagePropertyPixelHeight] as? Int,
-           width > 0, height > 0 {
-            dimensions = CGSize(width: width, height: height)
+           let oriented = ImageOrientation.orientedDimensions(of: source) {
+            // Edits and previews use the displayed orientation, not the stored pixel grid.
+            dimensions = oriented
         } else {
             // ImageIO support varies by OS version. FFmpeg can inspect and decode
             // additional still images, including AVIF on older supported devices.
@@ -309,4 +307,49 @@ enum MediaInspector {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+}
+
+// MARK: - Still image orientation
+
+/// ImageIO reports and decodes the stored pixel grid. Cameras often store
+/// portrait photos sideways with an EXIF/HEIF orientation tag (for example a
+/// "rotate 90° clockwise" tag on iPhone HEICs), so every still-image path
+/// applies that tag before showing or editing the image.
+enum ImageOrientation {
+    static func orientation(of source: CGImageSource, at index: Int = 0) -> CGImagePropertyOrientation {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+              let raw = (props[kCGImagePropertyOrientation] as? NSNumber)?.uint32Value,
+              let orientation = CGImagePropertyOrientation(rawValue: raw) else {
+            return .up
+        }
+        return orientation
+    }
+
+    /// Upright pixel dimensions, as the image is meant to be displayed.
+    static func orientedDimensions(of source: CGImageSource, at index: Int = 0) -> CGSize? {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? Int,
+              let height = props[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0 else {
+            return nil
+        }
+        let stored = CGSize(width: width, height: height)
+        return displayEdits(for: orientation(of: source, at: index)).rotation.applied(to: stored)
+    }
+
+    /// The clockwise turn and following horizontal mirror that make stored pixels
+    /// upright, in the same order the editor applies its own rotation and mirror.
+    static func displayEdits(for orientation: CGImagePropertyOrientation) -> (rotation: MediaRotation, mirrored: Bool) {
+        switch orientation {
+        case .up: (.none, false)
+        case .upMirrored: (.none, true)
+        case .down: (.clockwise180, false)
+        case .downMirrored: (.clockwise180, true)
+        case .leftMirrored: (.clockwise90, true)
+        case .right: (.clockwise90, false)
+        case .rightMirrored: (.clockwise270, true)
+        case .left: (.clockwise270, false)
+        @unknown default: (.none, false)
+        }
+    }
 }

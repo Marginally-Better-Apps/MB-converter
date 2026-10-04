@@ -2,57 +2,61 @@
 
 <img src="Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="80" />
 
-**Convert and compress photos, videos, and audio on your iPhone or iPad.** Change formats, make files smaller, and save or share the results. Free and open source, with no account required.
+**Convert and shrink photos, videos, and audio on your iPhone or iPad.** Free, open source, and no account needed.
 
-## Get MB Converter
+[**Download on the App Store**](https://apps.apple.com/us/app/mb-converter/id6763943720) · iOS / iPadOS 17 or later
 
-[Download MB Converter on the App Store](https://apps.apple.com/us/app/mb-converter/id6763943720).
+<p>
+  <img src="docs/screenshots/home-light.jpg" alt="Choose a photo, video, file, link, or clipboard item" width="200" />
+  <img src="docs/screenshots/photo.jpg" alt="Pick an output format and a target file size" width="200" />
+  <img src="docs/screenshots/result.jpg" alt="Conversion complete: 2.5 MB to 962 KB, 61% smaller" width="200" />
+</p>
 
-Requires **iOS 17 or later** or **iPadOS 17 or later**.
+## How it works
 
-## Make your media easier to share
+1. **Pick something**: from Photos, Files, a link, or your clipboard.
+2. **Choose a format and size**: tap 1 MB, 5 MB, or drag the slider.
+3. **Convert, then share or save.** You'll see how much smaller it got.
 
-- **Convert files:** change image, video, and audio formats, extract audio from videos, or turn a GIF into a video or still image.
-- **Control file size:** choose a target size for supported formats and adjust resolution, frame rate, or audio settings where available.
-- **Make quick edits:** crop and rotate images and videos; trim supported videos; trim audio and adjust its volume, speed, or channels; and review, edit, or remove metadata before exporting.
-- **Import your way:** choose Photos or Files, paste a supported image from the clipboard, or download media from a direct link. Link imports support files up to 150 MB.
-- **Save the result:** preview your conversion, compare file sizes, rename it, and save or share it with the system share sheet.
-- **Keep useful conversions:** revisit History during your session, or enable saved history to keep conversions across app launches.
+## Edit before you export
 
-<table>
-  <tr>
-    <td align="center">
-      <strong>Light</strong><br />
-      <img src="docs/light_mainpage.png" alt="MB Converter import screen in light mode" width="240" />
-    </td>
-    <td align="center">
-      <strong>Dark</strong><br />
-      <img src="docs/dark_mainpage.png" alt="MB Converter import screen in dark mode" width="240" />
-    </td>
-  </tr>
-</table>
+<p>
+  <img src="docs/screenshots/video-edit.jpg" alt="Crop, rotate, and trim a video" width="200" />
+  <img src="docs/screenshots/audio-edit.jpg" alt="Trim audio and adjust volume, speed, and channels" width="200" />
+  <img src="docs/screenshots/metadata.jpg" alt="Choose which metadata to keep" width="200" />
+</p>
+
+- **Photos and videos:** crop, rotate, and trim.
+- **Audio:** trim, and change the volume, speed, or channels.
+- **Live Photos:** pick a different key photo, or save the motion as a video.
+- **Privacy:** remove location and camera details, or all metadata, in one tap.
 
 ## Formats
 
-| Media | Common input formats | Save as |
-| --- | --- | --- |
-| Photos | JPEG, PNG, HEIC, WebP, AVIF, TIFF | JPEG, PNG, HEIC, WebP, TIFF |
-| Video | MP4, MOV, M4V, MKV, WebM, AVI, AV1-encoded video, and more | MP4 (H.264 or HEVC), MOV, WebM (VP9/Opus); supported audio formats for extraction |
-| Audio | MP3, M4A, WAV, AAC, FLAC, OGG, Opus, ALAC | MP3, FLAC, OGG/Vorbis, Opus, M4A, AAC, WAV |
-| Animated GIFs | GIF | MP4 (H.264 or HEVC), or a still JPEG, PNG, HEIC, or TIFF |
+| | Save as |
+| --- | --- |
+| 📷 Photos | JPEG, PNG, HEIC, WebP, TIFF |
+| 🎬 Videos | MP4 (H.264 / HEVC), MOV, WebM |
+| 🎵 Audio | MP3, M4A, AAC, WAV, FLAC, Ogg, Opus |
+| 🎞️ GIFs | MP4, or a still image |
 
-Compatibility depends on the encoding inside the file and your device. AV1 input is supported; AV1 output is not offered. Previews use FFmpeg when native decoding is unavailable: thumbnails load automatically, and tapping Play prepares a compatible temporary copy with progress and cancellation. The original file stays unchanged. Target sizes are estimates; some formats and settings may produce larger files.
+It opens most common files, including MKV, AVI, AV1, WebP, AVIF, and FLAC. You can also pull the audio out of any video.
 
-## Your files stay under your control
+## Light or dark
 
-Media conversion runs on your device. Importing from a link connects to the website hosting that file. Save or share anything you want to keep, or turn on saved history in Settings; session-only history is cleared when you quit and reopen the app.
+<p>
+  <img src="docs/screenshots/home-dark.jpg" alt="Home screen in dark mode" width="200" />
+  <img src="docs/screenshots/video-dark.jpg" alt="Video conversion in dark mode" width="200" />
+</p>
 
-Read the [Privacy Policy](PRIVACY.md) for details about local storage, diagnostics, downloads, and sharing.
+## Private by design
 
-## Help and feedback
+Everything is converted on your device. Nothing is uploaded. History is cleared when you close the app, unless you turn on **Save Conversion History** in Settings. Read the [Privacy Policy](PRIVACY.md).
 
-[Report a problem or request a feature](https://github.com/Marginally-Better-Apps/MB-converter/issues). Include your device, iOS version, and the input and output formats. If you share an error report from Settings, review it first: it can include file names, paths, and media details.
+## Help
 
-Want to build and run the app yourself? Follow the [build guide](docs/DEVELOPMENT.md). See the [changelog](CHANGELOG.md) for version 1.1 changes.
+Something not working? [Open an issue](https://github.com/Marginally-Better-Apps/MB-converter/issues) and tell us your device, iOS version, and the file types involved.
 
-Explore more apps at [Marginally Better](https://marginally-better.app).
+---
+
+[What's new](CHANGELOG.md) · [Build it yourself](docs/DEVELOPMENT.md) · [More apps from Marginally Better](https://marginally-better.app)

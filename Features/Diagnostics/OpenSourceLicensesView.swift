@@ -28,8 +28,8 @@ struct OpenSourceLicensesView: View {
             Section {
                 Text("This app uses FFmpeg under the GNU Lesser General Public License version 2.1 or later, together with LAME, Opus, Vorbis, Ogg, libvpx, dav1d and zimg. Their licenses apply separately from the app's MIT license.")
                 Text("This software is based in part on the work of the Independent JPEG Group.")
-                Link("FFmpeg project", destination: URL(string: "https://ffmpeg.org")!)
-                Link("App source and build instructions", destination: URL(string: "https://github.com/Marginally-Better-Apps/MB-converter")!)
+                linkRow("FFmpeg project", destination: URL(string: "https://ffmpeg.org")!)
+                linkRow("App source and build instructions", destination: URL(string: "https://github.com/Marginally-Better-Apps/MB-converter")!)
             }
             Section("Bundled licenses") {
                 ForEach(notices) { notice in
@@ -47,7 +47,25 @@ struct OpenSourceLicensesView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .tint(Theme.tint)
         .navigationTitle("Open Source Licenses")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// An external link styled like Settings: tinted title, trailing arrow.
+    private func linkRow(_ title: String, destination: URL) -> some View {
+        Link(destination: destination) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .foregroundStyle(Theme.tint)
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
     }
 }

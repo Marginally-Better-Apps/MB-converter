@@ -12,6 +12,8 @@ struct ResultView: View {
     @State private var renameDraft = ""
     @State private var shareItem: ShareSheetItem?
     @State private var isFinishing = false
+    @State private var hasAppeared = false
+    @State private var previewWidth: CGFloat = 0
     private let fromHistory: Bool
     private let onConvertAnother: (() -> Void)?
 
@@ -30,45 +32,56 @@ struct ResultView: View {
     }
 
     var body: some View {
-        ZStack {
-            Theme.background.ignoresSafeArea()
+        ScrollView {
+            VStack(spacing: 24) {
+                successHeader
 
-            ScrollView {
-                VStack(spacing: 18) {
-                    successHeader
-                    outputCard
+                if usesWideOutputLayout {
+                    HStack(alignment: .top, spacing: 24) {
+                        previewCard
+                            .frame(minWidth: 300, maxWidth: 440)
+                        VStack(spacing: 24) {
+                            sizeCard
+                            fileCard
+                        }
+                    }
+                } else {
+                    previewCard
+                    sizeCard
+                    fileCard
                 }
-                .frame(maxWidth: 900)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
             }
-            .scrollBounceBehavior(.basedOnSize)
-
+            .frame(maxWidth: 900)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+            .padding(.bottom, 24)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .background { AmbientBackground() }
+        .overlay {
             if viewModel.isCopyingToPasteboard {
                 ZStack {
-                    Color.black.opacity(0.2)
+                    Color.black.opacity(0.18)
                         .ignoresSafeArea()
 
-                    VStack(spacing: 10) {
+                    VStack(spacing: 12) {
                         ProgressView()
+                            .controlSize(.large)
                             .tint(Theme.tint)
-                        Text("Copying...")
-                            .font(.subheadline.weight(.semibold))
+                        Text("Copying…")
+                            .font(.headline)
                             .foregroundStyle(Theme.text)
                     }
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 18)
-                    .background(Theme.groupedSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .frame(width: 150, height: 130)
+                    .glassSurface(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("Copying converted file")
                 }
                 .transition(.opacity)
             }
         }
-        .safeAreaInset(edge: .bottom) {
+        .floatingBottomBar {
             actionBar
         }
         .onDisappear {
@@ -81,22 +94,35 @@ struct ResultView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: goBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(Theme.tint)
+                }
+                .disabled(isFinishing || viewModel.isCopyingToPasteboard)
+                .accessibilityLabel(fromHistory ? "Back to History" : "Back to conversion settings")
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button(action: finish) {
+                    Text("Done")
+                        .fontWeight(.semibold)
+                }
+                .disabled(isFinishing || viewModel.isCopyingToPasteboard)
+                .accessibilityLabel("Done")
+            }
+        }
         .simultaneousGesture(
             DragGesture(minimumDistance: 20)
                 .onEnded { gesture in
-                    guard !isFinishing, !viewModel.isCopyingToPasteboard,
-                          gesture.startLocation.x <= 24,
+                    guard gesture.startLocation.x <= 24,
                           gesture.translation.width >= 80,
-                          gesture.translation.width > abs(gesture.translation.height) * 1.5,
-                          let last = path.last,
-                          case .result(_, _, let result, _) = last,
-                          result.id == viewModel.result.id else { return }
+                          gesture.translation.width > abs(gesture.translation.height) * 1.5 else { return }
                     // The settings screen owns its back navigation too. Avoid
                     // starting a UIKit interactive pop that it would interrupt.
-                    withAnimation {
-                        _ = path.removeLast()
-                    }
+                    goBack()
                 }
         )
 #if canImport(UIKit)
@@ -113,14 +139,14 @@ struct ResultView: View {
         } message: {
             Text(viewModel.errorMessage ?? "Please try again.")
         }
-        .alert("Copied to clipboard", isPresented: $viewModel.didCopyToPasteboard) {
+        .alert("Copied to Clipboard", isPresented: $viewModel.didCopyToPasteboard) {
             Button("OK", role: .cancel) {
                 Haptics.impact(.light)
             }
         } message: {
             Text("File copied to clipboard.")
         }
-        .alert("Rename file", isPresented: $isRenamePromptPresented) {
+        .alert("Rename File", isPresented: $isRenamePromptPresented) {
             TextField("Filename", text: $renameDraft)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -140,30 +166,133 @@ struct ResultView: View {
     private var successHeader: some View {
         VStack(spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 54, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.green)
+                .font(.system(size: 56, weight: .semibold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, fromHistory ? Theme.tint : Theme.success)
+                .symbolEffect(.bounce, value: hasAppeared)
                 .accessibilityHidden(true)
 
             Text(fromHistory ? "Saved Conversion" : "Conversion Complete")
                 .font(.title2.bold())
                 .foregroundStyle(Theme.text)
-
-            sizeComparison
+                .multilineTextAlignment(.center)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+        .onAppear { hasAppeared = true }
         .accessibilityElement(children: .combine)
     }
 
-    private var outputCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 12) {
-                Text(viewModel.exportFilename)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(Theme.text)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+    private var previewCard: some View {
+        MediaPreview(
+            url: viewModel.result.url,
+            category: viewModel.result.outputFormat.category,
+            compact: true,
+            showsChrome: false,
+            preferredHeight: previewHeight
+        )
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.media, style: .continuous))
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { previewWidth = proxy.size.width }
+                    .onChange(of: proxy.size.width) { _, width in previewWidth = width }
+            }
+        }
+        .padding(12)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .accessibilityLabel("Preview converted file")
+    }
 
-                Spacer()
+    /// Before and after, with the change as a colored badge.
+    private var sizeCard: some View {
+        let comparison = viewModel.sizeComparison
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                CardHeader(title: "File Size")
+                Spacer(minLength: 8)
+                changeBadge(comparison)
+            }
+
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 12) {
+                        sizeColumn("Before", value: comparison.before)
+                        sizeColumn("After", value: comparison.after)
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: 12) {
+                        sizeColumn("Before", value: comparison.before)
+                        Image(systemName: "arrow.right")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(Theme.textTertiary)
+                            .accessibilityHidden(true)
+                        sizeColumn("After", value: comparison.after, alignment: .trailing)
+                    }
+                }
+            }
+        }
+        .surfaceCard(padding: 18)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func changeBadge(_ comparison: ResultSizeComparison) -> some View {
+        let color = changeColor(comparison.direction)
+        return HStack(spacing: 4) {
+            switch comparison.direction {
+            case .smaller:
+                Image(systemName: "arrow.down")
+            case .larger:
+                Image(systemName: "arrow.up")
+            case .unchanged, .unavailable:
+                EmptyView()
+            }
+            Text(comparison.change)
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(color)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(color.opacity(0.14), in: Capsule())
+    }
+
+    private func sizeColumn(_ title: String, value: String, alignment: HorizontalAlignment = .leading) -> some View {
+        VStack(alignment: alignment, spacing: 4) {
+            Text(title)
+                .font(.footnote)
+                .foregroundStyle(Theme.textMuted)
+            Text(value)
+                .font(.title2.weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
+    }
+
+    private func changeColor(_ direction: ResultSizeComparison.Direction) -> Color {
+        switch direction {
+        case .smaller: Theme.success
+        case .larger: .orange
+        case .unchanged, .unavailable: Theme.textMuted
+        }
+    }
+
+    private var fileCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    CardHeader(title: "Output")
+                    Text(viewModel.exportFilename)
+                        .font(.headline)
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 8)
 
                 Button {
                     Haptics.impact(.light)
@@ -171,138 +300,70 @@ struct ResultView: View {
                     isRenamePromptPresented = true
                 } label: {
                     Label("Rename", systemImage: "pencil")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .foregroundStyle(Theme.tint)
+                        .background(Theme.secondaryFill, in: Capsule())
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
-                .controlSize(.small)
-                .tint(Theme.tint)
+                .buttonStyle(.plain)
+                .fixedSize()
                 .accessibilityLabel("Rename output file")
             }
-
-            Divider()
-                .overlay(Theme.separator)
-
-            responsiveOutputContent
-        }
-        .padding(20)
-        .background(Theme.groupedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private var responsiveOutputContent: some View {
-        let layout = usesWideOutputLayout
-            ? AnyLayout(HStackLayout(alignment: .top, spacing: 24))
-            : AnyLayout(VStackLayout(alignment: .leading, spacing: 18))
-
-        return layout {
-            MediaPreview(
-                url: viewModel.result.url,
-                category: viewModel.result.outputFormat.category,
-                compact: true,
-                showsChrome: false
-            )
-            .frame(
-                minWidth: usesWideOutputLayout ? 280 : 0,
-                maxWidth: usesWideOutputLayout ? 360 : .infinity
-            )
-            .accessibilityLabel("Preview converted file")
+            .padding(.bottom, 10)
 
             outputDetails
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .surfaceCard(padding: 18)
     }
 
     private var outputDetails: some View {
         let rows = MetadataFormatter.summaryRows(for: viewModel.result)
 
         return VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+            ForEach(rows) { row in
+                Divider()
                 LabeledContent(row.label) {
                     Text(row.value)
-                        .font(.subheadline.weight(.medium))
+                        .font(.body.weight(.medium))
+                        .monospacedDigit()
                         .foregroundStyle(Theme.text)
                         .multilineTextAlignment(.trailing)
                 }
-                .font(.subheadline)
+                .font(.body)
                 .foregroundStyle(Theme.textMuted)
-                .padding(.vertical, 10)
+                .padding(.vertical, 11)
                 .accessibilityElement(children: .combine)
-
-                if index < rows.count - 1 {
-                    Divider()
-                        .overlay(Theme.separator)
-                }
             }
         }
-    }
-
-    private var sizeComparison: some View {
-        let comparison = viewModel.sizeComparison
-
-        return VStack(spacing: 6) {
-            Text("\(comparison.before) → \(comparison.after)")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Theme.text)
-                .accessibilityLabel("Before \(comparison.before), after \(comparison.after)")
-
-            Text(comparison.change)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Theme.tint)
-        }
-        .multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .combine)
     }
 
     private var actionBar: some View {
-        VStack(spacing: 10) {
-            Button {
-                shareResult()
-            } label: {
-                Label("Share", systemImage: "square.and.arrow.up")
-                    .font(.headline)
-                    .foregroundStyle(Theme.background)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.roundedRectangle(radius: 14))
-            .controlSize(.large)
-            .tint(Theme.tint)
-            .accessibilityLabel("Share converted file")
+        GlassGroup(spacing: 10) {
+            HStack(spacing: 10) {
+                Button {
+                    shareResult()
+                } label: {
+                    PrimaryActionLabel(title: "Share", systemImage: "square.and.arrow.up")
+                }
+                .glassButtonStyle(prominent: true)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+                .tint(Theme.tint)
+                .accessibilityLabel("Share converted file")
 
-            secondaryActions
+                if viewModel.canCopyToPasteboard {
+                    copyAction
+                }
+            }
         }
         .disabled(isFinishing || viewModel.isCopyingToPasteboard)
-        .frame(maxWidth: 900)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: 560)
         .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-                .overlay(Theme.separator)
-        }
-    }
-
-    @ViewBuilder
-    private var secondaryActions: some View {
-        if viewModel.canCopyToPasteboard {
-            LazyVGrid(columns: secondaryActionColumns, spacing: 10) {
-                copyAction
-                doneAction
-            }
-        } else {
-            doneAction
-        }
-    }
-
-    private var secondaryActionColumns: [GridItem] {
-        if dynamicTypeSize.isAccessibilitySize {
-            return [GridItem(.flexible())]
-        }
-        return [
-            GridItem(.flexible(), spacing: 10),
-            GridItem(.flexible(), spacing: 10)
-        ]
+        .padding(.top, 8)
+        .padding(.bottom, 6)
     }
 
     private var copyAction: some View {
@@ -313,41 +374,58 @@ struct ResultView: View {
             }
         } label: {
             Label("Copy", systemImage: "doc.on.doc")
-                .frame(maxWidth: .infinity, minHeight: 24)
+                .font(.headline)
+                .labelStyle(copyLabelStyle)
+                .frame(minWidth: 30, minHeight: 30)
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 14))
+        .glassButtonStyle()
+        .buttonBorderShape(.capsule)
         .controlSize(.large)
         .tint(Theme.tint)
         .accessibilityLabel("Copy file to clipboard")
         .disabled(viewModel.isCopyingToPasteboard)
     }
 
-    private var doneAction: some View {
-        Button {
-            guard !isFinishing else { return }
-            isFinishing = true
-            Haptics.impact(.medium)
-            withAnimation {
-                if let onConvertAnother {
-                    onConvertAnother()
-                } else {
-                    path.removeAll()
-                }
-            }
-        } label: {
-            Label("Done", systemImage: "checkmark")
-                .frame(maxWidth: .infinity, minHeight: 24)
-        }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 14))
-        .controlSize(.large)
-        .tint(Theme.tint)
-        .accessibilityLabel("Done")
+    private var copyLabelStyle: AnyLabelStyle {
+        dynamicTypeSize.isAccessibilitySize ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon)
+    }
+
+    /// Fits the output's shape so wide media doesn't sit in a tall letterbox.
+    private var previewHeight: CGFloat {
+        let maximum: CGFloat = usesWideOutputLayout ? 380 : 320
+        guard viewModel.result.outputFormat.category != .audio else { return 200 }
+        guard let dimensions = viewModel.result.dimensions,
+              dimensions.width > 0, dimensions.height > 0, previewWidth > 0 else { return 260 }
+        let fitted = (previewWidth - 4) * dimensions.height / dimensions.width + 4
+        return min(maximum, max(180, fitted.rounded()))
     }
 
     private var usesWideOutputLayout: Bool {
         horizontalSizeClass == .regular && !dynamicTypeSize.isAccessibilitySize
+    }
+
+    private func goBack() {
+        guard !isFinishing, !viewModel.isCopyingToPasteboard,
+              let last = path.last,
+              case .result(_, _, let result, _) = last,
+              result.id == viewModel.result.id else { return }
+        Haptics.impact(.light)
+        withAnimation {
+            _ = path.removeLast()
+        }
+    }
+
+    private func finish() {
+        guard !isFinishing else { return }
+        isFinishing = true
+        Haptics.impact(.medium)
+        withAnimation {
+            if let onConvertAnother {
+                onConvertAnother()
+            } else {
+                path.removeAll()
+            }
+        }
     }
 
     private func shareResult() {
@@ -370,6 +448,19 @@ struct ResultView: View {
         }
     }
 
+}
+
+/// Type-erases the copy button's label style so it can adapt to Dynamic Type.
+private struct AnyLabelStyle: LabelStyle {
+    private let makeBodyClosure: (Configuration) -> AnyView
+
+    init<S: LabelStyle>(_ style: S) {
+        makeBodyClosure = { AnyView(style.makeBody(configuration: $0)) }
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        makeBodyClosure(configuration)
+    }
 }
 
 private struct ShareSheetItem: Identifiable {

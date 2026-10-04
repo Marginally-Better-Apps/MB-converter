@@ -4,6 +4,7 @@ import SwiftUI
 struct OutputConfigForm: View {
     @Bindable var viewModel: OutputConfigViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @FocusState private var focusedDimension: CustomDimension?
     let isMenuInteractionDisabled: Bool
     var showsPrimaryControls = true
     var showsConvertButton = true
@@ -57,6 +58,10 @@ struct OutputConfigForm: View {
                 }
             }
 
+            if viewModel.shouldShowResolution, viewModel.selectedResolutionID == "custom" {
+                customSizeSection
+            }
+
             if showsPrimaryControls, viewModel.shouldShowTargetSize, viewModel.isAudioOutput {
                 Section {
                     targetSizeSection
@@ -72,14 +77,15 @@ struct OutputConfigForm: View {
             if showsPrimaryControls, viewModel.shouldShowWebPQuality {
                 Section("Quality") {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack {
+                        HStack(alignment: .firstTextBaseline) {
                             Text("WebP Quality")
-                                .font(.subheadline.weight(.semibold))
+                                .font(.headline)
                                 .foregroundStyle(Theme.text)
                             Spacer()
                             Text("\(Int((viewModel.webpQuality * 100).rounded()))%")
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(Theme.textMuted)
+                                .font(.title3.weight(.bold))
+                                .monospacedDigit()
+                                .foregroundStyle(Theme.tint)
                         }
 
                         Slider(
@@ -92,7 +98,7 @@ struct OutputConfigForm: View {
                                 }
                             }
                         )
-                        .tint(Theme.primary)
+                        .tint(Theme.tint)
 
                         Text("Single-pass encode. Faster than target-size tuning, but final file size is not guaranteed.")
                             .font(.footnote)
@@ -114,12 +120,10 @@ struct OutputConfigForm: View {
                         Haptics.impact(.medium)
                         onConvert()
                     } label: {
-                        Text("Convert")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
+                        PrimaryActionLabel(title: "Convert", systemImage: "arrow.triangle.2.circlepath")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.roundedRectangle(radius: 14))
+                    .glassButtonStyle(prominent: true)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.large)
                     .tint(Theme.tint)
                     .disabled(!viewModel.canConvert)
@@ -127,9 +131,18 @@ struct OutputConfigForm: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Theme.groupedBackground)
         .tint(Theme.tint)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            // The number pad has no return key.
+            ToolbarItemGroup(placement: .keyboard) {
+                if focusedDimension != nil {
+                    Spacer()
+                    Button("Done") { focusedDimension = nil }
+                        .fontWeight(.semibold)
+                }
+            }
+        }
         .task { await viewModel.loadDiscoveredMetadataIfNeeded() }
         .task(id: viewModel.pngBaselineRequest) { await viewModel.preparePNGBaseline() }
     }
@@ -161,71 +174,83 @@ struct OutputConfigForm: View {
     }
 
     private var resolutionPicker: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+
+        return layout {
+            PopoverDropdown(
+                title: viewModel.resolutionOptions.first(where: { $0.id == viewModel.selectedResolutionID })?.label ?? "Resolution",
+                accessibilityLabel: "Resolution",
+                options: viewModel.resolutionOptions,
+                optionTitle: { $0.label },
+                isSelected: { $0.id == viewModel.selectedResolutionID },
+                onSelect: { viewModel.selectResolution($0) }
+            )
+            .disabled(isMenuInteractionDisabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if viewModel.isAutoTargetMode {
+                lockButton(
+                    isLocked: $viewModel.isResolutionLocked,
+                    label: "Lock resolution"
+                )
+            }
+        }
+    }
+
+    private var customSizeSection: some View {
+        Section {
             let layout = dynamicTypeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
-                : AnyLayout(HStackLayout(spacing: 10))
+                : AnyLayout(HStackLayout(alignment: .bottom, spacing: 10))
 
             layout {
-                PopoverDropdown(
-                    title: viewModel.resolutionOptions.first(where: { $0.id == viewModel.selectedResolutionID })?.label ?? "Resolution",
-                    accessibilityLabel: "Resolution",
-                    options: viewModel.resolutionOptions,
-                    optionTitle: { $0.label },
-                    isSelected: { $0.id == viewModel.selectedResolutionID },
-                    onSelect: { viewModel.selectResolution($0) }
-                )
-                .disabled(isMenuInteractionDisabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                customDimensionField("Width", value: viewModel.customWidthText,
+                                     maximum: viewModel.customDimensionLimit?.width,
+                                     onChange: viewModel.updateCustomWidth)
+                    .focused($focusedDimension, equals: .width)
 
-                if viewModel.isAutoTargetMode {
-                    lockButton(
-                        isLocked: $viewModel.isResolutionLocked,
-                        label: "Lock resolution"
-                    )
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Image(systemName: viewModel.preservesCustomAspectRatio ? "link" : "multiply")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(viewModel.preservesCustomAspectRatio ? Theme.tint : Theme.textMuted)
+                        .frame(height: 40)
+                        .contentTransition(.symbolEffect(.replace))
+                        .accessibilityHidden(true)
                 }
+
+                customDimensionField("Height", value: viewModel.customHeightText,
+                                     maximum: viewModel.customDimensionLimit?.height,
+                                     onChange: viewModel.updateCustomHeight)
+                    .focused($focusedDimension, equals: .height)
             }
+            .padding(.vertical, 4)
 
-            if viewModel.selectedResolutionID == "custom" {
-                if dynamicTypeSize.isAccessibilitySize {
-                    VStack(alignment: .leading, spacing: 10) {
-                        customDimensionField(
-                            "Width",
-                            text: Binding(
-                                get: { viewModel.customWidthText },
-                                set: { viewModel.updateCustomWidth($0) }
-                            )
-                        )
-                        customDimensionField(
-                            "Height",
-                            text: Binding(
-                                get: { viewModel.customHeightText },
-                                set: { viewModel.updateCustomHeight($0) }
-                            )
-                        )
-                    }
-                } else {
-                    HStack {
-                        customDimensionField(
-                            "Width",
-                            text: Binding(
-                                get: { viewModel.customWidthText },
-                                set: { viewModel.updateCustomWidth($0) }
-                            )
-                        )
-
-                        Text("x")
-                            .foregroundStyle(Theme.textMuted)
-
-                        customDimensionField(
-                            "Height",
-                            text: Binding(
-                                get: { viewModel.customHeightText },
-                                set: { viewModel.updateCustomHeight($0) }
-                            )
-                        )
-                    }
+            Button {
+                Haptics.selection()
+                viewModel.preservesCustomAspectRatio.toggle()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: viewModel.preservesCustomAspectRatio ? "checkmark.square.fill" : "square")
+                        .font(.title3)
+                        .foregroundStyle(viewModel.preservesCustomAspectRatio ? Theme.tint : Theme.textMuted)
+                        .contentTransition(.symbolEffect(.replace))
+                        .accessibilityHidden(true)
+                    Text("Preserve aspect ratio")
+                        .foregroundStyle(Theme.text)
+                    Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
+            }
+            .accessibilityAddTraits(.isToggle)
+            .accessibilityValue(viewModel.preservesCustomAspectRatio ? "On" : "Off")
+            .accessibilityIdentifier("customResolutionPreserveAspectRatio")
+        } header: {
+            Text("Custom Size")
+        } footer: {
+            if let limit = viewModel.customDimensionLimit {
+                Text("Up to \(Int(limit.width.rounded())) × \(Int(limit.height.rounded())), the original size.")
             }
         }
     }
@@ -263,11 +288,13 @@ struct OutputConfigForm: View {
         } label: {
             Image(systemName: isLocked.wrappedValue ? "lock.fill" : "lock.open")
                 .font(.subheadline.weight(.semibold))
-                .frame(minWidth: 42, minHeight: 42)
+                .foregroundStyle(isLocked.wrappedValue ? Color.white : Theme.tint)
+                .frame(width: 40, height: 40)
+                .background(isLocked.wrappedValue ? Theme.tint : Theme.secondaryFill, in: Circle())
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.circle)
-        .tint(Theme.tint)
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityValue(isLocked.wrappedValue ? "Locked" : "Unlocked")
     }
@@ -330,7 +357,7 @@ struct OutputConfigForm: View {
             } else {
                 HStack(alignment: .top, spacing: 14) {
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.body)
                         .foregroundStyle(Theme.text)
                         .frame(width: 96, alignment: .leading)
                         .frame(minHeight: 44, alignment: .leading)
@@ -342,11 +369,63 @@ struct OutputConfigForm: View {
         }
     }
 
-    private func customDimensionField(_ title: String, text: Binding<String>) -> some View {
-        TextField(title, text: text)
-            .keyboardType(.numberPad)
-            .textFieldStyle(.roundedBorder)
-            .accessibilityLabel("Custom \(title.lowercased())")
+    private func customDimensionField(_ title: String, value: String, maximum: CGFloat?,
+                                      onChange: @escaping (String) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(Theme.textMuted)
+                .padding(.leading, 4)
+                .accessibilityHidden(true)
+            CustomDimensionField(title: title, value: value, maximum: maximum, onChange: onChange)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private enum CustomDimension: Hashable {
+    case width, height
+}
+
+/// Keeps its own text so a value clamped to the original size always
+/// replaces what was typed, even when the stored value doesn't change.
+private struct CustomDimensionField: View {
+    let title: String
+    let value: String
+    let maximum: CGFloat?
+    let onChange: (String) -> Void
+
+    @State private var text = ""
+
+    var body: some View {
+        HStack(spacing: 6) {
+            TextField(title, text: $text)
+                .keyboardType(.numberPad)
+                .font(.body.monospacedDigit())
+                .foregroundStyle(Theme.text)
+                .textFieldStyle(.plain)
+            Text("px")
+                .font(.subheadline)
+                .foregroundStyle(Theme.textMuted)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 40)
+        .background(Theme.fieldFill, in: RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous))
+        .accessibilityLabel("Custom \(title.lowercased()) in pixels")
+        .onAppear { text = value }
+        .onChange(of: value) { _, value in
+            if value != text { text = value }
+        }
+        .onChange(of: text) { _, typed in
+            let clamped = OutputConfigViewModel.customDimensionText(typed, maximum: maximum)
+            guard clamped == typed else {
+                Haptics.selection()
+                text = clamped
+                return
+            }
+            if typed != value { onChange(typed) }
+        }
     }
 }
 
