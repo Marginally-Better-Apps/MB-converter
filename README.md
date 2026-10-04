@@ -4,7 +4,7 @@
 
 **Convert and shrink photos, videos, and audio on your iPhone or iPad.** Free, open source, and no account needed.
 
-[**Download on the App Store**](https://apps.apple.com/us/app/mb-converter/id6763943720) · iOS / iPadOS 17 or later
+<a href="https://apps.apple.com/us/app/mb-converter/id6763943720" target="_blank" rel="noopener noreferrer"><strong>Download on the App Store</strong></a> · iOS / iPadOS 17 or later
 
 <p>
   <img src="docs/screenshots/home-light.jpg" alt="Choose a photo, video, file, link, or clipboard item" width="200" />
