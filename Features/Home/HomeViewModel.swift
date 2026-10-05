@@ -15,7 +15,13 @@ final class HomeViewModel {
 
     /// Short label (e.g. "JPEG", "M4A") for supported clipboard content; `nil` disables the paste control.
     var pasteboardImportLabel: String?
+    var pasteboardImportFileExtension: String?
+    var pasteboardPreviewThumbnail: UIImage?
+    var pasteboardFileSizeBytes: Int64?
+    var pasteboardDuration: TimeInterval?
     private var lastSeenPasteboardChangeCount: Int
+    private var lastPreviewPasteboardChangeCount: Int?
+    private var pasteboardPreviewTask: Task<Void, Never>?
 
     init() {
         lastSeenPasteboardChangeCount = UIPasteboard.general.changeCount
@@ -23,8 +29,34 @@ final class HomeViewModel {
     }
 
     func refreshPasteboard() {
-        lastSeenPasteboardChangeCount = UIPasteboard.general.changeCount
-        pasteboardImportLabel = importService.pasteboardImportLabel()
+        let changeCount = UIPasteboard.general.changeCount
+        lastSeenPasteboardChangeCount = changeCount
+        guard lastPreviewPasteboardChangeCount != changeCount else { return }
+        let candidateLabel = importService.pasteboardImportLabel()
+        // Advertised types are only candidates. Keep paste disabled until the
+        // provider actually supplies a readable representation.
+        pasteboardImportLabel = nil
+        pasteboardImportFileExtension = nil
+        lastPreviewPasteboardChangeCount = changeCount
+        pasteboardPreviewTask?.cancel()
+        pasteboardPreviewThumbnail = nil
+        pasteboardFileSizeBytes = nil
+        pasteboardDuration = nil
+        guard candidateLabel != nil else { return }
+
+        pasteboardPreviewTask = Task { [weak self] in
+            guard let self else { return }
+            let preview = await self.importService.pasteboardPreview(forChangeCount: changeCount)
+            guard !Task.isCancelled,
+                  UIPasteboard.general.changeCount == changeCount else { return }
+            if let fileExtension = preview.readableFileExtension {
+                self.pasteboardImportLabel = fileExtension.uppercased()
+                self.pasteboardImportFileExtension = fileExtension
+            }
+            self.pasteboardPreviewThumbnail = preview.thumbnail
+            self.pasteboardFileSizeBytes = preview.fileSizeBytes
+            self.pasteboardDuration = preview.duration
+        }
     }
 
     /// `UIPasteboard.changedNotification` can occasionally be delayed/missed until user interaction.
@@ -36,7 +68,10 @@ final class HomeViewModel {
     }
 
     func importFromPhotos(_ item: PhotosPickerItem) async -> MediaFile? {
-        await importFile(context: "Import from Photos") {
+        await importFile(
+            context: "Import from Photos",
+            livePhotoMovie: { [importService] in await importService.importLivePhotoMovie(from: item) }
+        ) {
             try await importService.importFromPhotos(item)
         }
     }
@@ -51,9 +86,21 @@ final class HomeViewModel {
     }
 
     func importFromPasteboard() async -> MediaFile? {
-        await importFile(context: "Import from clipboard") {
+        let changeCount = UIPasteboard.general.changeCount
+        let media = await importFile(context: "Import from clipboard") {
             try await importService.importFromPasteboard()
         }
+        if media == nil, UIPasteboard.general.changeCount == changeCount {
+            // A provider can become unavailable after the preview. Don't keep
+            // offering the same failed clipboard item until it is copied again.
+            pasteboardPreviewTask?.cancel()
+            pasteboardImportLabel = nil
+            pasteboardImportFileExtension = nil
+            pasteboardPreviewThumbnail = nil
+            pasteboardFileSizeBytes = nil
+            pasteboardDuration = nil
+        }
+        return media
     }
 
     func importFromRemoteLink(_ linkString: String) async -> MediaFile? {
@@ -77,6 +124,7 @@ final class HomeViewModel {
     private func importFile(
         context: String,
         metadata: [String: String] = [:],
+        livePhotoMovie: (() async -> URL?)? = nil,
         _ operation: () async throws -> URL
     ) async -> MediaFile? {
         isImporting = true
@@ -89,7 +137,11 @@ final class HomeViewModel {
         do {
             let url = try await operation()
             do {
-                let media = try await importService.validatedMediaFile(at: url)
+                var media = try await importService.validatedMediaFile(at: url)
+                // Keep the Live Photo movie with its still for video exports.
+                if media.category == .image, let movieURL = await livePhotoMovie?() {
+                    media = media.attachingLivePhoto(movieURL: movieURL)
+                }
                 Haptics.success()
                 return media
             } catch {

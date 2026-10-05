@@ -1,5 +1,8 @@
+import AVFoundation
 import CoreTransferable
 import Foundation
+import ImageIO
+import Photos
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -31,62 +34,35 @@ private struct ImportedPhotoLibraryFile: Transferable {
     }
 }
 
-struct RemoteDownloadProgress: Equatable {
-    let bytesReceived: Int64
-    let totalBytes: Int64?
+struct PasteboardPreview {
+    var thumbnail: UIImage?
+    var fileSizeBytes: Int64?
+    var duration: TimeInterval? = nil
+    /// Set only after loading readable media, never from advertised types or a provider thumbnail.
+    var readableFileExtension: String? = nil
+}
 
-    var fractionCompleted: Double? {
-        guard let totalBytes, totalBytes > 0 else { return nil }
-        return min(Double(bytesReceived) / Double(totalBytes), 1)
+/// Provider callbacks aren't Swift tasks, so cancellation must cross the callback boundary.
+private final class PasteboardPreviewCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
     }
 
-    /// Value for a determinate `ProgressView` when the server omits a total size: monotonic in `bytesReceived`, capped so completion can set the bar near full in the last update.
-    var displayFraction: Double {
-        if let t = totalBytes, t > 0 {
-            return min(1, Double(bytesReceived) / Double(t))
-        }
-        // No Content-Length (chunked, etc.): show a monotonic 0...<1 curve vs the import cap so the bar still advances.
-        let b = max(0, Double(bytesReceived))
-        let cap = Double(ImportService.maxRemoteImportBytes)
-        guard cap > 0 else { return 0 }
-        return min(0.99, log(1 + b) / log(1 + cap))
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        cancelled = true
     }
 }
 
 struct ImportService {
     /// Maximum size for a file downloaded from a remote link (bytes).
-    static let maxRemoteImportBytes: Int64 = 150 * 1024 * 1024
-
-    private static let mimeToExtension: [String: String] = [
-        "video/mp4": "mp4",
-        "video/x-m4v": "m4v",
-        "video/quicktime": "mov",
-        "video/webm": "webm",
-        "video/x-matroska": "mkv",
-        "video/ogg": "ogv",
-        "video/3gpp": "3gp",
-        "video/mpeg": "mpeg",
-        "video/x-msvideo": "avi",
-        "video/x-flv": "flv",
-        "audio/mpeg": "mp3",
-        "audio/mp3": "mp3",
-        "audio/mp4": "m4a",
-        "audio/x-m4a": "m4a",
-        "audio/wav": "wav",
-        "audio/x-wav": "wav",
-        "audio/aac": "aac",
-        "audio/flac": "flac",
-        "audio/ogg": "ogg",
-        "audio/opus": "opus",
-        "image/jpeg": "jpg",
-        "image/png": "png",
-        "image/gif": "gif",
-        "image/webp": "webp",
-        "image/heic": "heic",
-        "image/heif": "heic",
-        "image/tiff": "tiff",
-        "image/avif": "avif"
-    ]
+    static let maxRemoteImportBytes = RemoteFileDownloader.maxBytes
 
     private struct PasteboardImageType {
         let identifier: String
@@ -121,9 +97,15 @@ struct ImportService {
         return overrides
     }()
 
-    /// `nil` when the pasteboard advertises no importable media. This intentionally avoids reading item data until the user taps Paste.
+    /// Returns a label from advertised types without loading media data. `nil` when no supported media is available.
     func pasteboardImportLabel() -> String? {
         let pasteboard = UIPasteboard.general
+        if let fileURL = Self.firstSupportedMediaFileURL(in: pasteboard) {
+            return Self.displayLabelForFileURL(fileURL)
+        }
+        if let representation = Self.pasteboardFileRepresentations(in: pasteboard).first {
+            return Self.labelForMediaFileExtension(representation.fallbackExtension)
+        }
         if let binary = Self.preferredPasteboardBinaryMediaType(in: pasteboard) {
             return binary.displayName
         }
@@ -132,6 +114,287 @@ struct ImportService {
         }
         if pasteboard.hasImages {
             return "PNG"
+        }
+        return nil
+    }
+
+    func pasteboardImportFileExtension() -> String? {
+        let pasteboard = UIPasteboard.general
+        if let fileURL = Self.firstSupportedMediaFileURL(in: pasteboard),
+           !fileURL.pathExtension.isEmpty {
+            return fileURL.pathExtension
+        }
+        if let suggestedName = Self.pasteboardFileRepresentations(in: pasteboard).first?.suggestedName {
+            let fileExtension = URL(fileURLWithPath: suggestedName).pathExtension
+            if !fileExtension.isEmpty { return fileExtension }
+        }
+        if let binary = Self.preferredPasteboardBinaryMediaType(in: pasteboard) {
+            return binary.fileExtension
+        }
+        if let image = Self.preferredPasteboardImageType(in: pasteboard) {
+            return image.fileExtension
+        }
+        if pasteboard.hasImages {
+            return "png"
+        }
+        return nil
+    }
+
+    /// Loads a small preview and file size without buffering full media files in memory.
+    @MainActor
+    func pasteboardPreview(
+        forChangeCount expectedChangeCount: Int,
+        maxPixelSize: Int = 144
+    ) async -> PasteboardPreview {
+        let pasteboard = UIPasteboard.general
+        guard !Task.isCancelled, pasteboard.changeCount == expectedChangeCount else {
+            return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil)
+        }
+
+        if let fileURL = Self.firstSupportedMediaFileURL(in: pasteboard) {
+            let hasAccess = fileURL.startAccessingSecurityScopedResource()
+            defer { if hasAccess { fileURL.stopAccessingSecurityScopedResource() } }
+            let preview = await Self.filePreview(
+                at: fileURL, fileExtension: fileURL.pathExtension, maxPixelSize: maxPixelSize
+            )
+            guard !Task.isCancelled, pasteboard.changeCount == expectedChangeCount else {
+                return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil)
+            }
+            // Import gives a direct file URL precedence over provider data too.
+            return preview
+        }
+
+        for representation in Self.pasteboardFileRepresentations(in: pasteboard) {
+            guard !Task.isCancelled, pasteboard.changeCount == expectedChangeCount else { break }
+            let preview = await Self.loadFilePreview(from: representation, maxPixelSize: maxPixelSize)
+            guard !Task.isCancelled, pasteboard.changeCount == expectedChangeCount else {
+                return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil)
+            }
+            if preview.readableFileExtension != nil { return preview }
+        }
+
+        guard !Task.isCancelled, pasteboard.changeCount == expectedChangeCount else {
+            return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil)
+        }
+
+        // Some providers advertise HEIC but cannot vend a file. Check the same
+        // data/image fallbacks used by import, not their independent preview image.
+        let preview: PasteboardPreview
+        if let binary = Self.preferredPasteboardBinaryMediaRepresentation(in: pasteboard) {
+            preview = await Self.dataPreview(
+                binary.data, fileExtension: binary.fileExtension, maxPixelSize: maxPixelSize
+            )
+        } else if let representation = Self.preferredPasteboardImageRepresentation(in: pasteboard) {
+            preview = await Self.dataPreview(
+                representation.data, fileExtension: representation.fileExtension, maxPixelSize: maxPixelSize
+            )
+        } else {
+            return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil)
+        }
+        guard !Task.isCancelled, pasteboard.changeCount == expectedChangeCount else {
+            return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil)
+        }
+        return preview
+    }
+
+    private static func loadFilePreview(
+        from representation: PasteboardFileRepresentation,
+        maxPixelSize: Int
+    ) async -> PasteboardPreview {
+        let cancellation = PasteboardPreviewCancellation()
+        let fallbackExtension = representation.fallbackExtension
+        let ownedURL: URL? = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !cancellation.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                // Use the same loading API as import. An in-place file or a
+                // provider thumbnail alone doesn't prove this request will work.
+                representation.provider.loadFileRepresentation(
+                    forTypeIdentifier: representation.typeIdentifier
+                ) { fileURL, _ in
+                    guard let fileURL, !cancellation.isCancelled else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    // Provider URLs expire on returning from this callback. Copy before any async decoding.
+                    var copy: URL?
+                    NSFileCoordinator().coordinate(readingItemAt: fileURL, options: [], error: nil) { readableURL in
+                        guard !cancellation.isCancelled else { return }
+                        copy = try? ImportStorage.copyFile(
+                            at: readableURL, originalName: "clipboard.\(fallbackExtension)",
+                            fallbackExtension: fallbackExtension
+                        )
+                    }
+                    continuation.resume(returning: copy)
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
+        guard let ownedURL else { return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil) }
+        defer { try? FileManager.default.removeItem(at: ownedURL) }
+        guard !Task.isCancelled else { return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil) }
+        return await filePreview(at: ownedURL, fileExtension: fallbackExtension,
+                                 maxPixelSize: maxPixelSize, ownsFile: true)
+    }
+
+    private static func dataPreview(_ data: Data, fileExtension: String, maxPixelSize: Int) async -> PasteboardPreview {
+        let url = ImportStorage.url(originalName: nil, fallbackExtension: fileExtension)
+        defer { try? FileManager.default.removeItem(at: url) }
+        do {
+            try Task.checkCancellation()
+            try await Task.detached(priority: .userInitiated) { try data.write(to: url, options: .atomic) }.value
+            try Task.checkCancellation()
+            return await filePreview(at: url, fileExtension: fileExtension, maxPixelSize: maxPixelSize, ownsFile: true)
+        } catch {
+            return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil)
+        }
+    }
+
+    private static func needsDuration(fileExtension: String) -> Bool {
+        let category = FormatMatrix.detectCategory(from: URL(fileURLWithPath: "clipboard.\(fileExtension)"))
+        return category == .audio || category == .video
+    }
+
+    private static func filePreview(
+        at url: URL, fileExtension: String, maxPixelSize: Int, ownsFile: Bool = false
+    ) async -> PasteboardPreview {
+        let cancellation = PasteboardPreviewCancellation()
+        let (native, fallbackURL) = await withTaskCancellationHandler {
+            await Task.detached(priority: .userInitiated) {
+                nativeFilePreview(at: url, fileExtension: fileExtension, maxPixelSize: maxPixelSize,
+                                  ownsFile: ownsFile, isCancelled: { cancellation.isCancelled })
+            }.value
+        } onCancel: { cancellation.cancel() }
+        defer {
+            if !ownsFile, let fallbackURL { try? FileManager.default.removeItem(at: fallbackURL) }
+        }
+        guard !Task.isCancelled else { return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil) }
+        var preview = native
+        let category = FormatMatrix.detectCategory(from: URL(fileURLWithPath: "clipboard.\(fileExtension)"))
+        if preview.thumbnail == nil, let fallbackURL {
+            do {
+                if category == .audio {
+                    let sample = try await MediaPreviewRenderer.renderAudioThumbnailSample(sourceURL: fallbackURL)
+                    defer { try? FileManager.default.removeItem(at: sample) }
+                    preview.thumbnail = await withTaskCancellationHandler {
+                        await Task.detached(priority: .userInitiated) {
+                            AudioWaveformThumbnail.image(from: sample, maxPixelSize: maxPixelSize,
+                                                         isCancelled: { cancellation.isCancelled })
+                                .map { UIImage(cgImage: $0) }
+                        }.value
+                    } onCancel: { cancellation.cancel() }
+                } else {
+                    let data = try await MediaPreviewRenderer.firstFrame(sourceURL: fallbackURL, maximumDimension: maxPixelSize)
+                    preview.thumbnail = UIImage(data: data)
+                }
+                if preview.thumbnail != nil { preview.readableFileExtension = fileExtension }
+            } catch {
+                // An unreadable thumbnail must not hide an otherwise importable audio/video file.
+            }
+        }
+        guard !Task.isCancelled else { return PasteboardPreview(thumbnail: nil, fileSizeBytes: nil) }
+        if preview.readableFileExtension != nil, needsDuration(fileExtension: fileExtension) {
+            preview.duration = await mediaDuration(from: fallbackURL ?? url)
+        }
+        return Task.isCancelled ? PasteboardPreview(thumbnail: nil, fileSizeBytes: nil) : preview
+    }
+
+    private static func nativeFilePreview(
+        at url: URL,
+        fileExtension: String,
+        maxPixelSize: Int,
+        ownsFile: Bool,
+        isCancelled: () -> Bool
+    ) -> (PasteboardPreview, URL?) {
+        var preview = PasteboardPreview(thumbnail: nil, fileSizeBytes: nil)
+        var fallbackURL: URL?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: nil) { readableURL in
+            guard !isCancelled(),
+                  let handle = try? FileHandle(forReadingFrom: readableURL) else { return }
+            defer { try? handle.close() }
+            guard let firstByte = try? handle.read(upToCount: 1), !firstByte.isEmpty else { return }
+            let attributes = try? FileManager.default.attributesOfItem(atPath: readableURL.path)
+            preview.fileSizeBytes = (attributes?[.size] as? NSNumber)?.int64Value
+            let category = FormatMatrix.detectCategory(
+                from: URL(fileURLWithPath: "clipboard.\(fileExtension)")
+            )
+            switch category {
+            case .some(.image), .some(.animatedImage):
+                preview.thumbnail = Self.imageThumbnail(from: readableURL, maxPixelSize: maxPixelSize)
+            case .some(.video):
+                preview.thumbnail = Self.videoThumbnail(from: readableURL, maxPixelSize: maxPixelSize, isCancelled: isCancelled)
+            case .some(.audio):
+                preview.thumbnail = AudioWaveformThumbnail.image(
+                    from: readableURL, maxPixelSize: maxPixelSize, isCancelled: isCancelled
+                ).map { UIImage(cgImage: $0) }
+            case .none:
+                return
+            }
+            guard !isCancelled() else { return }
+            if preview.thumbnail == nil {
+                // Keep coordinated source access valid while asynchronous FFmpeg work runs.
+                fallbackURL = ownsFile ? url : (try? ImportStorage.copyFile(
+                    at: readableURL, originalName: "clipboard.\(fileExtension)", fallbackExtension: fileExtension
+                ))
+            }
+            if preview.thumbnail != nil || category == .audio || category == .video {
+                preview.readableFileExtension = fileExtension
+            }
+        }
+        return (preview, fallbackURL)
+    }
+
+    private static func mediaDuration(from url: URL) async -> TimeInterval? {
+        let asset = AVURLAsset(url: url)
+        if let duration = try? await asset.load(.duration) {
+            let seconds = CMTimeGetSeconds(duration)
+            if seconds.isFinite && seconds > 0 { return seconds }
+        }
+        guard !Task.isCancelled else { return nil }
+        let probe = await Task.detached(priority: .userInitiated) {
+            FFmpegMediaProbe.probe(at: url, timeoutMilliseconds: 3_000)
+        }.value
+        return ([probe?.format?.duration] + (probe?.streams.map { $0.duration } ?? []))
+            .compactMap { $0 }.first { $0.isFinite && $0 > 0 }
+    }
+
+    private static func imageThumbnail(from fileURL: URL, maxPixelSize: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(
+                source,
+                0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+                ] as CFDictionary
+              ) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private static func videoThumbnail(from fileURL: URL, maxPixelSize: Int, isCancelled: () -> Bool) -> UIImage? {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: fileURL))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: maxPixelSize, height: maxPixelSize)
+        generator.requestedTimeToleranceBefore = .positiveInfinity
+        generator.requestedTimeToleranceAfter = .positiveInfinity
+
+        for seconds in [0.0, 0.1, 0.5] {
+            guard !isCancelled() else { return nil }
+            do {
+                let frame = try generator.copyCGImage(
+                    at: CMTime(seconds: seconds, preferredTimescale: 600),
+                    actualTime: nil
+                )
+                return UIImage(cgImage: frame)
+            } catch {
+                continue
+            }
         }
         return nil
     }
@@ -145,6 +408,35 @@ struct ImportService {
             return try replaceFilenameExtension(of: imported.url, with: preferredExtension)
         }
         return imported.url
+    }
+
+    /// Live Photos also carry a short movie. Copy it beside the still so video
+    /// outputs and key photo choices can use it. Regular photos return nil.
+    func importLivePhotoMovie(from item: PhotosPickerItem) async -> URL? {
+        #if os(iOS)
+        // Only Live Photos provide this representation; a still fails immediately.
+        guard let livePhoto = try? await item.loadTransferable(type: PHLivePhoto.self) else { return nil }
+        let resources = PHAssetResource.assetResources(for: livePhoto)
+        // An edited Live Photo's full-size movie matches the edited still.
+        guard let movie = resources.first(where: { $0.type == .fullSizePairedVideo })
+                ?? resources.first(where: { $0.type == .pairedVideo }) else { return nil }
+        let outputURL = ImportStorage.url(originalName: movie.originalFilename, fallbackExtension: "mov")
+        do {
+            let options = PHAssetResourceRequestOptions()
+            options.isNetworkAccessAllowed = true
+            try await PHAssetResourceManager.default().writeData(for: movie, toFile: outputURL, options: options)
+            TempStorage.allowAccessWhileLocked(at: outputURL)
+            return outputURL
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            // The still still imports; only the video options are unavailable.
+            DiagnosticsLog.shared.record(error: error, context: "Import Live Photo movie",
+                                         metadata: ["Filename": movie.originalFilename])
+            return nil
+        }
+        #else
+        return nil
+        #endif
     }
 
     func importFromFiles(at url: URL) async throws -> URL {
@@ -173,8 +465,22 @@ struct ImportService {
         if let fileURL = Self.firstSupportedMediaFileURL(in: pasteboard) {
             return try await importFromFiles(at: fileURL)
         }
-        if let fileRepresentation = Self.preferredPasteboardFileRepresentation(in: pasteboard) {
-            return try await importPasteboardFileRepresentation(fileRepresentation)
+        let changeCount = pasteboard.changeCount
+        var providerError: Error?
+        for representation in Self.pasteboardFileRepresentations(in: pasteboard) {
+            try Task.checkCancellation()
+            guard pasteboard.changeCount == changeCount else {
+                throw ImportError.noSupportedMediaInPasteboard
+            }
+            do {
+                return try await importPasteboardFileRepresentation(representation)
+            } catch let error as PasteboardRepresentationUnavailable {
+                providerError = error.underlying
+            }
+        }
+        try Task.checkCancellation()
+        guard pasteboard.changeCount == changeCount else {
+            throw ImportError.noSupportedMediaInPasteboard
         }
         if let binary = Self.preferredPasteboardBinaryMediaRepresentation(in: pasteboard) {
             let outputURL = ImportStorage.url(
@@ -185,6 +491,7 @@ struct ImportService {
             return outputURL
         }
         guard let representation = Self.preferredPasteboardImageRepresentation(in: pasteboard) else {
+            if let providerError { throw ImportError.copyFailed(providerError.localizedDescription) }
             throw ImportError.noSupportedMediaInPasteboard
         }
 
@@ -196,116 +503,12 @@ struct ImportService {
         return outputURL
     }
 
-    /// Downloads a file from an http(s) URL into ``ImportStorage``, enforcing
-    /// ``maxRemoteImportBytes`` and ``FormatMatrix`` support.
+    /// Downloads a supported media candidate; `validatedMediaFile` inspects its contents before navigation.
     func importFromRemoteURL(
         _ string: String,
         progress: ((RemoteDownloadProgress) async -> Void)? = nil
     ) async throws -> URL {
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw ImportError.invalidRemoteURL }
-
-        guard let url = Self.normalizedRemoteURL(from: trimmed) else {
-            throw ImportError.invalidRemoteURL
-        }
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            throw ImportError.invalidRemoteURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-
-        let bytes: URLSession.AsyncBytes
-        let response: URLResponse
-        do {
-            (bytes, response) = try await URLSession.shared.bytes(for: request)
-        } catch {
-            throw ImportError.networkFailed(error.localizedDescription)
-        }
-
-        guard let http = response as? HTTPURLResponse else {
-            throw ImportError.networkFailed("Not an HTTP response.")
-        }
-        guard (200 ... 299).contains(http.statusCode) else {
-            throw ImportError.networkFailed("Server returned status \(http.statusCode).")
-        }
-
-        let declaredContentLength = Self.declaredContentLength(from: http)
-        if let declared = declaredContentLength, declared > Self.maxRemoteImportBytes {
-            throw ImportError.fileTooLarge(limitBytes: Self.maxRemoteImportBytes)
-        }
-
-        guard let ext = Self.inferredFileExtension(remoteURL: url, response: http) else {
-            throw ImportError.couldNotDetermineRemoteFileType
-        }
-
-        let tempName = "download.\(ext)"
-        let outputURL = ImportStorage.url(originalName: tempName, fallbackExtension: ext)
-
-        if FileManager.default.fileExists(atPath: outputURL.path) {
-            try? FileManager.default.removeItem(at: outputURL)
-        }
-        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil) else {
-            throw ImportError.copyFailed("Could not create a temporary file.")
-        }
-
-        let handle: FileHandle
-        do {
-            handle = try FileHandle(forWritingTo: outputURL)
-        } catch {
-            throw ImportError.copyFailed(error.localizedDescription)
-        }
-        defer { try? handle.close() }
-
-        func reportProgress(_ byteCount: Int64) async {
-            await progress?(RemoteDownloadProgress(bytesReceived: byteCount, totalBytes: declaredContentLength))
-        }
-
-        await reportProgress(0)
-
-        var total: Int64 = 0
-        let chunkCapacity = 256 * 1024
-        var scratch = [UInt8](repeating: 0, count: chunkCapacity)
-        var scratchCount = 0
-        do {
-            for try await byte in bytes {
-                scratch[scratchCount] = byte
-                scratchCount += 1
-                total += 1
-                if total > Self.maxRemoteImportBytes {
-                    try? FileManager.default.removeItem(at: outputURL)
-                    throw ImportError.fileTooLarge(limitBytes: Self.maxRemoteImportBytes)
-                }
-                if scratchCount == chunkCapacity {
-                    try handle.write(contentsOf: scratch)
-                    scratchCount = 0
-                    await reportProgress(total)
-                }
-            }
-            if scratchCount > 0 {
-                try handle.write(contentsOf: scratch[0 ..< scratchCount])
-            }
-            if declaredContentLength == nil, total > 0 {
-                // No Content-Length while downloading; use actual size for the last tick so the bar can reach 100%.
-                await progress?(RemoteDownloadProgress(bytesReceived: total, totalBytes: total))
-            } else {
-                await reportProgress(total)
-            }
-        } catch let error as ImportError {
-            try? FileManager.default.removeItem(at: outputURL)
-            throw error
-        } catch {
-            try? FileManager.default.removeItem(at: outputURL)
-            throw ImportError.networkFailed(error.localizedDescription)
-        }
-
-        guard FormatMatrix.detectCategory(from: outputURL) != nil else {
-            try? FileManager.default.removeItem(at: outputURL)
-            throw ImportError.unsupportedType
-        }
-
-        return outputURL
+        try await RemoteFileDownloader().download(string, progress: progress)
     }
 
     func validatedMediaFile(at url: URL) async throws -> MediaFile {
@@ -319,82 +522,24 @@ struct ImportService {
         return media
     }
 
-    private static func declaredContentLength(from response: HTTPURLResponse) -> Int64? {
-        if response.expectedContentLength > 0 {
-            return response.expectedContentLength
-        }
-        if let lengthHeader = response.value(forHTTPHeaderField: "Content-Length") {
-            let firstToken = lengthHeader
-                .split(separator: ",")
-                .first
-                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-                ?? lengthHeader.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let declared = Int64(firstToken), declared > 0 {
-                return declared
-            }
-        }
-        return nil
-    }
-
-    private static func normalizedRemoteURL(from string: String) -> URL? {
-        if let u = URL(string: string), u.scheme != nil { return u }
-        if let u = URL(string: "https://\(string)"), u.host != nil { return u }
-        return nil
-    }
-
-    private static func inferredFileExtension(remoteURL: URL, response: HTTPURLResponse) -> String? {
-        if let cd = response.value(forHTTPHeaderField: "Content-Disposition"),
-           let name = filenameFromContentDisposition(cd) {
-            let ext = URL(fileURLWithPath: name).pathExtension.lowercased()
-            if !ext.isEmpty { return ext }
-        }
-
-        let pathExt = remoteURL.pathExtension.lowercased()
-        if !pathExt.isEmpty { return pathExt }
-
-        guard let rawType = response.value(forHTTPHeaderField: "Content-Type") else { return nil }
-        let mime = rawType.split(separator: ";").first.map(String.init)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard let mime else { return nil }
-        return mimeToExtension[mime]
-    }
-
-    private static func filenameFromContentDisposition(_ value: String) -> String? {
-        let segments = value.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
-        for segment in segments where segment.lowercased().hasPrefix("filename*=") {
-            var rest = String(segment.dropFirst("filename*=".count)).trimmingCharacters(in: .whitespaces)
-            if let sep = rest.range(of: "''", options: .literal) {
-                rest = String(rest[sep.upperBound...])
-            }
-            let token = rest.split(separator: ";").first.map(String.init) ?? rest
-            let decoded = token.removingPercentEncoding ?? token
-            if !decoded.isEmpty { return decoded }
-        }
-        for segment in segments where segment.lowercased().hasPrefix("filename=") {
-            var name = String(segment.dropFirst("filename=".count)).trimmingCharacters(in: .whitespaces)
-            if name.hasPrefix("\""), name.hasSuffix("\""), name.count >= 2 {
-                name = String(name.dropFirst().dropLast())
-            } else {
-                name = String(name.split(separator: ";").first ?? Substring(name))
-            }
-            if !name.isEmpty { return name }
-        }
-        return nil
-    }
-
     private static func preferredPasteboardImageRepresentation(in pasteboard: UIPasteboard) -> PasteboardImageRepresentation? {
+        var fallback: PasteboardImageRepresentation?
         for type in preferredConcreteImageTypes(in: pasteboard) {
             guard let data = pasteboard.data(forPasteboardType: type.identifier),
                   !data.isEmpty else { continue }
-            return PasteboardImageRepresentation(
+            let representation = PasteboardImageRepresentation(
                 data: data,
                 fileExtension: type.fileExtension,
                 displayName: type.displayName
             )
+            if CGImageSourceCreateWithData(data as CFData, nil) != nil { return representation }
+            // Keep the native representation preference while allowing FFmpeg-only still images.
+            if fallback == nil { fallback = representation }
         }
 
         guard let image = pasteboard.image,
               let data = image.pngData() else {
-            return nil
+            return fallback
         }
         return PasteboardImageRepresentation(
             data: data,
@@ -417,9 +562,10 @@ struct ImportService {
     /// Requests a temporary file from the item provider. Even data-backed
     /// pasteboard entries are written to a file by the provider, keeping the
     /// app from receiving the full payload as one `Data` allocation.
-    private static func preferredPasteboardFileRepresentation(
+    private static func pasteboardFileRepresentations(
         in pasteboard: UIPasteboard
-    ) -> PasteboardFileRepresentation? {
+    ) -> [PasteboardFileRepresentation] {
+        var representations: [PasteboardFileRepresentation] = []
         for provider in pasteboard.itemProviders {
             for identifier in provider.registeredTypeIdentifiers {
                 guard let ext = mediaFileExtension(forPasteboardTypeIdentifier: identifier),
@@ -428,29 +574,34 @@ struct ImportService {
                       ) != nil else {
                     continue
                 }
-                return PasteboardFileRepresentation(
+                representations.append(PasteboardFileRepresentation(
                     provider: provider,
                     typeIdentifier: identifier,
                     fallbackExtension: ext,
                     suggestedName: provider.suggestedName
-                )
+                ))
             }
         }
-        return nil
+        return representations
+    }
+
+    private struct PasteboardRepresentationUnavailable: Error {
+        let underlying: Error
     }
 
     private func importPasteboardFileRepresentation(
         _ representation: PasteboardFileRepresentation
     ) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
+        let suggestedName = representation.suggestedName
+        let fallbackExtension = representation.fallbackExtension
+        return try await withCheckedThrowingContinuation { continuation in
             representation.provider.loadFileRepresentation(
                 forTypeIdentifier: representation.typeIdentifier
             ) { sourceURL, error in
                 guard let sourceURL else {
                     continuation.resume(
-                        throwing: ImportError.copyFailed(
-                            error?.localizedDescription
-                                ?? "The clipboard did not provide a readable file."
+                        throwing: PasteboardRepresentationUnavailable(
+                            underlying: error ?? ImportError.noSupportedMediaInPasteboard
                         )
                     )
                     return
@@ -459,8 +610,11 @@ struct ImportService {
                 do {
                     let outputURL = try ImportStorage.copyFile(
                         at: sourceURL,
-                        originalName: representation.suggestedName,
-                        fallbackExtension: representation.fallbackExtension
+                        originalName: suggestedName.map {
+                            URL(fileURLWithPath: $0).deletingPathExtension()
+                                .appendingPathExtension(fallbackExtension).lastPathComponent
+                        } ?? "clipboard.\(fallbackExtension)",
+                        fallbackExtension: fallbackExtension
                     )
                     continuation.resume(returning: outputURL)
                 } catch {

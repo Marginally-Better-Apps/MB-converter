@@ -2,10 +2,12 @@ import Foundation
 
 final class VideoConverter: Converter {
     private let runner = FFmpegCommandRunner()
+    private let imageConverter = ImageConverter()
     private let audioConverter = AudioConverter()
 
     func cancel() {
         runner.cancel()
+        imageConverter.cancel()
         audioConverter.cancel()
     }
 
@@ -15,6 +17,7 @@ final class VideoConverter: Converter {
         progress: @escaping @Sendable (Double) -> Void,
         encodingStats: (@Sendable (FFmpegEncodingDisplayStats) -> Void)? = nil
     ) async throws -> ConversionResult {
+        try Task.checkCancellation()
         guard input.category == .video else {
             throw ConversionError.unsupportedConversion
         }
@@ -25,7 +28,7 @@ final class VideoConverter: Converter {
         case .audio:
             return try await audioConverter.convert(input: input, config: config, progress: progress, encodingStats: encodingStats)
         case .image:
-            return try await extractFrame(input: input, config: config, progress: progress)
+            return try await extractFrame(input: input, config: config, progress: progress, encodingStats: encodingStats)
         case .animatedImage:
             throw ConversionError.unsupportedConversion
         }
@@ -43,7 +46,11 @@ final class VideoConverter: Converter {
             )
         }
 
-        let duration = input.duration.flatMap { $0 > 0 ? $0 : nil }
+        guard config.videoSpeed.isFinite, AudioExportParameters.videoSpeedRange.contains(config.videoSpeed) else {
+            throw ConversionError.invalidInput("Choose a video speed between 0.5× and 2×.")
+        }
+        // Planning, bitrate and progress use the output timeline after the speed change.
+        let duration = input.duration.flatMap { $0 > 0 ? $0 / config.videoSpeed : nil }
         let canStreamCopy = Self.shouldRemux(input: input, config: config)
 
         if let issue = CodecCapability.decodeIssue(videoCodec: input.videoCodec), !canStreamCopy {
@@ -73,6 +80,41 @@ final class VideoConverter: Converter {
         let passLog = TempStorage.url(extension: "log")
         let targetBytes = config.targetSizeBytes ?? input.sizeOnDisk
         let hasAudio = input.audioCodec != nil
+        let audioFilterArgument: String
+        if hasAudio {
+            var sourceChannels = 2
+            var sourceSampleRate = 44_100
+            let shiftsPitch = config.videoSpeed != 1 && !config.audioEdits.preservePitch
+            if config.audioEdits.channels == .right || shiftsPitch {
+                let probe = await Task.detached(priority: .userInitiated) {
+                    FFmpegMediaProbe.probe(at: input.url)
+                }.value
+                try Task.checkCancellation()
+                let audioStream = probe?.streams.first(where: { $0.codecType == "audio" })
+                if config.audioEdits.channels == .right {
+                    guard let channels = audioStream?.channels else {
+                        throw ConversionError.invalidInput("The source audio channels could not be read.")
+                    }
+                    sourceChannels = channels
+                }
+                if shiftsPitch {
+                    guard let sampleRate = audioStream?.sampleRate, sampleRate > 0 else {
+                        throw ConversionError.invalidInput("The source audio sample rate could not be read.")
+                    }
+                    sourceSampleRate = sampleRate
+                }
+            }
+            if let filter = AudioExportParameters.videoTrackFilter(config.audioEdits,
+                                                                  sourceChannels: sourceChannels,
+                                                                  speed: config.videoSpeed,
+                                                                  sourceSampleRate: sourceSampleRate) {
+                audioFilterArgument = " -af \(FFmpegCommandRunner.quoted(filter))"
+            } else {
+                audioFilterArgument = ""
+            }
+        } else {
+            audioFilterArgument = ""
+        }
         var commandConfig = config
         let audioBitrate: Int
         var videoKbps: Int
@@ -139,11 +181,19 @@ final class VideoConverter: Converter {
         }
 
         let hevcTag = config.outputFormat.ffmpegHEVCContainerTagArg
-        let audioCodec = config.outputFormat == .webm
-            ? (CodecCapability.encoderName(for: .opus) ?? "opus")
-            : (CodecCapability.encoderName(for: .m4a) ?? "aac")
-        let audioArguments = hasAudio ? " -c:a \(audioCodec) -b:a \(audioBitrate)k" : " -an"
-        let filters = Self.videoFilters(input: input, config: commandConfig)
+        let audioArguments: String
+        if hasAudio {
+            let audioCodec = config.outputFormat == .webm ? "libopus" : "aac"
+            guard FFmpegRuntimeInfo.hasEncoder(audioCodec) else {
+                throw ConversionError.codecUnavailable(
+                    reason: "\(config.outputFormat.displayName) output requires the \(audioCodec) audio encoder in the bundled FFmpeg runtime."
+                )
+            }
+            audioArguments = " -c:a \(audioCodec) -b:a \(audioBitrate)k\(audioFilterArgument)"
+        } else {
+            audioArguments = " -an"
+        }
+        let filters = Self.videoFilters(input: input, config: commandConfig, includesSpeed: true)
         let fps = Self.fpsArgument(input: input, config: commandConfig)
         let inputPath = FFmpegCommandRunner.quoted(input.url.path)
         let outputPath = FFmpegCommandRunner.quoted(outputURL.path)
@@ -154,9 +204,9 @@ final class VideoConverter: Converter {
         let pass1DiscardPath = FFmpegCommandRunner.quoted(pass1Discard.path)
 
         let pass2Meta = FFmpegMetadataOptions.outputFlags(config.metadata)
-        let pass1 = "-y -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k -pass 1 -passlogfile \(logPath) -an\(config.outputFormat.ffmpegFirstPassMuxerArg) \(pass1DiscardPath)"
-        let pass2 = "-y -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k -pass 2 -passlogfile \(logPath)\(audioArguments)\(outputMuxer)\(fastStart)\(pass2Meta) \(outputPath)"
-        let singlePass = "-y -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k\(audioArguments)\(outputMuxer)\(fastStart)\(pass2Meta) \(outputPath)"
+        let pass1 = "-y -mb-acceleration auto -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k -pass 1 -passlogfile \(logPath) -an\(config.outputFormat.ffmpegFirstPassMuxerArg) \(pass1DiscardPath)"
+        let pass2 = "-y -mb-acceleration auto -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k -pass 2 -passlogfile \(logPath)\(audioArguments)\(outputMuxer)\(fastStart)\(pass2Meta) \(outputPath)"
+        let singlePass = "-y -mb-acceleration auto -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k\(audioArguments)\(outputMuxer)\(fastStart)\(pass2Meta) \(outputPath)"
         let pass1Estimate = FFmpegPassProgressEstimate()
         let pass1Stats: @Sendable (FFmpegEncodingDisplayStats) -> Void = { stats in
             pass1Estimate.record(stats)
@@ -179,7 +229,7 @@ final class VideoConverter: Converter {
 
         do {
             progress(0)
-            if config.usesSinglePassVideoTargetEncode {
+            if !config.usesTwoPassVideoEncoding {
                 try await runner.run(
                     singlePass,
                     duration: duration,
@@ -271,7 +321,8 @@ final class VideoConverter: Converter {
     private func extractFrame(
         input: MediaFile,
         config: ConversionConfig,
-        progress: @escaping @Sendable (Double) -> Void
+        progress: @escaping @Sendable (Double) -> Void,
+        encodingStats: (@Sendable (FFmpegEncodingDisplayStats) -> Void)?
     ) async throws -> ConversionResult {
         let needsImageTuning = config.targetSizeBytes != nil && config.outputFormat.supportsTargetSize
         let outputURL = needsImageTuning ? TempStorage.url(extension: "png") : TempStorage.url(for: config.outputFormat)
@@ -293,14 +344,15 @@ final class VideoConverter: Converter {
         let command = "-y -ss \(time) -i \(FFmpegCommandRunner.quoted(input.url.path))\(filters) -frames:v 1\(imageCodecArg)\(outputMuxer)\(meta) \(FFmpegCommandRunner.quoted(outputURL.path))"
 
         do {
-            try await runner.run(command, duration: input.duration) { progress($0 * 0.5) }
+            try await runner.run(command, duration: input.duration, progress: { progress($0 * 0.5) }, onEncodingStats: encodingStats)
             if needsImageTuning {
                 let still = try await MediaInspector.inspect(url: outputURL)
                 var imageConfig = config
                 imageConfig.cropRegion = nil
                 imageConfig.mediaRotation = .none
+                imageConfig.isMirrored = false
                 imageConfig.targetDimensions = nil
-                let result = try await ImageConverter().convert(input: still, config: imageConfig) { progress(0.5 + $0 * 0.5) }
+                let result = try await imageConverter.convert(input: still, config: imageConfig, progress: { progress(0.5 + $0 * 0.5) }, encodingStats: encodingStats)
                 try? FileManager.default.removeItem(at: outputURL)
                 return result
             }
@@ -348,8 +400,12 @@ final class VideoConverter: Converter {
 
     private static func shouldRemux(input: MediaFile, config: ConversionConfig) -> Bool {
         config.prefersRemuxWhenPossible
+            && config.audioEdits.videoTrackIsIdentity
+            && config.videoSpeed == 1
+            && !(input.videoColor?.isHDR == true && config.outputFormat != .mp4_hevc)
             && config.cropRegion == nil
             && config.mediaRotation == .none
+            && !config.isMirrored
             && config.targetDimensions == nil
             && config.targetFPS == nil
             && config.outputFormat.canRemuxVideoCodec(input.videoCodec)
@@ -367,7 +423,8 @@ final class VideoConverter: Converter {
         CodecCapability.encoderName(for: format)
     }
 
-    private static func videoFilters(input: MediaFile, config: ConversionConfig) -> String {
+    private static func videoFilters(input: MediaFile, config: ConversionConfig,
+                                     includesSpeed: Bool = false) -> String {
         var filters: [String] = []
 
         switch config.mediaRotation {
@@ -381,6 +438,10 @@ final class VideoConverter: Converter {
             filters.append("transpose=cclock")
         }
 
+        if config.isMirrored {
+            filters.append("hflip")
+        }
+
         if let crop = config.cropRegion,
            let source = input.dimensions.map({ config.mediaRotation.applied(to: $0) }),
            let cropFilter = cropFilter(sourceDimensions: source, crop: crop) {
@@ -392,6 +453,15 @@ final class VideoConverter: Converter {
             let rawH = Int(target.height.rounded())
             if let dims = VideoEncodeDimensions.even(width: rawW, height: rawH) {
                 filters.append("scale=\(dims.width):\(dims.height)")
+            }
+        }
+
+        if includesSpeed, config.videoSpeed != 1 {
+            filters.append("setpts=PTS/\(AudioExportParameters.number(config.videoSpeed))")
+            // Retimed frames would otherwise change the frame rate (2x of 30 fps is 60 fps).
+            // Keep the source or selected rate by dropping or repeating frames.
+            if let outputFPS = [config.targetFPS, input.fps].compactMap({ $0 }).filter({ $0 > 0 }).min() {
+                filters.append("fps=\(AudioExportParameters.number(outputFPS))")
             }
         }
 
@@ -444,7 +514,7 @@ final class VideoConverter: Converter {
             dimensions = rotatedSource
         }
 
-        guard dimensions != input.dimensions else { return input }
+        guard dimensions != input.dimensions || config.videoSpeed != 1 else { return input }
 
         return MediaFile(
             id: input.id,
@@ -453,7 +523,7 @@ final class VideoConverter: Converter {
             category: input.category,
             sizeOnDisk: input.sizeOnDisk,
             dimensions: dimensions,
-            duration: input.duration,
+            duration: input.duration.map { $0 / config.videoSpeed },
             fps: input.fps,
             bitrate: input.bitrate,
             audioBitrate: input.audioBitrate,

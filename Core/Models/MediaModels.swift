@@ -91,8 +91,7 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
         }
     }
 
-    /// Whether this format can hit an arbitrary target size via quality/bitrate tuning.
-    /// Lossless formats can only "hit" a target by reducing dimensions.
+    /// Supports a size target through bitrate or quality.
     var supportsTargetSize: Bool {
         switch self {
         case .webpImage:
@@ -104,6 +103,10 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
 
     /// All converter outputs are regular files; copy puts raw bytes on the pasteboard with a matching UTI.
     var supportsClipboardCopy: Bool { true }
+
+    /// VP9 supports a statistics pass. VideoToolbox H.264/HEVC do not produce
+    /// the pass statistics required by FFmpeg's two-pass encoding interface.
+    var supportsTwoPassVideoEncoding: Bool { self == .webm }
 }
 
 extension OutputFormat {
@@ -134,8 +137,7 @@ extension OutputFormat {
 }
 
 extension OutputFormat {
-    /// Muxer for two-pass first pass output. The `null` muxer and `/dev/null` are often unavailable
-    /// in iOS `ffmpeg-kit` builds, so pass 1 writes a discard file in temp instead.
+    /// The analysis pass writes a temporary discard file using the target container.
     var ffmpegFirstPassMuxerArg: String {
         switch self {
         case .webm: " -f webm"
@@ -267,6 +269,11 @@ private extension String {
 
 // MARK: - Media File (Input)
 
+/// The movie recorded with a Live Photo, imported beside its still image.
+struct LivePhotoAttachment: Hashable, Sendable {
+    let movieURL: URL
+}
+
 struct MediaFile: Identifiable, Hashable {
     let id: UUID
     let url: URL
@@ -279,9 +286,12 @@ struct MediaFile: Identifiable, Hashable {
     let bitrate: Int?               // bps; container average (audio, video) or whole file
     /// Audio track only; bps. Populated for video when an audio track exists.
     let audioBitrate: Int?
+    let videoColor: VideoColorInfo?
     let videoCodec: String?
     let audioCodec: String?
     let containerFormat: String     // file extension lowercased
+    /// Set on Live Photo stills; the still stays the primary input.
+    let livePhoto: LivePhotoAttachment?
 
     init(
         id: UUID = UUID(),
@@ -295,8 +305,10 @@ struct MediaFile: Identifiable, Hashable {
         bitrate: Int? = nil,
         audioBitrate: Int? = nil,
         videoCodec: String? = nil,
+        videoColor: VideoColorInfo? = nil,
         audioCodec: String? = nil,
-        containerFormat: String
+        containerFormat: String,
+        livePhoto: LivePhotoAttachment? = nil
     ) {
         self.id = id
         self.url = url
@@ -309,8 +321,20 @@ struct MediaFile: Identifiable, Hashable {
         self.bitrate = bitrate
         self.audioBitrate = audioBitrate
         self.videoCodec = videoCodec
+        self.videoColor = videoColor
         self.audioCodec = audioCodec
         self.containerFormat = containerFormat
+        self.livePhoto = livePhoto
+    }
+
+    func attachingLivePhoto(movieURL: URL) -> MediaFile {
+        MediaFile(
+            id: id, url: url, originalFilename: originalFilename, category: category,
+            sizeOnDisk: sizeOnDisk, dimensions: dimensions, duration: duration, fps: fps,
+            bitrate: bitrate, audioBitrate: audioBitrate, videoCodec: videoCodec,
+            videoColor: videoColor, audioCodec: audioCodec, containerFormat: containerFormat,
+            livePhoto: LivePhotoAttachment(movieURL: movieURL)
+        )
     }
 }
 
@@ -438,6 +462,16 @@ struct CropRegion: Hashable, Codable, Sendable {
         )
     }
 
+    /// Keeps the same framed region when the source changes resolution, such as
+    /// a Live Photo still and its smaller movie.
+    func scaled(from source: CGSize, to destination: CGSize) -> CropRegion? {
+        guard source.width > 0, source.height > 0 else { return nil }
+        let scaleX = Double(destination.width / source.width)
+        let scaleY = Double(destination.height / source.height)
+        return CropRegion(x: x * scaleX, y: y * scaleY, width: width * scaleX, height: height * scaleY)
+            .clamped(to: destination)
+    }
+
     /// Keeps the same selected pixels when the source is turned 90 degrees clockwise.
     func rotatedClockwise(in source: CGSize) -> CropRegion {
         CropRegion(
@@ -485,6 +519,58 @@ struct AutoTargetLockPolicy: Hashable, Codable {
     )
 }
 
+enum AudioChannelMode: String, CaseIterable, Identifiable, Sendable {
+    case original, mono, stereo, left, right
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .original: "Original"
+        case .mono: "Mono"
+        case .stereo: "Stereo"
+        case .left: "Left only"
+        case .right: "Right only"
+        }
+    }
+
+    var outputChannelCount: Int? {
+        switch self {
+        case .original: nil
+        case .stereo: 2
+        case .mono, .left, .right: 1
+        }
+    }
+}
+
+/// Source-relative, non-destructive audio edits. Nil end means the source end.
+struct AudioEditSettings: Hashable, Sendable {
+    var trimStart: Double = 0
+    var trimEnd: Double? = nil
+    var volume: Double = 1
+    var limiterEnabled: Bool = true
+    var speed: Double = 1
+    var preservePitch: Bool = true
+    var channels: AudioChannelMode = .original
+
+    var isIdentity: Bool {
+        trimStart == 0 && trimEnd == nil && volume == 1 && speed == 1 && channels == .original
+    }
+
+    var videoTrackIsIdentity: Bool {
+        volume == 1 && channels == .original
+    }
+
+    /// Pitch handling follows the video's own speed setting, never the audio-only speed.
+    var videoTrackEdits: AudioEditSettings {
+        AudioEditSettings(volume: volume, limiterEnabled: limiterEnabled, preservePitch: preservePitch,
+                          channels: channels)
+    }
+
+    func outputDuration(sourceDuration: Double) -> Double {
+        max(0, min(trimEnd ?? sourceDuration, sourceDuration) - trimStart) / speed
+    }
+}
+
 struct ConversionConfig: Hashable {
     var outputFormat: OutputFormat
     var targetDimensions: CGSize?           // nil = keep original; never larger than source
@@ -492,15 +578,25 @@ struct ConversionConfig: Hashable {
     var targetSizeBytes: Int64?             // nil = use defaults / no enforcement
     var cropRegion: CropRegion?             // nil = full frame
     var mediaRotation: MediaRotation        // applied before crop
+    var isMirrored: Bool                    // horizontal mirror applied after rotation and before crop
     var imageQuality: Double? = nil         // 0...1 single-pass quality for still-image encoders that use quality mode
     var videoQuality: Double? = nil         // 0...1 quality fallback for video when duration/target sizing is unavailable
     var usesSinglePassVideoTargetEncode: Bool
     var frameTimeForExtraction: Double?     // seconds; for video → image conversions
     var preferredAudioBitrateKbps: Int?     // override default for video output's audio track
+    var audioEdits: AudioEditSettings
+    /// Playback rate for video output; applies to both the picture and its audio track.
+    var videoSpeed: Double
     var operationMode: OutputOperationMode
     var autoTargetLockPolicy: AutoTargetLockPolicy
     var prefersRemuxWhenPossible: Bool
     var metadata: MetadataExportPolicy
+
+    /// Use this effective mode for execution and progress, including configurations
+    /// created before the bundled encoder capabilities changed.
+    var usesTwoPassVideoEncoding: Bool {
+        outputFormat.supportsTwoPassVideoEncoding && !usesSinglePassVideoTargetEncode
+    }
 
     init(
         outputFormat: OutputFormat,
@@ -509,11 +605,14 @@ struct ConversionConfig: Hashable {
         targetSizeBytes: Int64? = nil,
         cropRegion: CropRegion? = nil,
         mediaRotation: MediaRotation = .none,
+        isMirrored: Bool = false,
         imageQuality: Double? = nil,
         videoQuality: Double? = nil,
         usesSinglePassVideoTargetEncode: Bool = false,
         frameTimeForExtraction: Double? = nil,
         preferredAudioBitrateKbps: Int? = nil,
+        audioEdits: AudioEditSettings = AudioEditSettings(),
+        videoSpeed: Double = 1,
         operationMode: OutputOperationMode = .manual,
         autoTargetLockPolicy: AutoTargetLockPolicy = .manual,
         prefersRemuxWhenPossible: Bool = false,
@@ -525,11 +624,14 @@ struct ConversionConfig: Hashable {
         self.targetSizeBytes = targetSizeBytes
         self.cropRegion = cropRegion
         self.mediaRotation = mediaRotation
+        self.isMirrored = isMirrored
         self.imageQuality = imageQuality
         self.videoQuality = videoQuality
         self.usesSinglePassVideoTargetEncode = usesSinglePassVideoTargetEncode
         self.frameTimeForExtraction = frameTimeForExtraction
         self.preferredAudioBitrateKbps = preferredAudioBitrateKbps
+        self.audioEdits = audioEdits
+        self.videoSpeed = videoSpeed
         self.operationMode = operationMode
         self.autoTargetLockPolicy = autoTargetLockPolicy
         self.prefersRemuxWhenPossible = prefersRemuxWhenPossible

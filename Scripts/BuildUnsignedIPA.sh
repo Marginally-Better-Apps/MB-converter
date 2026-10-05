@@ -20,6 +20,12 @@ if [ -n "${BUILD_NUMBER:-}" ]; then
 fi
 
 cd "$project_root"
+if [ ! -d Native/FFmpeg/Artifacts/MBFFmpegBridge.xcframework ]; then
+    echo "Build the runtime first: python3 Scripts/BuildFFmpeg.py --platform ios" >&2
+    exit 1
+fi
+python3 Scripts/VerifyFFmpeg.py
+python3 Scripts/VerifyWebP.py
 xcodebuild \
     -project Converter.xcodeproj \
     -scheme Converter \
@@ -73,10 +79,22 @@ with zipfile.ZipFile(sys.argv[1]) as ipa:
     assert info['CFBundleIdentifier'] == 'com.marginallybetter.converter', 'Wrong app identifier'
     assert ipa.getinfo('Payload/Converter.app/' + info['CFBundleExecutable']).file_size > 0
     plistlib.loads(ipa.read('Payload/Converter.app/PrivacyInfo.xcprivacy'))
+    assert info['MinimumOSVersion'] == '17.0', 'Unexpected deployment target'
+    assert sorted(info['UIDeviceFamily']) == [1, 2], 'Expected iPhone and iPad support'
+    assert ipa.getinfo('Payload/Converter.app/WebP-NOTICE.txt').file_size > 0
+    framework = 'Payload/Converter.app/Frameworks/MBFFmpegBridge.framework/'
+    assert ipa.getinfo(framework + 'MBFFmpegBridge').file_size > 0
+    assert ipa.getinfo(framework + 'BuildManifest.json').file_size > 0
+    assert ipa.getinfo(framework + 'Licenses/ffmpeg/COPYING.LGPLv2.1').file_size > 0
     assert not any('/_CodeSignature/' in name or name.endswith('embedded.mobileprovision') for name in names)
     print(f"Validated unsigned IPA: {info['CFBundleShortVersionString']} ({info['CFBundleVersion']})")
 PY
 
+# Ship the exact dependency archives, application sources, notices and build recipe.
+python3 Scripts/BundleFFmpegSources.py
+source_name="MBConverter-corresponding-source.tar.gz"
+cp "$project_root/build/ffmpeg/$source_name" "$output_directory/$source_name"
+cp "$project_root/build/ffmpeg/$source_name.sha256" "$output_directory/$source_name.sha256"
 mv "$staged_ipa" "$output_directory/$ipa_name"
 (
     cd "$output_directory"

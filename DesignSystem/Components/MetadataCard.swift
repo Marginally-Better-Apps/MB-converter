@@ -7,10 +7,11 @@ struct MetadataCard: View {
     var compactList: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             Text(title)
                 .font(.headline)
                 .foregroundStyle(Theme.text)
+                .accessibilityAddTraits(.isHeader)
 
             if compactList {
                 VStack(alignment: .leading, spacing: 12) {
@@ -46,12 +47,7 @@ struct MetadataCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Theme.accent, lineWidth: 1)
-        )
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
     }
 
     init(title: String = "Metadata", media: MediaFile) {
@@ -81,7 +77,7 @@ struct MetadataRow: Identifiable, Hashable {
 
 enum MetadataFormatter {
     /// Core facts most users care about: name, kind, size, resolution, length—without codecs or bitrate.
-    static func summaryRows(for media: MediaFile) -> [MetadataRow] {
+    static func summaryRows(for media: MediaFile, durationBeforeTrim: TimeInterval? = nil) -> [MetadataRow] {
         var rows: [MetadataRow] = [
             .init(
                 label: "File type",
@@ -97,15 +93,10 @@ enum MetadataFormatter {
             rows.append(.init(label: "Resolution", value: dimensionsText(dimensions)))
         }
         if let duration = media.duration {
-            rows.append(.init(label: "Length", value: durationText(duration)))
-        }
-        if let bitrate = media.bitrate, media.category == .audio {
-            rows.append(.init(label: "Bitrate", value: bitrateText(bitrate)))
-        }
-        if let ab = media.audioBitrate,
-           media.category == .video,
-           media.audioCodec != nil {
-            rows.append(.init(label: "Audio bitrate", value: bitrateText(ab)))
+            let length = media.category == .video
+                ? trimmedDurationText(before: durationBeforeTrim, after: duration)
+                : durationText(duration)
+            rows.append(.init(label: "Length", value: length))
         }
         return rows
     }
@@ -163,7 +154,7 @@ enum MetadataFormatter {
         return rows
     }
 
-    static func summaryRows(for result: ConversionResult) -> [MetadataRow] {
+    static func summaryRows(for result: ConversionResult, includeFileSize: Bool = true) -> [MetadataRow] {
         var rows: [MetadataRow] = [
             .init(
                 label: "File type",
@@ -172,9 +163,12 @@ enum MetadataFormatter {
                     category: result.outputFormat.category,
                     videoCodec: result.videoCodec
                 )
-            ),
-            .init(label: "File size", value: bytes(result.sizeOnDisk))
+            )
         ]
+
+        if includeFileSize {
+            rows.append(.init(label: "File size", value: bytes(result.sizeOnDisk)))
+        }
 
         if let dimensions = result.dimensions {
             rows.append(.init(label: "Resolution", value: dimensionsText(dimensions)))
@@ -205,6 +199,11 @@ enum MetadataFormatter {
         let minutes = total / 60
         let remaining = total % 60
         return minutes > 0 ? "\(minutes)m \(remaining)s" : "0:\(String(format: "%02d", remaining))"
+    }
+
+    private static func trimmedDurationText(before: TimeInterval?, after: TimeInterval) -> String {
+        guard let before, abs(before - after) >= 0.5 else { return durationText(after) }
+        return "\(durationText(before)) → \(durationText(after))"
     }
 
     static func bitrateText(_ bitsPerSecond: Int) -> String {

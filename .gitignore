@@ -22,6 +22,8 @@ build/
 
 # Swift Package Manager caches (keep Package.resolved for reproducible app builds)
 .build/
+__pycache__/
+/Native/FFmpeg/Artifacts/
 Packages/
 Package.pins
 .swiftpm/

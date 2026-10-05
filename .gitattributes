@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Preserve unified-diff context lines and byte-for-byte upstream/reference files.
+Native/FFmpeg/patches/*.patch whitespace=-blank-at-eol
+Native/WebP/COPYING whitespace=-blank-at-eof
+Tests/Fixtures/WebPOriginalEncoder.swift.inc whitespace=-blank-at-eof

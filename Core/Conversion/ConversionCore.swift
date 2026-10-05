@@ -441,56 +441,72 @@ enum AutoTargetPlanner {
             )
         }
 
-        var fallback: AutoTargetVideoPlan?
-        for dimension in dimensions {
-            for frameRate in frameRates {
-                let minimumVideoKbps = BitrateCalculator.minimumVideoBitrateKbps(
-                    dimensions: dimension.actual,
-                    fps: frameRate.actual,
-                    outputFormat: outputFormat,
-                    sourceVideoBitrateBps: sourceVideoBitrateBps
-                )
-
-                for audioKbps in audioBitrates {
-                    let minimumSize = BitrateCalculator.estimatedSize(
-                        videoBitrateKbps: minimumVideoKbps,
-                        audioBitrateKbps: audioKbps,
-                        durationSec: duration
-                    )
-                    let videoKbps = BitrateCalculator.videoBitrateKbps(
-                        targetBytes: targetBytes,
-                        durationSec: duration,
-                        audioBitrateKbps: audioKbps,
-                        minimumVideoBitrateKbps: minimumVideoKbps
-                    )
-                    let estimatedSize = BitrateCalculator.estimatedSize(
-                        videoBitrateKbps: videoKbps,
-                        audioBitrateKbps: audioKbps,
-                        durationSec: duration
-                    )
-                    let plan = AutoTargetVideoPlan(
-                        targetDimensions: dimension.target,
-                        targetFPS: frameRate.target,
-                        audioBitrateKbps: audioKbps,
-                        videoBitrateKbps: videoKbps,
-                        estimatedSizeBytes: estimatedSize,
-                        isTargetReachable: minimumSize <= targetBytes
-                    )
-
-                    if minimumSize <= targetBytes {
-                        return plan
-                    }
-
-                    fallback = AutoTargetVideoPlan(
-                        targetDimensions: dimension.target,
-                        targetFPS: frameRate.target,
-                        audioBitrateKbps: audioKbps,
-                        videoBitrateKbps: minimumVideoKbps,
-                        estimatedSizeBytes: minimumSize,
-                        isTargetReachable: false
-                    )
-                }
+        // Prefer a resolution step before each frame-rate step, balancing
+        // the two rather than exhausting either one first. Audio stays at its
+        // original bitrate until all video adjustments have been tried.
+        var dimensionIndex = 0
+        var frameRateIndex = 0
+        let originalAudioKbps = audioBitrates[0]
+        var candidates = [(dimension: dimensions[0], frameRate: frameRates[0], audioKbps: originalAudioKbps)]
+        while dimensionIndex + 1 < dimensions.count || frameRateIndex + 1 < frameRates.count {
+            if dimensionIndex + 1 < dimensions.count {
+                dimensionIndex += 1
+                candidates.append((dimensions[dimensionIndex], frameRates[frameRateIndex], originalAudioKbps))
             }
+            if frameRateIndex + 1 < frameRates.count {
+                frameRateIndex += 1
+                candidates.append((dimensions[dimensionIndex], frameRates[frameRateIndex], originalAudioKbps))
+            }
+        }
+        candidates += audioBitrates.dropFirst().map {
+            (dimension: dimensions[dimensionIndex], frameRate: frameRates[frameRateIndex], audioKbps: $0)
+        }
+
+        var fallback: AutoTargetVideoPlan?
+        for (dimension, frameRate, audioKbps) in candidates {
+            let minimumVideoKbps = BitrateCalculator.minimumVideoBitrateKbps(
+                dimensions: dimension.actual,
+                fps: frameRate.actual,
+                outputFormat: outputFormat,
+                sourceVideoBitrateBps: sourceVideoBitrateBps
+            )
+            let minimumSize = BitrateCalculator.estimatedSize(
+                videoBitrateKbps: minimumVideoKbps,
+                audioBitrateKbps: audioKbps,
+                durationSec: duration
+            )
+            let videoKbps = BitrateCalculator.videoBitrateKbps(
+                targetBytes: targetBytes,
+                durationSec: duration,
+                audioBitrateKbps: audioKbps,
+                minimumVideoBitrateKbps: minimumVideoKbps
+            )
+            let estimatedSize = BitrateCalculator.estimatedSize(
+                videoBitrateKbps: videoKbps,
+                audioBitrateKbps: audioKbps,
+                durationSec: duration
+            )
+            let plan = AutoTargetVideoPlan(
+                targetDimensions: dimension.target,
+                targetFPS: frameRate.target,
+                audioBitrateKbps: audioKbps,
+                videoBitrateKbps: videoKbps,
+                estimatedSizeBytes: estimatedSize,
+                isTargetReachable: minimumSize <= targetBytes
+            )
+
+            if minimumSize <= targetBytes {
+                return plan
+            }
+
+            fallback = AutoTargetVideoPlan(
+                targetDimensions: dimension.target,
+                targetFPS: frameRate.target,
+                audioBitrateKbps: audioKbps,
+                videoBitrateKbps: minimumVideoKbps,
+                estimatedSizeBytes: minimumSize,
+                isTargetReachable: false
+            )
         }
 
         return fallback ?? AutoTargetVideoPlan(
@@ -664,7 +680,10 @@ enum AutoTargetPlanner {
             return [capped(preferredAudioBitrateKbps ?? sourceKbps ?? suggested)]
         }
 
-        let raw = [192, 160, 128, 96, 64, 48, 32, suggested]
+        // Start at the source bitrate (within the existing encoder limits),
+        // independent of the target size. Audio is the final adjustment stage.
+        let originalKbps = capped(input.audioBitrate.map { max(1, $0 / 1000) } ?? 192)
+        let raw = [originalKbps] + [256, 192, 160, 128, 96, 64, 48, 32].filter { $0 < originalKbps }
         var candidates: [Int] = []
         for kbps in raw.map(capped).sorted(by: >) where !candidates.contains(kbps) {
             candidates.append(kbps)
@@ -739,7 +758,23 @@ enum TempStorage {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("conversions", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        allowAccessWhileLocked(at: dir)
         return dir
+    }
+
+    /// Conversion work starts after unlocking. Keep its app-owned files usable
+    /// if the screen locks again while a background lease is active.
+    static func allowAccessWhileLocked(at url: URL) {
+        #if os(iOS)
+        do {
+            try FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: url.path
+            )
+        } catch {
+            DiagnosticsLog.shared.record(error: error, context: "Prepare conversion file for background access")
+        }
+        #endif
     }
 
     /// Returns a unique URL inside the conversions directory with the right extension.

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import PhotosUI
 import SwiftUI
@@ -5,135 +6,65 @@ import UniformTypeIdentifiers
 
 struct HomeView: View {
     @Binding var path: [AppRoute]
-    var constrainedWidth = true
-    var showsHistoryToolbar = true
-    var showsContentTitle = false
+    /// Opens the History tab from the Recent shelf.
+    var onShowHistory: (() -> Void)? = nil
     /// Preview-only state injection. Production call sites use the default `nil` value.
     var previewImportProgress: RemoteDownloadProgress? = nil
 
-    @AppStorage("appColorMode") private var appColorModeRawValue = AppColorMode.system.rawValue
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @Environment(\.isRootSectionActive) private var isRootSectionActive
     @State private var viewModel = HomeViewModel()
-    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var historyStore = ConversionHistoryStore.shared
+    @State private var selectedImageItem: PhotosPickerItem?
+    @State private var selectedVideoItem: PhotosPickerItem?
     @State private var isFileImporterPresented = false
     @State private var isLinkImportPresented = false
     @State private var linkURLText = ""
-    @State private var isSettingsPresented = false
-    @State private var themeSelection: ThemeSelection = .system
-    @State private var isConfirmDisableSavedHistoryPresented = false
-    @State private var diagnosticsErrorCount = 0
-    @State private var latestDiagnosticsErrorDate: Date?
     @State private var pasteboardRefreshTimer = Timer.publish(every: 0.6, on: .main, in: .common).autoconnect()
-    @AppStorage(ConversionHistoryUserDefaults.isEnabledKey) private var conversionHistoryEnabled = false
-
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
-        @Bindable var viewModel = viewModel
+        ScrollView {
+            VStack(alignment: .leading, spacing: 30) {
+                featuredSources
 
-        ZStack {
-            homeBackground
-
-            ZStack(alignment: .topLeading) {
-                homeHeader
-
-                VStack(alignment: .leading, spacing: 24) {
-                    LazyVGrid(columns: importGridColumns, spacing: 14) {
-                        PhotosPicker(
-                            selection: $selectedPhotoItem,
-                            matching: .any(of: [.images, .videos]),
-                            preferredItemEncoding: .current
-                        ) {
-                            importSourceCard(
-                                "Photos",
-                                subtitle: "Choose a photo or video",
-                                systemImage: "photo.on.rectangle.angled"
-                            )
-                        }
-                        .buttonStyle(HomeImportCardButtonStyle())
-                        .simultaneousGesture(TapGesture().onEnded { Haptics.impact(.light) })
-                        .disabled(isImporting)
-                        .accessibilityLabel("Import from Photos")
-
-                        Button {
-                            Haptics.impact(.light)
-                            isFileImporterPresented = true
-                        } label: {
-                            importSourceCard(
-                                "Files",
-                                subtitle: "Browse device or cloud storage",
-                                systemImage: "folder"
-                            )
-                        }
-                        .buttonStyle(HomeImportCardButtonStyle())
-                        .disabled(isImporting)
-                        .accessibilityLabel("Import from Files")
-
-                        Button {
-                            Haptics.impact(.light)
-                            linkURLText = ""
-                            isLinkImportPresented = true
-                        } label: {
-                            importSourceCard(
-                                "From Link",
-                                subtitle: "Download a file up to 150 MB",
-                                systemImage: "link"
-                            )
-                        }
-                        .buttonStyle(HomeImportCardButtonStyle())
-                        .disabled(isImporting)
-                        .accessibilityLabel("Import file from web link")
-                        .accessibilityHint("Downloads a supported media file up to 150 megabytes.")
-
-                        Button {
-                            Haptics.impact(.light)
-                            Task { await importPasteboard() }
-                        } label: {
-                            importSourceCard(
-                                "Clipboard",
-                                subtitle: clipboardSubtitle,
-                                systemImage: "doc.on.clipboard"
-                            )
-                        }
-                        .buttonStyle(HomeImportCardButtonStyle())
-                        .disabled(viewModel.pasteboardImportLabel == nil || isImporting)
-                        .accessibilityLabel(
-                            viewModel.pasteboardImportLabel.map { "Paste \($0) from clipboard" } ?? "Paste from clipboard"
-                            )
-                    }
-
-                    if isImporting {
-                        importStatusCard
-                            .transition(
-                                accessibilityReduceMotion
-                                    ? .opacity
-                                    : .move(edge: .bottom).combined(with: .opacity)
-                            )
-                    }
+                if isImporting {
+                    importStatusCard
+                        .transition(
+                            accessibilityReduceMotion
+                                ? .opacity
+                                : .move(edge: .top).combined(with: .opacity)
+                        )
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+
+                moreSources
+
+                if !recentEntries.isEmpty {
+                    recentConversions
+                }
+
+                if horizontalSizeClass == .regular {
+                    homeDropHint
+                }
+
+                homeFooter
             }
-            .frame(
-                maxWidth: constrainedWidth ? 640 : 760,
-                maxHeight: .infinity,
-                alignment: .topLeading
-            )
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, contentMargin)
+            .padding(.top, 6)
+            .padding(.bottom, 28)
+            // Full width, like Apple Music on iPad, so content lines up with the large title.
+            .frame(maxWidth: .infinity, alignment: .leading)
             .animation(
-                accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2),
+                accessibilityReduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.85),
                 value: isImporting
             )
         }
-        .navigationTitle("")
-        .toolbar(.hidden, for: .navigationBar)
-        .tint(Theme.primary)
+        .scrollBounceBehavior(.basedOnSize)
+        .background { AmbientBackground() }
+        .navigationTitle("MB Converter")
+        .navigationBarTitleDisplayMode(.large)
+        .settingsToolbarButton()
         .fileImporter(
             isPresented: $isFileImporterPresented,
             allowedContentTypes: Self.allowedContentTypes,
@@ -141,11 +72,18 @@ struct HomeView: View {
         ) { result in
             handleFileImporter(result)
         }
-        .onChange(of: selectedPhotoItem) { _, item in
+        .onChange(of: selectedImageItem) { _, item in
             guard let item else { return }
             Task {
-                await importPhoto(item)
-                selectedPhotoItem = nil
+                await importPhotoLibraryItem(item)
+                selectedImageItem = nil
+            }
+        }
+        .onChange(of: selectedVideoItem) { _, item in
+            guard let item else { return }
+            Task {
+                await importPhotoLibraryItem(item)
+                selectedVideoItem = nil
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -165,6 +103,7 @@ struct HomeView: View {
         }
         .onAppear {
             viewModel.refreshPasteboard()
+            historyStore.refreshForCurrentSettings()
         }
         .dropDestination(for: URL.self) { urls, _ in
             guard let url = urls.first else { return false }
@@ -183,8 +122,8 @@ struct HomeView: View {
         } message: {
             Text(viewModel.errorMessage ?? "Please try again.")
         }
-        .alert("Import from link", isPresented: $isLinkImportPresented) {
-            TextField("", text: $linkURLText)
+        .alert("Import from Link", isPresented: $isLinkImportPresented) {
+            TextField("https://", text: $linkURLText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
@@ -201,155 +140,155 @@ struct HomeView: View {
         } message: {
             Text("The file must be a supported format and 150 MB or smaller. Use a direct link to the file when possible.")
         }
-        .sheet(isPresented: $isSettingsPresented) {
-            settingsView
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
     }
 
-    // MARK: - Import controls
+    // MARK: - Sources
 
-    private var homeBackground: some View {
-        ZStack {
-            Theme.background
-
-            LinearGradient(
-                colors: [
-                    Theme.secondary.opacity(colorScheme == .dark ? 0.16 : 0.2),
-                    Theme.background.opacity(0.45),
-                    Theme.background
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            RadialGradient(
-                colors: [
-                    Theme.primary.opacity(colorScheme == .dark ? 0.1 : 0.055),
-                    .clear
-                ],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 360
-            )
-        }
-        .ignoresSafeArea()
-    }
-
-    @ViewBuilder
-    private var homeHeader: some View {
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 12) {
-                homeTitle
-                homeHeaderActions
+    /// Photos and Videos lead, as large artwork tiles.
+    private var featuredSources: some View {
+        LazyVGrid(columns: tileColumns, spacing: 14) {
+            PhotosPicker(
+                selection: $selectedImageItem,
+                matching: .images,
+                preferredItemEncoding: .current
+            ) {
+                SourceHeroTile(
+                    title: "Photos",
+                    subtitle: "Choose an image",
+                    systemImage: "photo.on.rectangle.angled",
+                    palette: .sky
+                )
             }
-        } else {
-            HStack(alignment: .center, spacing: 12) {
-                homeTitle
-                Spacer(minLength: 8)
-                homeHeaderActions
+            .simultaneousGesture(TapGesture().onEnded { Haptics.impact(.light) })
+            .accessibilityLabel("Import an image from Photos")
+
+            PhotosPicker(
+                selection: $selectedVideoItem,
+                matching: .videos,
+                preferredItemEncoding: .current
+            ) {
+                SourceHeroTile(
+                    title: "Videos",
+                    subtitle: "Choose a video",
+                    systemImage: "video.fill",
+                    palette: .deep
+                )
             }
+            .simultaneousGesture(TapGesture().onEnded { Haptics.impact(.light) })
+            .accessibilityLabel("Import a video from Photos")
         }
+        .buttonStyle(PressableButtonStyle())
+        .disabled(isImporting)
     }
 
-    private var homeTitle: some View {
-        Text("MB Converter")
-            .font(.largeTitle.bold())
-            .foregroundStyle(Theme.text)
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .accessibilityAddTraits(.isHeader)
-    }
+    private var moreSources: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(title: "More Sources")
 
-    private var homeHeaderActions: some View {
-        HStack(spacing: 2) {
-            if showsHistoryToolbar {
+            VStack(spacing: 0) {
                 Button {
                     Haptics.impact(.light)
-                    ConversionHistoryStore.shared.refreshForCurrentSettings()
-                    path.append(.history)
+                    isFileImporterPresented = true
                 } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .frame(width: 44, height: 44)
+                    SourceRow(
+                        title: "Files",
+                        subtitle: "Browse your device or cloud",
+                        systemImage: "folder.fill"
+                    )
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Conversion history")
+                .disabled(isImporting)
+                .accessibilityLabel("Import from Files")
+
+                rowDivider
+
+                Button {
+                    Haptics.impact(.light)
+                    linkURLText = ""
+                    isLinkImportPresented = true
+                } label: {
+                    SourceRow(
+                        title: "From Link",
+                        subtitle: "Download a media file",
+                        systemImage: "link"
+                    )
+                }
+                .disabled(isImporting)
+                .accessibilityLabel("Import file from web link")
+                .accessibilityHint("Downloads a supported media file up to 150 megabytes.")
+
+                rowDivider
+
+                Button {
+                    Haptics.impact(.light)
+                    Task { await importPasteboard() }
+                } label: {
+                    SourceRow(
+                        title: "Clipboard",
+                        subtitle: pasteboardSubtitle,
+                        systemImage: "doc.on.clipboard.fill",
+                        thumbnail: viewModel.pasteboardPreviewThumbnail
+                    )
+                }
+                .disabled(viewModel.pasteboardImportLabel == nil || isImporting)
+                .accessibilityLabel(
+                    viewModel.pasteboardImportLabel.map { "Paste \($0) from clipboard" } ?? "Paste from clipboard"
+                )
             }
+            .buttonStyle(RowButtonStyle())
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        }
+    }
 
-            Button {
-                Haptics.impact(.light)
-                isSettingsPresented = true
-            } label: {
-                Image(systemName: "gearshape")
-                    .frame(width: 44, height: 44)
+    private var rowDivider: some View {
+        Divider()
+            .padding(.leading, dynamicTypeSize.isAccessibilitySize ? 16 : 62)
+            .accessibilityHidden(true)
+    }
+
+    // MARK: - Recent
+
+    private var recentEntries: [ConversionHistoryEntry] {
+        Array(historyStore.entries.prefix(12))
+    }
+
+    /// The newest conversions, like Recently Played in Apple Music.
+    private var recentConversions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(
+                title: "Recent",
+                actionTitle: onShowHistory == nil ? nil : "See All",
+                action: onShowHistory
+            )
+
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(recentEntries) { entry in
+                        Button {
+                            Haptics.impact(.light)
+                            path.append(.result(entry.input, entry.config, entry.result, fromHistory: true))
+                        } label: {
+                            RecentConversionCard(entry: entry)
+                        }
+                        .buttonStyle(PressableButtonStyle())
+                        .disabled(isImporting)
+                        .accessibilityHint("Opens the converted file")
+                    }
+                }
+                .scrollTargetLayout()
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open settings")
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.viewAligned)
+            .contentMargins(.horizontal, contentMargin, for: .scrollContent)
+            .padding(.horizontal, -contentMargin)
         }
-        .font(.title3.weight(.semibold))
-        .foregroundStyle(Theme.primary)
-        .padding(4)
-        .background(
-            Theme.surface.opacity(colorScheme == .dark ? 0.72 : 0.82),
-            in: Capsule()
-        )
-        .overlay {
-            Capsule()
-                .stroke(Theme.primary.opacity(colorScheme == .dark ? 0.22 : 0.1), lineWidth: 1)
-        }
-        .shadow(
-            color: Color.black.opacity(colorScheme == .dark ? 0 : 0.055),
-            radius: 10,
-            x: 0,
-            y: 5
-        )
     }
 
-    private var importGridColumns: [GridItem] {
-        if dynamicTypeSize.isAccessibilitySize {
-            return [GridItem(.flexible())]
-        }
-        return [
-            GridItem(.flexible(), spacing: 14),
-            GridItem(.flexible(), spacing: 14)
-        ]
-    }
-
-    private var clipboardSubtitle: String {
-        if let type = viewModel.pasteboardImportLabel {
-            return "Paste \(type) from the clipboard"
-        }
-        return "No supported media is available"
-    }
-
-    private func importSourceCard(
-        _ title: String,
-        subtitle: String,
-        systemImage: String
-    ) -> some View {
-        HomeImportSourceCard(
-            title: title,
-            subtitle: subtitle,
-            systemImage: systemImage
-        )
-    }
+    // MARK: - Status and footer
 
     private var importStatusCard: some View {
         importStatusView
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Theme.separator, lineWidth: 1)
-            }
-            .shadow(
-                color: Color.black.opacity(colorScheme == .dark ? 0 : 0.07),
-                radius: 12,
-                x: 0,
-                y: 6
-            )
+            .surfaceCard(padding: 18)
     }
 
     @ViewBuilder
@@ -359,16 +298,92 @@ struct HomeView: View {
         } else {
             HStack(spacing: 12) {
                 ProgressView()
-                    .tint(Theme.primary)
+                    .tint(Theme.tint)
                 Text("Importing…")
+                    .font(.headline)
                     .foregroundStyle(Theme.text)
             }
-            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var homeDropHint: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "square.and.arrow.down")
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(Theme.tint)
+                .accessibilityHidden(true)
+
+            Text("Drag a File Here")
+                .font(.headline)
+                .foregroundStyle(Theme.text)
+
+            Text("Drop a file from Files to import it.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.textMuted)
+        }
+        .frame(maxWidth: .infinity, minHeight: 132)
+        .background(
+            Theme.surface.opacity(0.6),
+            in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .strokeBorder(
+                    Theme.textTertiary,
+                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 6])
+                )
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var homeFooter: some View {
+        Text("Marginally Better Converter · Version \(bundleVersion)")
+            .font(.footnote)
+            .foregroundStyle(Theme.textTertiary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("Marginally Better Converter, version \(bundleVersion)")
+    }
+
+    // MARK: - Layout
+
+    private var contentMargin: CGFloat {
+        horizontalSizeClass == .regular ? 20 : 16
+    }
+
+    private var tileColumns: [GridItem] {
+        if dynamicTypeSize.isAccessibilitySize {
+            return [GridItem(.flexible())]
+        }
+        return [
+            GridItem(.flexible(), spacing: 14),
+            GridItem(.flexible(), spacing: 14)
+        ]
     }
 
     private var isImporting: Bool {
         viewModel.isImporting || previewImportProgress != nil
+    }
+
+    private var bundleVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+
+    private var pasteboardSubtitle: String {
+        guard let label = viewModel.pasteboardImportLabel else {
+            return "No supported media copied"
+        }
+
+        let format = viewModel.pasteboardImportFileExtension ?? label
+        var details = [format]
+        if let fileSizeBytes = viewModel.pasteboardFileSizeBytes {
+            details.append(ByteCountFormatter.string(fromByteCount: fileSizeBytes, countStyle: .file).lowercased())
+        }
+        if let duration = viewModel.pasteboardDuration {
+            details.append(MetadataFormatter.durationText(duration))
+        }
+        return details.joined(separator: " • ")
     }
 
     private struct DownloadProgressPrompt: View {
@@ -377,7 +392,7 @@ struct HomeView: View {
         var body: some View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Label("Downloading from link", systemImage: "arrow.down.circle.fill")
+                    Label("Downloading from Link", systemImage: "arrow.down.circle.fill")
                         .font(.headline)
                         .foregroundStyle(Theme.text)
 
@@ -386,14 +401,14 @@ struct HomeView: View {
                     if let fraction = progress.fractionCompleted {
                         Text(percentText(for: fraction))
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.primary)
+                            .foregroundStyle(Theme.tint)
                             .monospacedDigit()
                     }
                 }
 
                 ProgressView(value: progress.displayFraction, total: 1)
                     .progressViewStyle(.linear)
-                    .tint(Theme.primary)
+                    .tint(Theme.tint)
                     .accessibilityLabel("Download progress")
                     .accessibilityValue(
                         progress.fractionCompleted.map { percentText(for: $0) } ?? byteText
@@ -404,7 +419,6 @@ struct HomeView: View {
                     .foregroundStyle(Theme.textMuted)
                     .monospacedDigit()
             }
-            .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
 
@@ -429,6 +443,8 @@ struct HomeView: View {
         }()
     }
 
+    // MARK: - Imports
+
     private func handleFileImporter(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
@@ -441,7 +457,7 @@ struct HomeView: View {
         }
     }
 
-    private func importPhoto(_ item: PhotosPickerItem) async {
+    private func importPhotoLibraryItem(_ item: PhotosPickerItem) async {
         if let media = await viewModel.importFromPhotos(item) {
             path.append(.inputDetail(media))
         }
@@ -465,186 +481,6 @@ struct HomeView: View {
         }
     }
 
-    private var settingsView: some View {
-        NavigationStack {
-            Form {
-                Section("Appearance") {
-                    if dynamicTypeSize.isAccessibilitySize {
-                        Picker("Appearance", selection: $themeSelection) {
-                            ForEach(ThemeSelection.allCases) { option in
-                                Text(option.title).tag(option)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    } else {
-                        Picker("Appearance", selection: $themeSelection) {
-                            ForEach(ThemeSelection.allCases) { option in
-                                Text(option.title).tag(option)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                }
-                .listRowBackground(Theme.surface)
-
-                Section("History") {
-                    Toggle("Save conversion history", isOn: conversionHistoryEnabledBinding)
-                }
-                .listRowBackground(Theme.surface)
-
-                Section {
-                    NavigationLink {
-                        DiagnosticsLogView()
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: diagnosticsErrorCount == 0
-                                  ? "checkmark.circle"
-                                  : "exclamationmark.triangle.fill")
-                                .foregroundStyle(diagnosticsErrorCount == 0 ? Theme.primary : Theme.destructive)
-                                .frame(width: 28)
-
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Error Log")
-                                    .foregroundStyle(Theme.text)
-                                Text(diagnosticsSummary)
-                                    .font(.subheadline)
-                                    .foregroundStyle(Theme.textMuted)
-                            }
-
-                            Spacer(minLength: 8)
-                            if diagnosticsErrorCount > 0 {
-                                Text(String(diagnosticsErrorCount))
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Theme.destructive, in: Capsule())
-                            }
-                        }
-                        .padding(.vertical, 3)
-                    }
-                    .accessibilityHint("Opens recorded errors with conversion context and technical details.")
-                } header: {
-                    Text("Diagnostics")
-                } footer: {
-                    Text("Errors are saved across launches and can be reviewed, copied, or exported.")
-                }
-                .listRowBackground(Theme.surface)
-
-                Section("App") {
-                    LabeledContent("Name") {
-                        Text("Marginally Better Converter")
-                            .foregroundStyle(Theme.textMuted)
-                    }
-                    LabeledContent("Version") {
-                        Text(bundleVersion)
-                            .foregroundStyle(Theme.textMuted)
-                    }
-                    LabeledContent("Build") {
-                        Text(bundleBuild)
-                            .foregroundStyle(Theme.textMuted)
-                    }
-                    Button {
-                        Haptics.impact(.light)
-                        if let url = URL(string: "https://github.com/Marginally-Better-Apps/MB-converter") {
-                            openURL(url)
-                        }
-                    } label: {
-                        Label("View on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
-                    }
-                }
-                .listRowBackground(Theme.surface)
-            }
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
-            .tint(Theme.primary)
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        Haptics.impact(.light)
-                        isSettingsPresented = false
-                    }
-                    .fontWeight(.semibold)
-                }
-            }
-            .preferredColorScheme(themeSelection.colorScheme)
-            .alert("Switch to session-only history?", isPresented: $isConfirmDisableSavedHistoryPresented) {
-                Button("Cancel", role: .cancel) {}
-                Button("Switch", role: .destructive) {
-                    Haptics.warning()
-                    ConversionHistoryStore.shared.clearPersistedHistory()
-                    conversionHistoryEnabled = false
-                    ConversionHistoryStore.shared.refreshForCurrentSettings()
-                }
-            } message: {
-                Text(
-                    "Turning off saved history removes every saved conversion from this device at once. "
-                    + "Afterward, History only keeps items from this session until you quit and reopen the app."
-                )
-            }
-            .onAppear {
-                themeSelection = resolvedThemeSelection
-                refreshDiagnosticsSummary()
-            }
-            .onChange(of: themeSelection) { _, selection in
-                let newValue = selection.rawValue
-                if appColorModeRawValue != newValue {
-                    Haptics.selection()
-                    appColorModeRawValue = newValue
-                }
-            }
-            .onChange(of: appColorModeRawValue) { _, _ in
-                themeSelection = resolvedThemeSelection
-            }
-        }
-    }
-
-    private var resolvedThemeSelection: ThemeSelection {
-        ThemeSelection(rawValue: appColorModeRawValue) ?? .system
-    }
-
-    private var bundleVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-    }
-
-    private var bundleBuild: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
-    }
-
-    private var diagnosticsSummary: String {
-        guard diagnosticsErrorCount > 0 else { return "No errors recorded" }
-        guard let latestDiagnosticsErrorDate else {
-            return "\(diagnosticsErrorCount) recorded"
-        }
-        return "Latest \(latestDiagnosticsErrorDate.formatted(date: .abbreviated, time: .shortened))"
-    }
-
-    private func refreshDiagnosticsSummary() {
-        let errors = DiagnosticsLog.shared.entries().filter { $0.level == .error }
-        diagnosticsErrorCount = errors.count
-        latestDiagnosticsErrorDate = errors.first?.timestamp
-    }
-
-    private var conversionHistoryEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { conversionHistoryEnabled },
-            set: { newValue in
-                if conversionHistoryEnabled, !newValue {
-                    isConfirmDisableSavedHistoryPresented = true
-                    return
-                }
-                if !conversionHistoryEnabled, newValue,
-                   !ConversionHistoryStore.shared.persistSessionHistory() {
-                    return
-                }
-                conversionHistoryEnabled = newValue
-                ConversionHistoryStore.shared.refreshForCurrentSettings()
-            }
-        )
-    }
-
     private static var allowedContentTypes: [UTType] {
         [
             .image,
@@ -659,143 +495,190 @@ struct HomeView: View {
     }
 }
 
-private enum ThemeSelection: String, CaseIterable, Identifiable {
-    case system
-    case light
-    case dark
+/// A large artwork tile in the icon's blue, like a featured card in Apple Music.
+private struct SourceHeroTile: View {
+    enum Palette {
+        case sky
+        case deep
 
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .system:
-            "System"
-        case .light:
-            "Light"
-        case .dark:
-            "Dark"
+        var colors: [Color] {
+            switch self {
+            case .sky: [Color(hex: 0x58ADE6), Color(hex: 0x1E6CA6), Color(hex: 0x134F7C)]
+            case .deep: [Color(hex: 0x2C78B2), Color(hex: 0x0F4A75), Color(hex: 0x082E4A)]
+            }
         }
     }
 
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system:
-            nil
-        case .light:
-            .light
-        case .dark:
-            .dark
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let palette: Palette
+
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @ScaledMetric(relativeTo: .title2) private var badgeSize: CGFloat = 46
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Image(systemName: systemImage)
+                .font(.system(size: badgeSize * 0.44, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: badgeSize, height: badgeSize)
+                .glassSurface(in: Circle(), tint: .white.opacity(0.12))
+                .accessibilityHidden(true)
+
+            Spacer(minLength: dynamicTypeSize.isAccessibilitySize ? 14 : 28)
+
+            Text(title)
+                .font(.title3.bold())
+                .foregroundStyle(.white)
+            Text(subtitle)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(0.88))
+        }
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(18)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: dynamicTypeSize.isAccessibilitySize ? nil : (horizontalSizeClass == .regular ? 200 : 172),
+            alignment: .leading
+        )
+        .background { artwork }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+        .shadow(color: Theme.brandNavy.opacity(isEnabled ? 0.22 : 0), radius: 18, y: 10)
+        .saturation(isEnabled ? 1 : 0)
+        .opacity(isEnabled ? 1 : 0.55)
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+    }
+
+    private var artwork: some View {
+        ZStack(alignment: .bottomTrailing) {
+            LinearGradient(colors: palette.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+
+            Image(systemName: systemImage)
+                .font(.system(size: 118, weight: .regular))
+                .foregroundStyle(.white.opacity(0.09))
+                .offset(x: 26, y: 22)
+                .accessibilityHidden(true)
+
+            LinearGradient(
+                colors: [.black.opacity(0), .black.opacity(0.16)],
+                startPoint: .center,
+                endPoint: .bottom
+            )
         }
     }
 }
 
-private struct HomeImportSourceCard: View {
+/// A row in the grouped source list, styled like Settings.
+private struct SourceRow: View {
     let title: String
     let subtitle: String
     let systemImage: String
+    var thumbnail: UIImage? = nil
 
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
-                HStack(alignment: .top, spacing: 16) {
-                    iconWell
-                    cardCopy
-                    Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        IconTile(systemImage: systemImage, isEnabled: isEnabled)
+                        Spacer()
+                        disclosure
+                    }
+                    titleLabel
+                    thumbnailView
                 }
             } else {
-                VStack(alignment: .leading, spacing: 14) {
-                    Spacer(minLength: 0)
-                    iconWell
-                    cardCopy
-                    Spacer(minLength: 0)
+                HStack(spacing: 14) {
+                    IconTile(systemImage: systemImage, isEnabled: isEnabled)
+                    titleLabel
+                    Spacer(minLength: 8)
+                    thumbnailView
+                    disclosure
                 }
             }
         }
-        .padding(18)
-        .frame(
-            maxWidth: .infinity,
-            minHeight: dynamicTypeSize.isAccessibilitySize ? 116 : 180,
-            alignment: .topLeading
-        )
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(isEnabled ? Theme.surface : Theme.disabledSurface)
-                .overlay {
-                    if isEnabled {
-                        LinearGradient(
-                            colors: [
-                                Theme.secondary.opacity(0.16),
-                                .clear
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    }
-                }
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(
-                    isEnabled
-                        ? Theme.primary.opacity(colorScheme == .dark ? 0.48 : 0.3)
-                        : Theme.textMuted.opacity(colorScheme == .dark ? 0.24 : 0.34),
-                    lineWidth: isEnabled ? 1.5 : 1
-                )
-        }
-        .shadow(
-            color: Color.black.opacity(
-                isEnabled ? (colorScheme == .dark ? 0.24 : 0.12) : 0
-            ),
-            radius: 14,
-            x: 0,
-            y: 7
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .multilineTextAlignment(.leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
-    private var iconWell: some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 21, weight: .semibold))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(isEnabled ? Theme.primary : Theme.textMuted.opacity(0.62))
-            .frame(width: 48, height: 48)
-            .background(
-                isEnabled ? Theme.secondaryFill : Theme.background.opacity(0.82),
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-            )
-    }
-
-    private var cardCopy: some View {
-        VStack(alignment: .leading, spacing: 5) {
+    private var titleLabel: some View {
+        VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.headline)
-                .foregroundStyle(isEnabled ? Theme.text : Theme.textMuted.opacity(0.72))
+                .font(.body)
+                .foregroundStyle(isEnabled ? Theme.text : Theme.textMuted)
 
             Text(subtitle)
                 .font(.subheadline)
-                .foregroundStyle(Theme.textMuted.opacity(isEnabled ? 1 : 0.62))
-                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(Theme.textMuted)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
         }
-        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var disclosure: some View {
+        Image(systemName: "chevron.right")
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Theme.textTertiary)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var thumbnailView: some View {
+        if let thumbnail {
+            Image(uiImage: thumbnail)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityHidden(true)
+        }
     }
 }
 
-private struct HomeImportCardButtonStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+/// A square thumbnail with a caption, like an album in a shelf.
+private struct RecentConversionCard: View {
+    let entry: ConversionHistoryEntry
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 132
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed && !accessibilityReduceMotion ? 0.985 : 1)
-            .opacity(configuration.isPressed ? 0.92 : 1)
-            .animation(
-                accessibilityReduceMotion ? nil : .easeOut(duration: 0.14),
-                value: configuration.isPressed
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            MediaPreview(
+                url: entry.result.url,
+                category: entry.result.outputFormat.category,
+                compact: true,
+                showsChrome: false,
+                isInteractive: false
             )
+            .frame(width: side, height: side)
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.input.originalFilename)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("\(entry.result.outputFormat.displayName) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textMuted)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: side, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -809,15 +692,18 @@ private struct HomeImportCardButtonStyle: ButtonStyle {
 
 #Preview("Home · Regular · Dark", traits: .fixedLayout(width: 1_024, height: 768)) {
     NavigationStack {
-        HomeView(
-            path: .constant([]),
-            constrainedWidth: false,
-            showsHistoryToolbar: false,
-            showsContentTitle: true
-        )
+        HomeView(path: .constant([]))
     }
     .environment(\.horizontalSizeClass, .regular)
     .preferredColorScheme(.dark)
+}
+
+#Preview("Home · Accessibility", traits: .fixedLayout(width: 375, height: 812)) {
+    NavigationStack {
+        HomeView(path: .constant([]))
+    }
+    .environment(\.dynamicTypeSize, .accessibility5)
+    .preferredColorScheme(.light)
 }
 
 #Preview("Home · Import Progress", traits: .fixedLayout(width: 390, height: 844)) {

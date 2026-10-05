@@ -412,6 +412,7 @@ private struct PersistedConversionConfig: Codable, Hashable {
     var cropWidth: Double?
     var cropHeight: Double?
     var mediaRotation: MediaRotation?
+    var isMirrored: Bool?
     var imageQuality: Double?
     var videoQuality: Double?
     var usesSinglePassVideoTargetEncode: Bool?
@@ -526,6 +527,7 @@ private extension PersistedConversionConfig {
         self.cropWidth = config.cropRegion?.width
         self.cropHeight = config.cropRegion?.height
         self.mediaRotation = config.mediaRotation
+        self.isMirrored = config.isMirrored
         self.imageQuality = config.imageQuality
         self.videoQuality = config.videoQuality
         self.usesSinglePassVideoTargetEncode = config.usesSinglePassVideoTargetEncode
@@ -556,6 +558,7 @@ private extension PersistedConversionConfig {
             targetSizeBytes: targetSizeBytes,
             cropRegion: crop,
             mediaRotation: mediaRotation ?? .none,
+            isMirrored: isMirrored ?? false,
             imageQuality: imageQuality,
             videoQuality: videoQuality,
             usesSinglePassVideoTargetEncode: usesSinglePassVideoTargetEncode ?? false,

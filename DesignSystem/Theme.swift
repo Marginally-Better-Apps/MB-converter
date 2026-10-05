@@ -1,77 +1,143 @@
 import SwiftUI
 import UIKit
 
-/// App color tokens. Resolves automatically on light/dark trait changes.
-/// Inline hex values — no Asset Catalog setup needed.
+/// App color tokens. System semantic colors give every screen the native
+/// iOS look; the blue from the app icon carries interaction and ambience.
 enum Theme {
 
-    // Light hex            // Dark hex
-    static let text       = dynamic(light: 0x050b0f, dark: 0xf0f6fa)
-    static let background = dynamic(light: 0xeff6fb, dark: 0x0B1622)
-    static let primary    = dynamic(light: 0x003a5c, dark: 0xa3ddff)
-    static let secondary  = dynamic(light: 0x7fc7f0, dark: 0x0f5680)
-    /// In dark mode this is INTENTIONALLY darker than background — use for
-    /// dividers, card borders, disabled states. For actionable accents in dark
-    /// mode, use `Theme.primary`.
-    static let accent     = dynamic(light: 0x3cb2f6, dark: 0x081d2a)
+    // MARK: - Brand
 
-    // MARK: - Surface helpers
+    /// The app-wide interaction tint, taken from the middle of the icon's
+    /// sky-to-navy gradient and saturated so it reads as a system accent.
+    /// Light: 5.7:1 on white. Dark: 4.9:1 on grouped surfaces, 3.5:1 under white labels.
+    static let tint = dynamic(light: 0x0E6BA8, dark: 0x2B8FD6)
 
-    /// Slightly elevated surface for cards, derived from background.
-    static var surface: Color {
-        dynamic(light: 0xffffff, dark: 0x152233)
+    /// Kept for older call sites; equal to `tint`.
+    static var primary: Color { tint }
+
+    /// The app icon's gradient stops.
+    static let brandSky = Color(hex: 0xA3DDFF)
+    static let brandMid = Color(hex: 0x4F8CB5)
+    static let brandNavy = Color(hex: 0x003A5C)
+
+    /// The app icon's diagonal gradient, used for hero artwork.
+    static var brandGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color(hex: 0x7CC4F2), Color(hex: 0x2F78AE), Color(hex: 0x0B3F63)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
-    /// Flat, recessed surface used to make unavailable controls visually distinct.
-    static var disabledSurface: Color {
-        dynamic(light: 0xdbe3e8, dark: 0x0a1119)
-    }
-
-    /// Subtle text for secondary labels.
-    static var textMuted: Color {
-        dynamic(light: 0x4a5660, dark: 0x9aa9b8)
+    /// Settings-style icon tiles: a vertical sheen over the tint.
+    static var iconGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color(hex: 0x4BA6E6), Color(hex: 0x0E6BA8)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     // MARK: - Semantic roles
 
-    /// The app-wide interaction tint. Keeping this semantic alias makes it
-    /// harder for decorative blues to accidentally become actionable colors.
-    static var tint: Color { primary }
+    static let text = Color(uiColor: .label)
+    static let textMuted = Color(uiColor: .secondaryLabel)
+    static let textTertiary = Color(uiColor: .tertiaryLabel)
 
-    /// Background used behind grouped lists and forms.
+    /// Canvas behind grouped content.
+    static let background = Color(uiColor: .systemGroupedBackground)
+    /// Cards and list rows that sit on `background`.
+    static let surface = Color(uiColor: .secondarySystemGroupedBackground)
+    /// Wells inside a card, such as text fields.
+    static let fieldFill = Color(uiColor: .tertiarySystemFill)
+
     static var groupedBackground: Color { background }
-
-    /// Elevated content surface used for list rows and media summaries.
     static var groupedSurface: Color { surface }
 
-    /// Quiet fill for icon wells, selection backgrounds, and secondary actions.
-    static var secondaryFill: Color { secondary.opacity(0.22) }
+    /// Soft tint wash for selection backgrounds and quiet actions.
+    static var secondaryFill: Color { tint.opacity(0.14) }
+    /// Brief highlight for newly added content.
+    static let secondary = dynamic(light: 0xD5EBFA, dark: 0x103A58)
 
-    /// Separators should remain subtle in both appearances.
-    static var separator: Color { textMuted.opacity(0.18) }
+    static let separator = Color(uiColor: .separator)
+    /// Kept for older call sites; equal to `separator`.
+    static var accent: Color { separator }
 
-    /// Disabled controls retain enough contrast without looking actionable.
-    static var disabledFill: Color { textMuted.opacity(0.16) }
+    static let disabledFill = Color(uiColor: .quaternarySystemFill)
+    static let disabledSurface = Color(uiColor: .tertiarySystemGroupedBackground)
 
     static var destructive: Color { .red }
+    static var success: Color { .green }
+
+    // MARK: - Shape
+
+    enum Radius {
+        /// Grouped cards, matching iOS 26 inset lists.
+        static let card: CGFloat = 26
+        /// Large hero tiles.
+        static let tile: CGFloat = 28
+        /// Media inside a card.
+        static let media: CGFloat = 18
+        /// Fields and small wells.
+        static let field: CGFloat = 12
+    }
 
     // MARK: - Construction
 
     private static func dynamic(light: Int, dark: Int) -> Color {
         Color(UIColor { trait in
-            let hex = trait.userInterfaceStyle == .dark ? dark : light
-            return UIColor.fromHex(hex)
+            UIColor(hex: trait.userInterfaceStyle == .dark ? dark : light)
         })
     }
 }
 
+extension Color {
+    init(hex: Int) {
+        self.init(uiColor: UIColor(hex: hex))
+    }
+}
+
 private extension UIColor {
-    static func fromHex(_ hex: Int) -> UIColor {
-        UIColor(
-            red:   CGFloat((hex >> 16) & 0xff) / 255.0,
-            green: CGFloat((hex >>  8) & 0xff) / 255.0,
-            blue:  CGFloat( hex        & 0xff) / 255.0,
+    convenience init(hex: Int) {
+        self.init(
+            red: CGFloat((hex >> 16) & 0xff) / 255.0,
+            green: CGFloat((hex >> 8) & 0xff) / 255.0,
+            blue: CGFloat(hex & 0xff) / 255.0,
             alpha: 1
         )
+    }
+}
+
+/// System grouped canvas with a soft wash of the icon's blue at the top,
+/// like the ambient color behind Apple Music and TV headers.
+struct AmbientBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Theme.background
+            RadialGradient(
+                colors: [leadingGlow, leadingGlow.opacity(0)],
+                center: UnitPoint(x: 0.1, y: -0.08),
+                startRadius: 0,
+                endRadius: 460
+            )
+            RadialGradient(
+                colors: [trailingGlow, trailingGlow.opacity(0)],
+                center: UnitPoint(x: 1.0, y: -0.02),
+                startRadius: 0,
+                endRadius: 380
+            )
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+
+    private var leadingGlow: Color {
+        colorScheme == .dark ? Color(hex: 0x0D4E7D).opacity(0.75) : Theme.brandSky.opacity(0.62)
+    }
+
+    private var trailingGlow: Color {
+        colorScheme == .dark ? Color(hex: 0x1F6FA6).opacity(0.38) : Color(hex: 0x6FB5E6).opacity(0.28)
     }
 }

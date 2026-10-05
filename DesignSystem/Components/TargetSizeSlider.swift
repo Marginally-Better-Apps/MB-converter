@@ -1,5 +1,66 @@
 import SwiftUI
 
+struct TargetSizeHeader: View {
+    let title: String
+    let suggestedMegabytes: [Int]
+    let targetSizeBytes: Int64
+    var titleFont: Font = .headline
+    let onSelect: (Int) -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            if !dynamicTypeSize.isAccessibilitySize {
+                HStack(spacing: 12) {
+                    heading
+                    Spacer(minLength: 0)
+                    suggestions
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                heading
+                suggestions
+            }
+        }
+    }
+
+    private var heading: some View {
+        Text(title)
+            .font(titleFont)
+            .foregroundStyle(Theme.text)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var suggestions: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(spacing: 6))
+        return layout {
+            ForEach(suggestedMegabytes, id: \.self) { megabytes in
+                let isSelected = abs(targetSizeBytes - Int64(megabytes) * 1_000_000) <= 1
+                Button {
+                    Haptics.selection()
+                    onSelect(megabytes)
+                } label: {
+                    Text("\(megabytes) MB")
+                        .font(.footnote.weight(.semibold))
+                        .monospacedDigit()
+                        .fixedSize()
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .foregroundStyle(isSelected ? Color.white : Theme.tint)
+                        .background(isSelected ? Theme.tint : Theme.secondaryFill, in: Capsule())
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Set target size to \(megabytes) megabytes")
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+    }
+}
+
 struct TargetSizeSlider: View {
     let sourceSizeBytes: Int64
     let minimumSizeBytes: Int64
@@ -17,48 +78,54 @@ struct TargetSizeSlider: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     if showsRemuxBadge {
                         Text("Remux")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.primary)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(Theme.tint)
                         Button {
                             Haptics.impact(.light)
                             isRemuxInfoPresented = true
                         } label: {
                             Image(systemName: "info.circle")
-                                .font(.caption.weight(.semibold))
+                                .font(.body)
                                 .foregroundStyle(Theme.textMuted)
+                                .frame(minWidth: 32, minHeight: 32)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("What is remux?")
                     } else {
                         Text(valueLabel ?? MetadataFormatter.bytes(targetBytes))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.primary)
+                            .font(.title2.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.tint)
                     }
                 }
 
                 Spacer(minLength: 0)
 
                 Text(minimumLabel ?? "Min: \(MetadataFormatter.bytes(minimumSizeBytes))")
-                    .font(.caption)
+                    .font(.footnote)
+                    .monospacedDigit()
                     .foregroundStyle(Theme.textMuted)
                     .multilineTextAlignment(.trailing)
             }
 
             Slider(
                 value: $targetFraction,
-                in: minimumFraction...1.0,
+                in: minimumFraction < 1 ? minimumFraction...1.0 : 0...1,
                 onEditingChanged: { isEditing in
                     if !isEditing {
                         Haptics.selection()
                     }
                 }
             )
-            .tint(Theme.primary)
+            .disabled(minimumFraction >= 1)
+            .tint(Theme.tint)
             .accessibilityLabel(accessibilityLabel)
+            .accessibilityValue(valueLabel ?? MetadataFormatter.bytes(targetBytes))
 
             if let estimatedLabel, !estimatedLabel.isEmpty {
                 Text(estimatedLabel)
-                    .font(.caption)
+                    .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
             }
         }
@@ -78,5 +145,32 @@ struct TargetSizeSlider: View {
     private var minimumFraction: Double {
         guard sourceSizeBytes > 0 else { return 1 }
         return min(1, max(0, Double(minimumSizeBytes) / Double(sourceSizeBytes)))
+    }
+}
+
+/// PNG changes only dimensions. The byte estimate never drives encoding.
+struct PNGDimensionsSlider: View {
+    @Bindable var viewModel: OutputConfigViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Dimensions")
+                .font(.headline)
+                .foregroundStyle(Theme.text)
+            Text(viewModel.pngDimensionsLabel)
+                .font(.title2.weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(Theme.tint)
+            Slider(value: $viewModel.pngDimensionScale,
+                   in: viewModel.pngMinimumScale < 1 ? viewModel.pngMinimumScale...1 : 0...1,
+                   onEditingChanged: { editing in if !editing { Haptics.selection() } })
+                .disabled(viewModel.pngMinimumScale >= 1)
+                .tint(Theme.tint)
+                .accessibilityLabel("PNG dimensions")
+                .accessibilityValue(viewModel.pngDimensionsLabel)
+            Text(viewModel.pngSizeEstimateLabel)
+                .font(.footnote)
+                .foregroundStyle(Theme.textMuted)
+        }
     }
 }

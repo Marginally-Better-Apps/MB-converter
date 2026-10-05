@@ -135,7 +135,7 @@ final class DiagnosticsLog: @unchecked Sendable {
             metadata: [
                 "FFmpeg package": runtime.packageName,
                 "FFmpeg version": runtime.ffmpegVersion,
-                "FFmpegKit version": runtime.ffmpegKitVersion
+                "FFmpeg license": runtime.license
             ],
             details: nil,
             error: nil,
@@ -202,6 +202,13 @@ final class DiagnosticsLog: @unchecked Sendable {
         return cachedEntries.sorted { $0.timestamp > $1.timestamp }
     }
 
+    func clearErrors() {
+        lock.lock()
+        defer { lock.unlock() }
+        cachedEntries.removeAll { $0.level == .error }
+        persistLocked()
+    }
+
     func report() -> String {
         lock.lock()
         let entries = cachedEntries.sorted { $0.timestamp > $1.timestamp }
@@ -230,7 +237,7 @@ final class DiagnosticsLog: @unchecked Sendable {
         Physical memory: \(ByteCountFormatter.string(fromByteCount: Int64(processInfo.physicalMemory), countStyle: .memory))
         FFmpeg package: \(runtime.packageName)
         FFmpeg version: \(runtime.ffmpegVersion)
-        FFmpegKit version: \(runtime.ffmpegKitVersion)
+        FFmpeg license: \(runtime.license)
         FFmpeg build date: \(runtime.buildDate)
         FFmpeg external libraries: \(libraries)
         Persistence: \(persistenceStatus)

@@ -7,6 +7,7 @@ struct DiagnosticsLogView: View {
     @State private var isExportPresented = false
     @State private var exportError: String?
     @State private var didCopyAll = false
+    @ScaledMetric(relativeTo: .title3) private var overviewIconSize: CGFloat = 44
 
     private var errors: [DiagnosticsLogEntry] {
         entries.filter { $0.level == .error }
@@ -24,8 +25,12 @@ struct DiagnosticsLogView: View {
                 List {
                     Section {
                         overviewRow
+                    } footer: {
+                        Text(
+                            "Reports may contain filenames, conversion settings, and selected metadata. "
+                            + "Review technical details before sharing."
+                        )
                     }
-                    .listRowBackground(Theme.surface)
 
                     ForEach(groupedErrors) { group in
                         Section(group.day.formatted(date: .complete, time: .omitted)) {
@@ -37,29 +42,16 @@ struct DiagnosticsLogView: View {
                                 }
                             }
                         }
-                        .listRowBackground(Theme.surface)
                     }
-
-                    Section {
-                        Text(
-                            "Reports may contain filenames, conversion settings, and selected metadata. "
-                            + "Review technical details before sharing."
-                        )
-                        .font(.footnote)
-                        .foregroundStyle(Theme.textMuted)
-                    }
-                    .listRowBackground(Theme.surface)
                 }
                 .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
+                .floatingBottomBar {
+                    actionBar
+                }
             }
         }
+        // Matches the grouped canvas behind the empty state.
         .background(Theme.background)
-        .safeAreaInset(edge: .bottom) {
-            if !errors.isEmpty {
-                actionBar
-            }
-        }
         .navigationTitle("Error Log")
         .navigationBarTitleDisplayMode(.inline)
         .fileExporter(
@@ -91,56 +83,52 @@ struct DiagnosticsLogView: View {
     }
 
     private var actionBar: some View {
-        HStack(spacing: 10) {
-            Button {
-                copyAll()
-            } label: {
-                Label(didCopyAll ? "Copied" : "Copy All", systemImage: didCopyAll ? "checkmark" : "doc.on.doc")
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 14))
-            .controlSize(.large)
-            .tint(Theme.tint)
-            .accessibilityHint("Copies the complete diagnostic report to the clipboard.")
+        GlassGroup {
+            HStack(spacing: 12) {
+                Button {
+                    copyAll()
+                } label: {
+                    Label(didCopyAll ? "Copied" : "Copy All", systemImage: didCopyAll ? "checkmark" : "doc.on.doc")
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                }
+                .accessibilityHint("Copies the complete diagnostic report to the clipboard.")
 
-            Button {
-                Haptics.impact(.light)
-                refresh()
-                isExportPresented = true
-            } label: {
-                Label("Export", systemImage: "square.and.arrow.up")
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
+                Button {
+                    Haptics.impact(.light)
+                    refresh()
+                    isExportPresented = true
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                }
+                .accessibilityHint("Exports the complete diagnostic report as a text file.")
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 14))
+            .glassButtonStyle()
+            .buttonBorderShape(.capsule)
             .controlSize(.large)
             .tint(Theme.tint)
-            .accessibilityHint("Exports the complete diagnostic report as a text file.")
         }
-        .frame(maxWidth: 900)
+        .frame(maxWidth: 560)
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-                .overlay(Theme.separator)
-        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     private var overviewRow: some View {
         HStack(spacing: 14) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.title2)
+                .font(.title3.weight(.semibold))
                 .foregroundStyle(Theme.destructive)
-                .frame(width: 38, height: 38)
-                .background(Theme.destructive.opacity(0.12), in: Circle())
+                .frame(width: overviewIconSize, height: overviewIconSize)
+                .background(Theme.destructive.opacity(0.14), in: Circle())
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("\(errors.count) \(errors.count == 1 ? "Error" : "Errors") Recorded")
                     .font(.headline)
                     .foregroundStyle(Theme.text)
@@ -151,7 +139,7 @@ struct DiagnosticsLogView: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
     }
 
@@ -266,7 +254,6 @@ private struct DiagnosticsLogDetailView: View {
                         .foregroundStyle(Theme.textMuted)
                 }
             }
-            .listRowBackground(Theme.surface)
 
             if entry.errorType != nil || entry.errorDomain != nil || entry.errorCode != nil {
                 Section("Classification") {
@@ -280,7 +267,6 @@ private struct DiagnosticsLogDetailView: View {
                         diagnosticValue("Code", String(errorCode))
                     }
                 }
-                .listRowBackground(Theme.surface)
             }
 
             if !entry.metadata.isEmpty {
@@ -289,7 +275,6 @@ private struct DiagnosticsLogDetailView: View {
                         diagnosticValue(key, entry.metadata[key] ?? "")
                     }
                 }
-                .listRowBackground(Theme.surface)
             }
 
             Section("Source") {
@@ -299,7 +284,6 @@ private struct DiagnosticsLogDetailView: View {
                 diagnosticValue("Thread", entry.thread)
                 diagnosticValue("Session", entry.sessionID)
             }
-            .listRowBackground(Theme.surface)
 
             if let details = entry.details, !details.isEmpty {
                 Section {
@@ -311,7 +295,6 @@ private struct DiagnosticsLogDetailView: View {
                             .padding(.vertical, 6)
                     }
                 }
-                .listRowBackground(Theme.surface)
             }
 
             if !entry.callStack.isEmpty {
@@ -324,11 +307,8 @@ private struct DiagnosticsLogDetailView: View {
                             .padding(.vertical, 6)
                     }
                 }
-                .listRowBackground(Theme.surface)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Theme.background)
         .navigationTitle("Error Details")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
