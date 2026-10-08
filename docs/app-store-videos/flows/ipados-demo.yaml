@@ -1,0 +1,35 @@
+appId: com.marginallybetter.converter
+---
+- addMedia:
+    - ../assets/waterfall.jpg
+- setOrientation: LANDSCAPE_LEFT
+- stopApp
+- launchApp:
+    permissions:
+      notifications: deny
+- startRecording:
+    path: ipad-screen
+- waitForAnimationToEnd:
+    timeout: 1200
+- tapOn: "Photos"
+- waitForAnimationToEnd:
+    timeout: 700
+- tapOn:
+    point: "46%, 30%"
+- waitForAnimationToEnd:
+    timeout: 1200
+- tapOn: "Output format"
+- tapOn: "HEIC"
+- waitForAnimationToEnd:
+    timeout: 400
+- tapOn: "Set target size to 1 megabytes"
+- waitForAnimationToEnd:
+    timeout: 600
+- tapOn:
+    point: "60%, 95%"
+- extendedWaitUntil:
+    visible: "Conversion Complete"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 5000
+- stopRecording
