@@ -189,7 +189,10 @@ final class VideoConverter: Converter {
                     reason: "\(config.outputFormat.displayName) output requires the \(audioCodec) audio encoder in the bundled FFmpeg runtime."
                 )
             }
-            audioArguments = " -c:a \(audioCodec) -b:a \(audioBitrate)k\(audioFilterArgument)"
+            // Map the first audio track explicitly. Left to auto-selection, FFmpeg prefers the
+            // track with the most channels, which on iPhone spatial-audio clips is the
+            // undecodable APAC track instead of the AAC track inspection reported.
+            audioArguments = " -map 0:a:0 -c:a \(audioCodec) -b:a \(audioBitrate)k\(audioFilterArgument)"
         } else {
             audioArguments = " -an"
         }
@@ -204,9 +207,9 @@ final class VideoConverter: Converter {
         let pass1DiscardPath = FFmpegCommandRunner.quoted(pass1Discard.path)
 
         let pass2Meta = FFmpegMetadataOptions.outputFlags(config.metadata)
-        let pass1 = "-y -mb-acceleration auto -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k -pass 1 -passlogfile \(logPath) -an\(config.outputFormat.ffmpegFirstPassMuxerArg) \(pass1DiscardPath)"
-        let pass2 = "-y -mb-acceleration auto -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k -pass 2 -passlogfile \(logPath)\(audioArguments)\(outputMuxer)\(fastStart)\(pass2Meta) \(outputPath)"
-        let singlePass = "-y -mb-acceleration auto -i \(inputPath)\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k\(audioArguments)\(outputMuxer)\(fastStart)\(pass2Meta) \(outputPath)"
+        let pass1 = "-y -mb-acceleration auto -i \(inputPath) -map 0:v:0\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k -pass 1 -passlogfile \(logPath) -an\(config.outputFormat.ffmpegFirstPassMuxerArg) \(pass1DiscardPath)"
+        let pass2 = "-y -mb-acceleration auto -i \(inputPath) -map 0:v:0\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k -pass 2 -passlogfile \(logPath)\(audioArguments)\(outputMuxer)\(fastStart)\(pass2Meta) \(outputPath)"
+        let singlePass = "-y -mb-acceleration auto -i \(inputPath) -map 0:v:0\(filters)\(fps) -c:v \(videoCodec)\(hevcTag) -b:v \(videoKbps)k\(audioArguments)\(outputMuxer)\(fastStart)\(pass2Meta) \(outputPath)"
         let pass1Estimate = FFmpegPassProgressEstimate()
         let pass1Stats: @Sendable (FFmpegEncodingDisplayStats) -> Void = { stats in
             pass1Estimate.record(stats)
