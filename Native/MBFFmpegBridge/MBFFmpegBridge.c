@@ -24,6 +24,7 @@
 #include <libavutil/avstring.h>
 #include <libavutil/bprint.h>
 #include <libavutil/channel_layout.h>
+#include <libavutil/cpu.h>
 #include <libavutil/dict.h>
 #include <libavutil/display.h>
 #include <libavutil/error.h>
@@ -602,8 +603,14 @@ static int mbf_initialize_stream(MBFJob *job, int index, const char *codec_name)
                 av_dict_set(&codec_options, "profile", "main10", 0);
         }
         if (!strcmp(encoder->name, "libvpx-vp9")) {
+            // libvpx otherwise serializes most VP9 work despite worker threads.
+            // Bound workers by available CPUs and output superblock rows so
+            // small GIFs/thumbnails do not create a full-size encoder pool.
+            stream->encoder->thread_count = FFMIN(8, FFMIN(FFMAX(1, av_cpu_count()),
+                (stream->encoder->height + 63) / 64));
             av_dict_set(&codec_options, "deadline", "good", 0);
             av_dict_set(&codec_options, "cpu-used", "4", 0);
+            av_dict_set(&codec_options, "row-mt", "1", 0);
         }
         error = avcodec_open2(stream->encoder, encoder, &codec_options);
         av_dict_free(&codec_options);
