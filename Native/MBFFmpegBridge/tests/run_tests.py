@@ -41,6 +41,10 @@ def main():
             command += ["-framework", framework]
         command += ["-lz", "-lbz2", "-liconv", "-lm", "-lc++", "-o", executable]
         run(*command)
+        vp9_command = [arg for arg in command if arg != ROOT / "Native/MBFFmpegBridge/MBFFmpegBridge.c"]
+        vp9_command[vp9_command.index(Path(__file__).with_name("bridge_tests.c"))] = Path(__file__).with_name("vp9_tests.c")
+        vp9_command[-1] = directory / "vp9_tests"
+        run(*vp9_command)
         run(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=160x96:rate=12",
             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "1.5",
             "-c:v", "libx264", "-c:a", "aac", directory / "input.mp4")
@@ -57,6 +61,8 @@ def main():
             "-c:v", "libaom-av1", "-cpu-used", "8", directory / "av1.mkv")
         input_digest = hashlib.sha256((directory / "input.mp4").read_bytes()).digest()
         run(executable, directory)
+        run(directory / "vp9_tests", directory / "input.mp4", directory / "vp9-threading.webm")
+        run(ffmpeg, "-v", "error", "-i", directory / "vp9-threading.webm", "-f", "null", "-")
         assert input_digest == hashlib.sha256((directory / "input.mp4").read_bytes()).digest()
 
         def probe(filename):
@@ -90,6 +96,10 @@ def main():
         assert (webm["streams"][0]["width"], webm["streams"][0]["height"]) == (64, 112)
         assert webm["streams"][0]["avg_frame_rate"] == "10/1"
         assert webm["streams"][1]["channels"] == 2
+        threaded = probe("vp9-threading.webm")
+        assert [stream["codec_name"] for stream in threaded["streams"]] == ["vp9", "opus"]
+        assert (threaded["streams"][0]["width"], threaded["streams"][0]["height"]) == (1280, 720)
+        assert abs(float(threaded["format"]["duration"]) - 1.5) < 0.06
         assert (directory / "rotated.png").read_bytes() == (directory / "rotation-reference.png").read_bytes()
         rotation = probe("rotation-copy.mp4")["streams"][0]["side_data_list"][0]["rotation"]
         assert rotation == 90, "Remux must preserve the display matrix"
