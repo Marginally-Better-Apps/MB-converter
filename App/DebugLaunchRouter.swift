@@ -1,0 +1,64 @@
+#if DEBUG
+import Foundation
+
+/// Debug-only deep links for screenshots and manual QA:
+///   -MBRoute tab:convert|tools|history | category:pdf | tool:pdf.merge | hub | result:pdf.compress
+///   -MBInputs /path/one.pdf,/path/two.pdf   (host paths are readable from the simulator)
+///   -MBEditor 1                              (auto-open the tool's editor)
+enum DebugLaunchRouter {
+    static var arguments: [String: String] {
+        let args = ProcessInfo.processInfo.arguments
+        var result: [String: String] = [:]
+        for (index, arg) in args.enumerated() where arg.hasPrefix("-MB") && index + 1 < args.count {
+            result[String(arg.dropFirst())] = args[index + 1]
+        }
+        return result
+    }
+
+    static var opensEditor: Bool { arguments["MBEditor"] == "1" }
+
+    static func inputs() -> [ToolInputFile] {
+        (arguments["MBInputs"] ?? "").split(separator: ",").compactMap { path in
+            try? FileIntake.importFile(at: URL(fileURLWithPath: String(path)))
+        }
+    }
+
+    @MainActor
+    static func apply(selectTab: (RootSection) -> Void, push: @escaping (AppRoute) -> Void) {
+        guard let route = arguments["MBRoute"] else { return }
+        let parts = route.split(separator: ":", maxSplits: 1).map(String.init)
+        let value = parts.count > 1 ? parts[1] : ""
+        switch parts[0] {
+        case "tab":
+            selectTab(RootSection(rawValue: value) ?? .convert)
+        case "category":
+            if let category = ToolCategory(rawValue: value) { push(.category(category)) }
+        case "tool":
+            push(.tool(ToolID(rawValue: value), inputs: inputs()))
+        case "media":
+            guard let path = arguments["MBInputs"] else { return }
+            Task {
+                if let media = try? await ImportService().validatedMediaFile(at: URL(fileURLWithPath: path)) {
+                    push(.inputDetail(media))
+                }
+            }
+        case "hub":
+            if let file = inputs().first { push(.fileHub(file)) }
+        case "result":
+            guard let tool = ToolCatalog.tool(ToolID(rawValue: value)) else { return }
+            let files = inputs()
+            Task {
+                var options = ToolOptionValues(defaults: tool.options)
+                for option in tool.options {
+                    if case .dynamicChoice(let provider) = option.kind { options[option.key] = .string(provider(files).first?.value ?? "") }
+                }
+                if let output = try? await tool.run(ToolContext(inputs: files, options: options)) {
+                    push(.toolResult(ToolRun(toolID: tool.id, inputs: files, output: output)))
+                }
+            }
+        default:
+            break
+        }
+    }
+}
+#endif

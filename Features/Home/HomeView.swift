@@ -8,6 +8,7 @@ struct HomeView: View {
     @Binding var path: [AppRoute]
     /// Opens the History tab from the Recent shelf.
     var onShowHistory: (() -> Void)? = nil
+    var onShowTools: (() -> Void)? = nil
     /// Preview-only state injection. Production call sites use the default `nil` value.
     var previewImportProgress: RemoteDownloadProgress? = nil
 
@@ -40,6 +41,8 @@ struct HomeView: View {
 
                 moreSources
 
+                toolsShelf
+
                 if !recentEntries.isEmpty {
                     recentConversions
                 }
@@ -67,7 +70,7 @@ struct HomeView: View {
         .settingsToolbarButton()
         .fileImporter(
             isPresented: $isFileImporterPresented,
-            allowedContentTypes: Self.allowedContentTypes,
+            allowedContentTypes: FileIntake.allContentTypes,
             allowsMultipleSelection: false
         ) { result in
             handleFileImporter(result)
@@ -138,7 +141,7 @@ struct HomeView: View {
                 Task { await importFromRemoteLink(text) }
             }
         } message: {
-            Text("The file must be a supported format and 150 MB or smaller. Use a direct link to the file when possible.")
+            Text("Media, PDFs, documents and spreadsheets up to 150 MB. Use a direct link to the file when possible.")
         }
     }
 
@@ -208,13 +211,13 @@ struct HomeView: View {
                 } label: {
                     SourceRow(
                         title: "From Link",
-                        subtitle: "Download a media file",
+                        subtitle: "Download a file from the web",
                         systemImage: "link"
                     )
                 }
                 .disabled(isImporting)
                 .accessibilityLabel("Import file from web link")
-                .accessibilityHint("Downloads a supported media file up to 150 megabytes.")
+                .accessibilityHint("Downloads a supported file up to 150 megabytes.")
 
                 rowDivider
 
@@ -238,6 +241,49 @@ struct HomeView: View {
             .background(Theme.surface)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         }
+    }
+
+    // MARK: - Tools
+
+    /// Popular tools and categories — PDFs, documents, data and more.
+    private var toolsShelf: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(title: "Tools", actionTitle: onShowTools == nil ? nil : "See All", action: onShowTools)
+
+            LazyVGrid(columns: toolColumns, spacing: 12) {
+                ForEach(ToolCatalog.featured.prefix(horizontalSizeClass == .regular ? 9 : 6)) { tool in
+                    NavigationLink(value: AppRoute.tool(tool.id, inputs: [])) {
+                        ToolTile(tool: tool)
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .disabled(isImporting)
+                }
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(ToolCategory.allCases.enumerated()), id: \.element) { index, category in
+                    NavigationLink(value: AppRoute.category(category)) {
+                        CategoryRowLabel(category: category)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 11)
+                    }
+                    .disabled(isImporting)
+                    if index < ToolCategory.allCases.count - 1 {
+                        rowDivider
+                    }
+                }
+            }
+            .buttonStyle(RowButtonStyle())
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+            .padding(.top, 4)
+        }
+    }
+
+    private var toolColumns: [GridItem] {
+        if dynamicTypeSize.isAccessibilitySize { return [GridItem(.flexible())] }
+        let count = horizontalSizeClass == .regular ? 3 : 2
+        return Array(repeating: GridItem(.flexible(), spacing: 12), count: count)
     }
 
     private var rowDivider: some View {
@@ -464,8 +510,13 @@ struct HomeView: View {
     }
 
     private func importFile(_ url: URL) async {
-        if let media = await viewModel.importFromFiles(url) {
-            path.append(.inputDetail(media))
+        switch viewModel.importDocumentIfNeeded(url) {
+        case .some(let file):
+            if let file { path.append(.fileHub(file)) }
+        case .none:
+            if let media = await viewModel.importFromFiles(url) {
+                path.append(.inputDetail(media))
+            }
         }
     }
 
@@ -476,22 +527,11 @@ struct HomeView: View {
     }
 
     private func importFromRemoteLink(_ raw: String) async {
-        if let media = await viewModel.importFromRemoteLink(raw) {
-            path.append(.inputDetail(media))
+        switch await viewModel.importAnyFromRemoteLink(raw) {
+        case .media(let media): path.append(.inputDetail(media))
+        case .document(let file): path.append(.fileHub(file))
+        case nil: break
         }
-    }
-
-    private static var allowedContentTypes: [UTType] {
-        [
-            .image,
-            .movie,
-            .audio,
-            UTType(filenameExtension: "webm") ?? .data,
-            UTType(filenameExtension: "mkv") ?? .data,
-            UTType(filenameExtension: "flac") ?? .data,
-            UTType(filenameExtension: "opus") ?? .data,
-            UTType(filenameExtension: "ogg") ?? .data
-        ]
     }
 }
 

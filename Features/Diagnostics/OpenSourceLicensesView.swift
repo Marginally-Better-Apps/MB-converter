@@ -28,7 +28,9 @@ struct OpenSourceLicensesView: View {
             Section {
                 Text("This app uses FFmpeg under the GNU Lesser General Public License version 2.1 or later, together with LAME, Opus, Vorbis, Ogg, libvpx, dav1d and zimg. Their licenses apply separately from the app's MIT license.")
                 Text("This software is based in part on the work of the Independent JPEG Group.")
+                Text("Office, OpenDocument and EPUB packages are read and written with ZIPFoundation (MIT License, © Thomas Zoechling).")
                 linkRow("FFmpeg project", destination: URL(string: "https://ffmpeg.org")!)
+                linkRow("ZIPFoundation", destination: URL(string: "https://github.com/weichsel/ZIPFoundation")!)
                 linkRow("App source and build instructions", destination: URL(string: "https://github.com/Marginally-Better-Apps/MB-converter")!)
             }
             Section("Bundled licenses") {
