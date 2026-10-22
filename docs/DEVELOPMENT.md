@@ -114,6 +114,33 @@ recognized file extension list or enable native video trimming for unsupported i
 | `Converter.xcodeproj/` | Project, shared scheme, dependency lockfile |
 | `docs/` | Build/release guides, listing copy, original screenshots |
 
+## Tools layer
+
+The **Tools** tab and the document file hub are driven by a declarative catalog:
+
+```
+Core/
+├── Files/FileFormat.swift      Formats the tools understand + conversion targets
+├── Documents/                  Hub-and-spoke document engine (like Pandoc)
+│   ├── Model/                  RichDocument + export options (page, margins, typography)
+│   ├── Readers/                DOCX, ODT, RTF, TXT, Markdown, HTML, EPUB, PPTX, PDF → RichDocument
+│   ├── Writers/                RichDocument → DOCX, ODT, RTF, TXT, Markdown, HTML, EPUB, PDF (WebKit)
+│   └── Support/                ZIP packages (ZIPFoundation) and a small XML DOM
+├── Spreadsheets/               XLSX, ODS, CSV/TSV, JSON and XML readers/writers
+├── PDF/                        PDFKit structure ops, stamping, compression, OCR, image conversion
+├── ImageTools/                 Core Image + Vision operations
+├── MediaTools/                 AVFoundation compositions + FFmpeg `-af` audio graphs
+└── Tools/                      ToolDefinition model, ConversionEngine, catalog
+```
+
+Each `ToolDefinition` declares accepted formats, declarative options, an optional visual editor (page organizer, PDF markup/signature, crop, media range) and an async `run`. `ToolView` renders any tool from that description, so adding a tool is usually one catalog entry.
+
+- WebKit renders Office files natively on iOS; “Keep original” PDF exports use it. “Use my settings” goes through `RichDocument`.
+- Multi-input video work (merge, soundtrack) uses AVFoundation because the FFmpeg adapter only runs single-input commands. Containers AVFoundation can't open are converted with the app's own pipeline first.
+- `-MBRoute` launch arguments (Debug builds only) open any screen directly, e.g. `-MBRoute tool:pdf.merge -MBInputs /path/a.pdf,/path/b.pdf -MBEditor 1`.
+
+Tests (`Tests/*Tests.swift`, Swift Testing) cover every reader/writer with round trips and real Office/LibreOffice fixtures, spreadsheet formats, PDF and image operations, media operations, and run **every catalog tool** end to end. `.github/workflows/tests.yml` builds the pinned FFmpeg for the simulator (cached) and runs the suite on pull requests.
+
 ## Storage and diagnostics
 
 Imported files and conversion working files use the app's temporary directory and are cleaned at launch. Session-only history is also cleared on the next launch. Saved history copies output files into Application Support until the user deletes them or disables saved history.

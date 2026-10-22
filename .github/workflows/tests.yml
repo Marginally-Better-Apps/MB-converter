@@ -1,0 +1,83 @@
+name: App tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Unit & integration tests (iOS Simulator)
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes | grep iOS
+
+      - name: Restore FFmpeg runtime cache
+        id: ffmpeg-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            Native/FFmpeg/Artifacts
+            build/ffmpeg/downloads
+          key: ffmpeg-sim-${{ hashFiles('Native/FFmpeg/sources.json', 'Native/FFmpeg/patches/**', 'Native/MBFFmpegBridge/**', 'Scripts/BuildFFmpeg.py') }}
+
+      - name: Install native build tools
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          brew install python@3.12 cmake pkg-config autoconf automake libtool
+          echo "$(brew --prefix python@3.12)/libexec/bin" >> "$GITHUB_PATH"
+
+      - name: Build pinned FFmpeg runtime for the simulator
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv build/ffmpeg/tools
+          build/ffmpeg/tools/bin/python -m pip install meson==1.7.2 ninja==1.11.1.3
+          python3 Scripts/BuildFFmpeg.py --platform ios-simulator
+
+      - name: Pick a simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | contains("iOS")) | .value[] | select(.name | startswith("iPhone"))] | last | .udid')
+          echo "Using simulator $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Converter.xcodeproj -scheme Converter \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: TestResults
+          path: TestResults.xcresult
+          retention-days: 7
