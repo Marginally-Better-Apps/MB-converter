@@ -172,7 +172,25 @@ struct RemoteFileDownloader {
         "image/heic": "heic",
         "image/heif": "heic",
         "image/tiff": "tiff",
-        "image/avif": "avif"
+        "image/avif": "avif",
+        "image/svg+xml": "svg",
+        "application/pdf": "pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+        "application/vnd.oasis.opendocument.text": "odt",
+        "application/vnd.oasis.opendocument.spreadsheet": "ods",
+        "application/epub+zip": "epub",
+        "application/rtf": "rtf",
+        "text/rtf": "rtf",
+        "text/markdown": "md",
+        "text/csv": "csv",
+        "text/tab-separated-values": "tsv",
+        "application/json": "json",
+        "application/xml": "xml",
+        "text/xml": "xml",
+        "text/plain": "txt",
+        "application/zip": "zip"
     ]
 
     private static func declaredContentLength(from response: HTTPURLResponse) -> Int64? {
@@ -216,7 +234,8 @@ struct RemoteFileDownloader {
             candidates.append(ext)
         }
         return candidates.map { $0.lowercased() }.first {
-            !$0.isEmpty && FormatMatrix.detectCategory(from: URL(fileURLWithPath: "download.\($0)")) != nil
+            !$0.isEmpty && (FormatMatrix.detectCategory(from: URL(fileURLWithPath: "download.\($0)")) != nil
+                || FileFormat(fileExtension: $0) != nil)
         }
     }
 
