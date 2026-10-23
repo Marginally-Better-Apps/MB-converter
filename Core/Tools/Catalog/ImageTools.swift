@@ -7,13 +7,14 @@ extension ToolCatalog {
 
     static func formatOption(defaultValue: String = "original", transparentOnly: Bool = false) -> ToolOption {
         var choices = [ToolChoice("original", "Same as original")]
-        let formats: [ImageToolkit.OutputFormat] = transparentOnly ? [.png, .webp, .heic, .tiff] : [.jpeg, .png, .heic, .webp, .tiff]
+        // Every format this runtime can write (ImageIO, libwebp or ImageMagick), common ones first.
+        let formats = ImageToolkit.OutputFormat.available.filter { !transparentOnly || $0.supportsTransparency }
         choices += formats.map { ToolChoice($0.rawValue, $0.label) }
         return .choice("saveAs", "Save as", choices, default: defaultValue, section: "Output")
     }
 
     static let qualityOption = ToolOption.slider("quality", "Quality", range: 30 ... 100, default: 90, section: "Output", format: { "\(Int($0))%" }, visible: { values in
-        ["original", "jpeg", "heic", "webp"].contains(values.string("saveAs"))
+        ["original", "jpeg", "heic", "webp", "avif", "jxl", "jp2"].contains(values.string("saveAs"))
     })
 
     /// Applies `transform` to every input image and writes results in the chosen format.
@@ -30,7 +31,7 @@ extension ToolCatalog {
         for (index, input) in context.inputs.enumerated() {
             let saveAs = context.options.string("saveAs")
             var format = ImageToolkit.OutputFormat(rawValue: saveAs) ?? ImageToolkit.OutputFormat(fileFormat: input.format) ?? .jpeg
-            if format == .gif || format == .bmp { format = .png }
+            if format == .gif { format = .png } // Single frames only; animation lives in the GIF tools.
             if needsAlpha, !format.supportsTransparency { format = .png }
             let quality = context.options["quality"] == nil ? 0.9 : context.options.double("quality") / 100
             let url = input.url
@@ -53,10 +54,11 @@ extension ToolCatalog {
 
     static let imageTools: [ToolDefinition] = [
         ToolDefinition(
-            id: "image.convert", title: "Convert Images", summary: "JPG, PNG, HEIC, WebP, TIFF — in batches",
+            id: "image.convert", title: "Convert Images", summary: "JPG, PNG, HEIC, WebP, AVIF, JPEG XL, PSD, ICO and more",
             symbol: "arrow.triangle.2.circlepath", category: .images, input: .many(imageInputs, noun: "images"),
             options: [formatOption(defaultValue: "jpeg"), qualityOption, .toggle("strip", "Remove location and camera data", default: false, section: "Output")],
-            keywords: ["heic to jpg", "png to jpg", "jpg to png", "webp to png", "webp to jpg", "png to webp", "jpg to webp", "tiff to jpg", "jpg to tiff", "heic to png", "bmp"], isFeatured: true, actionTitle: "Convert"
+            keywords: ["heic to jpg", "png to jpg", "jpg to png", "webp to png", "webp to jpg", "png to webp", "jpg to webp", "tiff to jpg", "jpg to tiff", "heic to png", "bmp",
+                       "psd to png", "psd to jpg", "png to ico", "ico", "favicon", "tga", "avif", "jpeg xl", "jxl", "jpeg 2000", "jp2", "qoi", "pcx", "dds", "png to eps", "eps", "ppm", "xpm", "hdr"], isFeatured: true, actionTitle: "Convert"
         ) { context in
             try await processImages(context, suffix: "") { $0 }
         },
@@ -356,7 +358,7 @@ extension ToolCatalog {
             let rows = context.options.int("rows")
             let columns = context.options.int("columns")
             var format = ImageToolkit.OutputFormat(rawValue: context.options.string("saveAs")) ?? ImageToolkit.OutputFormat(fileFormat: input.format) ?? .jpeg
-            if format == .gif || format == .bmp { format = .png }
+            if format == .gif { format = .png } // Single frames only; animation lives in the GIF tools.
             let quality = context.options.double("quality") / 100
             let url = input.url
             let tiles = try await background {
@@ -410,6 +412,31 @@ extension ToolCatalog {
                 try ImageToolkit.animatedGIF(try urls.map { try ImageToolkit.load($0, maxPixelSize: CGFloat(size)) }, frameDelay: delay, loopCount: loop, maxSide: size)
             }
             return ToolOutput(files: [try ToolHelpers.write(data, "Animation", "gif", context)])
+        },
+
+        ToolDefinition(
+            id: "image.animated", title: "GIF ⇄ WebP", summary: "Convert animations between GIF and animated WebP",
+            symbol: "sparkles.rectangle.stack", category: .images, input: .one([.gif, .webp], noun: "GIF or WebP"),
+            options: [
+                .choice("target", "Convert to", [ToolChoice("webp", "Animated WebP"), ToolChoice("gif", "GIF")], segmented: true),
+                .choice("width", "Width", [ToolChoice("0", "Original"), ToolChoice("480", "480"), ToolChoice("320", "320")], segmented: true),
+                .slider("quality", "Quality", range: 30 ... 100, default: 80, format: { "\(Int($0))%" }, visible: { $0.string("target") == "webp" })
+            ],
+            keywords: ["gif to webp", "webp to gif", "animated", "sticker", "smaller gif"], actionTitle: "Convert"
+        ) { context in
+            let input = try context.first
+            let format = MediaToolkit.AnimationFormat(rawValue: context.options.string("target")) ?? .webp
+            var width = context.options.int("width")
+            if width == 0 {
+                width = (try? Magick.identify(input.url).width) ?? CGImageSourceCreateWithURL(input.url as CFURL, nil)
+                    .flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [CFString: Any] }
+                    .flatMap { $0[kCGImagePropertyPixelWidth] as? Int } ?? 480
+            }
+            let url = context.outputURL(input.baseName, format.fileExtension)
+            let progress = context.progress
+            try await MediaToolkit.makeAnimation(input.url, start: 0, duration: nil, fps: 25, width: width, format: format,
+                                                 quality: context.options.int("quality"), output: url) { progress.report($0) }
+            return ToolOutput(files: [url], summary: ToolHelpers.savings(before: input.byteCount, after: ToolOutputFile(url: url).byteCount))
         },
 
         ToolDefinition(

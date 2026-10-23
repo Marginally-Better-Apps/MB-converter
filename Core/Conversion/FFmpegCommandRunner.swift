@@ -92,6 +92,35 @@ final class FFmpegCommandRunner: @unchecked Sendable {
         #endif
     }
 
+    /// Runs a short command on the calling thread (for synchronous image encoders). No progress or cancellation.
+    static func runBlocking(_ command: String) throws {
+        let arguments = try arguments(in: command)
+        #if canImport(MBFFmpegBridge)
+        let strings = (["ffmpeg"] + arguments).map { strdup($0) }
+        defer { strings.forEach { free($0) } }
+        guard strings.allSatisfy({ $0 != nil }) else {
+            throw ConversionError.engineFailed("Could not allocate FFmpeg arguments.")
+        }
+        let pointers = strings.map { $0.map { UnsafePointer<CChar>($0) } }
+        let context = FFmpegRunContext(duration: nil, progress: { _ in }, onLogLine: nil, onEncodingStats: nil)
+        let opaque = Unmanaged.passUnretained(context).toOpaque()
+        let result = withExtendedLifetime(context) {
+            pointers.withUnsafeBufferPointer { buffer in
+                mbf_execute(Int32(buffer.count), buffer.baseAddress, { opaque, message in
+                    guard let opaque, let message else { return }
+                    Unmanaged<FFmpegRunContext>.fromOpaque(opaque).takeUnretainedValue().log(String(cString: message))
+                }, nil, nil, opaque)
+            }
+        }
+        guard result == 0 else {
+            let detail = errorDetail(from: context.recentLogLines).map { ": \($0)" } ?? ""
+            throw ConversionError.engineFailed("FFmpeg exited with code \(result)\(detail)")
+        }
+        #else
+        throw ConversionError.engineFailed("The bundled FFmpeg bridge is not linked. Build the custom FFmpeg frameworks first.")
+        #endif
+    }
+
     private func register(_ context: FFmpegRunContext) -> UUID {
         lock.lock()
         defer { lock.unlock() }

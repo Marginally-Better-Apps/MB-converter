@@ -139,7 +139,9 @@ enum FileIntake {
     static func opensInMediaConverter(_ format: FileFormat) -> Bool {
         switch format.family {
         case .video, .audio: true
-        case .image: format != .svg
+        // Formats ImageIO decodes go to the full converter; the rest (PSD layers, TGA, PCX,
+        // QOI, DDS, JPEG 2000…) open the file hub, where ImageMagick-backed tools handle them.
+        case .image: [.jpeg, .png, .heic, .webp, .tiff, .gif, .bmp, .avif].contains(format)
         default: false
         }
     }

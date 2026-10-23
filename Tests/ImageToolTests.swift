@@ -31,10 +31,11 @@ struct ImageToolTests {
     }
 
     @Test func encodesEveryFormat() throws {
-        for format in ImageToolkit.OutputFormat.allCases {
+        for format in ImageToolkit.OutputFormat.available where format != .eps {
             let data = try ImageToolkit.encode(image, as: format, quality: 0.8)
             let decoded = try ImageToolkit.load(data: data)
-            #expect(decoded.width == 400, "\(format) round trip failed")
+            // ICO entries are capped at 256 px.
+            #expect(decoded.width == (format == .ico ? 256 : 400), "\(format) round trip failed")
         }
     }
 

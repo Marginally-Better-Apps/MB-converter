@@ -72,18 +72,33 @@ enum ConversionEngine {
                 let image = try await WebPDFRenderer.snapshotFile(input.url, width: 1_024)
                 let png = try Self.temporaryPNG(image)
                 try ImagesToPDF.makePDF(from: [png]).write(to: url)
+            } else if ImageToolkit.OutputFormat(fileFormat: source).map({ !$0.usesImageIO && $0 != .webp }) ?? false {
+                // Decode via ImageMagick first so ImageIO can embed it.
+                let proxy = try Magick.pngProxy(for: input.url)
+                defer { try? FileManager.default.removeItem(at: proxy) }
+                try await background { try ImagesToPDF.makePDF(from: [proxy]) }.write(to: url)
             } else {
                 try await background { try ImagesToPDF.makePDF(from: [input.url]) }.write(to: url)
             }
             return [url]
 
         case (.image, .image):
-            // SVG rasterization (other image → image conversions use the media converter).
-            let image = try await WebPDFRenderer.snapshotFile(input.url, width: 1_024)
-            guard let cgImage = image.cgImage else { throw DocumentError.writeFailed("The SVG couldn't be rendered.") }
-            let format = ImageToolkit.OutputFormat(fileFormat: target) ?? .png
+            guard let format = ImageToolkit.OutputFormat(fileFormat: target) else {
+                throw DocumentError.unsupportedFormat(target.displayName)
+            }
+            let cgImage: CGImage
+            if source == .svg {
+                guard let rendered = try await WebPDFRenderer.snapshotFile(input.url, width: 1_024).cgImage else {
+                    throw DocumentError.writeFailed("The SVG couldn't be rendered.")
+                }
+                cgImage = rendered
+            } else {
+                let url = input.url
+                cgImage = try await background { try ImageToolkit.load(url) }
+            }
             let url = context.outputURL(base, format.fileExtension)
-            try ImageToolkit.encode(cgImage, as: format, quality: settings.imageQuality).write(to: url)
+            let quality = settings.imageQuality
+            try await background { try ImageToolkit.encode(cgImage, as: format, quality: quality) }.write(to: url)
             return [url]
 
         case (.spreadsheet, _):

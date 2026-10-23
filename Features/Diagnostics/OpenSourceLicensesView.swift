@@ -9,24 +9,28 @@ struct OpenSourceLicensesView: View {
     }
 
     private var notices: [Notice] {
-        guard let root = Bundle.main.privateFrameworksURL?
-            .appendingPathComponent("MBFFmpegBridge.framework/Licenses"),
-              let enumerator = FileManager.default.enumerator(
-                at: root, includingPropertiesForKeys: [.isRegularFileKey]
-              ) else { return [] }
-        return enumerator.compactMap { element -> Notice? in
-            guard let url = element as? URL,
-                  (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
-                  let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-            let relativePath = String(url.path.dropFirst(root.path.count + 1))
-            return Notice(id: relativePath, text: text)
+        ["MBFFmpegBridge", "MBImageMagickBridge"].flatMap { framework -> [Notice] in
+            guard let root = Bundle.main.privateFrameworksURL?
+                .appendingPathComponent("\(framework).framework/Licenses"),
+                  let enumerator = FileManager.default.enumerator(
+                    at: root, includingPropertiesForKeys: [.isRegularFileKey]
+                  ) else { return [] }
+            return enumerator.compactMap { element -> Notice? in
+                guard let url = element as? URL,
+                      (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                      let text = (try? String(contentsOf: url, encoding: .utf8))
+                        ?? (try? String(contentsOf: url, encoding: .isoLatin1)) else { return nil }
+                let relativePath = String(url.path.dropFirst(root.path.count + 1))
+                return Notice(id: relativePath, text: text)
+            }
         }.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
     }
 
     var body: some View {
         List {
             Section {
-                Text("This app uses FFmpeg under the GNU Lesser General Public License version 2.1 or later, together with LAME, Opus, Vorbis, Ogg, libvpx, dav1d and zimg. Their licenses apply separately from the app's MIT license.")
+                Text("This app uses FFmpeg under the GNU Lesser General Public License version 2.1 or later, together with LAME, Opus, Vorbis, Ogg, Theora, libvpx, SVT-AV1, libwebp, dav1d and zimg. Their licenses apply separately from the app's MIT license.")
+                Text("Image formats use ImageMagick (ImageMagick License) with libpng, libjpeg-turbo, libtiff, libwebp, OpenJPEG, Little CMS, libjxl, Highway and Brotli, each under its own permissive license.")
                 Text("This software is based in part on the work of the Independent JPEG Group.")
                 Text("Office, OpenDocument and EPUB packages are read and written with ZIPFoundation (MIT License, © Thomas Zoechling).")
                 linkRow("FFmpeg project", destination: URL(string: "https://ffmpeg.org")!)

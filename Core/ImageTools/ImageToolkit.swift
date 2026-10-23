@@ -14,12 +14,44 @@ enum ImageToolkit {
 
     enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Sendable {
         case jpeg, png, heic, webp, tiff, gif, bmp
+        case avif, jxl, jp2, psd, tga, ico, ppm, pcx, qoi, dds, sgi, xpm, hdr, eps
 
         var id: String { rawValue }
-        var label: String { self == .jpeg ? "JPEG" : rawValue.uppercased() }
+
+        var label: String {
+            switch self {
+            case .jpeg: "JPEG"
+            case .jxl: "JPEG XL"
+            case .jp2: "JPEG 2000"
+            case .psd: "PSD (Photoshop)"
+            case .tga: "TGA"
+            case .ico: "ICO (icon)"
+            case .ppm: "PPM"
+            case .dds: "DDS"
+            case .hdr: "HDR"
+            default: rawValue.uppercased()
+            }
+        }
+
         var fileExtension: String { self == .jpeg ? "jpg" : rawValue }
-        var supportsTransparency: Bool { self == .png || self == .heic || self == .webp || self == .tiff || self == .gif }
-        var isLossy: Bool { self == .jpeg || self == .heic || self == .webp }
+
+        var supportsTransparency: Bool {
+            switch self {
+            case .png, .heic, .webp, .tiff, .gif, .avif, .jxl, .jp2, .psd, .tga, .ico, .qoi, .dds, .sgi, .xpm: true
+            default: false
+            }
+        }
+
+        var isLossy: Bool { [.jpeg, .heic, .webp, .avif, .jxl, .jp2].contains(self) }
+
+        /// Formats written by Apple's ImageIO; everything else goes through ImageMagick.
+        var usesImageIO: Bool {
+            switch self {
+            case .jpeg, .png, .heic, .tiff, .gif, .bmp: true
+            case .avif: UTType("public.avif").map(ImageToolkit.imageIOCanWrite) ?? false
+            default: false
+            }
+        }
 
         var utType: UTType {
             switch self {
@@ -30,6 +62,22 @@ enum ImageToolkit {
             case .tiff: .tiff
             case .gif: .gif
             case .bmp: .bmp
+            case .avif: UTType("public.avif") ?? .image
+            default: UTType(filenameExtension: fileExtension) ?? .image
+            }
+        }
+
+        /// Whether this device's runtime can produce the format at all.
+        var isAvailable: Bool {
+            if self == .webp || usesImageIO { return true }
+            if self == .avif { return FFmpegRuntimeInfo.hasEncoder("libsvtav1") && FFmpegRuntimeInfo.hasMuxer("avif") }
+            return Magick.canWrite(magickCoder)
+        }
+
+        var magickCoder: String {
+            switch self {
+            case .jpeg: "jpeg"
+            default: rawValue
             }
         }
 
@@ -42,6 +90,20 @@ enum ImageToolkit {
             case .tiff: self = .tiff
             case .gif: self = .gif
             case .bmp: self = .bmp
+            case .avif: self = .avif
+            case .jxl: self = .jxl
+            case .jp2: self = .jp2
+            case .psd: self = .psd
+            case .tga: self = .tga
+            case .ico: self = .ico
+            case .pnm: self = .ppm
+            case .pcx: self = .pcx
+            case .qoi: self = .qoi
+            case .dds: self = .dds
+            case .sgi: self = .sgi
+            case .xpm: self = .xpm
+            case .hdr: self = .hdr
+            case .eps: self = .eps
             default: return nil
             }
         }
@@ -55,22 +117,65 @@ enum ImageToolkit {
             case .tiff: .tiff
             case .gif: .gif
             case .bmp: .bmp
+            case .avif: .avif
+            case .jxl: .jxl
+            case .jp2: .jp2
+            case .psd: .psd
+            case .tga: .tga
+            case .ico: .ico
+            case .ppm: .pnm
+            case .pcx: .pcx
+            case .qoi: .qoi
+            case .dds: .dds
+            case .sgi: .sgi
+            case .xpm: .xpm
+            case .hdr: .hdr
+            case .eps: .eps
             }
         }
+
+        /// Output formats offered in pickers, best-known first.
+        static var available: [OutputFormat] { allCases.filter(\.isAvailable) }
+    }
+
+    static func imageIOCanWrite(_ type: UTType) -> Bool {
+        let identifiers = CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []
+        return identifiers.contains(type.identifier)
     }
 
     // MARK: - IO
 
     /// Decodes the first frame upright (EXIF orientation applied) at full or capped size.
     static func load(_ url: URL, maxPixelSize: CGFloat? = nil) throws -> CGImage {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+        if let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(source) > 0,
+           CGImageSourceGetType(source) != nil,
+           let image = try? load(source: source, maxPixelSize: maxPixelSize, name: url.lastPathComponent) {
+            return image
+        }
+        // PSD layers, TGA, ICO, PCX, QOI, JPEG XL, DDS… decode through ImageMagick.
+        guard Magick.canRead(url.pathExtension) else {
             throw DocumentError.unreadable("“\(url.lastPathComponent)” isn't a readable image.")
+        }
+        let proxy = try Magick.pngProxy(for: url)
+        defer { try? FileManager.default.removeItem(at: proxy) }
+        guard let source = CGImageSourceCreateWithURL(proxy as CFURL, nil) else {
+            throw DocumentError.unreadable("“\(url.lastPathComponent)” couldn't be decoded.")
         }
         return try load(source: source, maxPixelSize: maxPixelSize, name: url.lastPathComponent)
     }
 
     static func load(data: Data, maxPixelSize: CGFloat? = nil) throws -> CGImage {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+        if let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetType(source) != nil,
+           let image = try? load(source: source, maxPixelSize: maxPixelSize, name: "image") {
+            return image
+        }
+        // Unknown to ImageIO: let ImageMagick sniff the bytes.
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("decode-\(UUID().uuidString)")
+        try data.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let proxy = try Magick.pngProxy(for: url)
+        defer { try? FileManager.default.removeItem(at: proxy) }
+        guard let source = CGImageSourceCreateWithURL(proxy as CFURL, nil) else {
             throw DocumentError.unreadable("The image data couldn't be read.")
         }
         return try load(source: source, maxPixelSize: maxPixelSize, name: "image")
@@ -105,6 +210,12 @@ enum ImageToolkit {
         if format == .webp {
             return try ImageConverter.webPData(from: image, quality: quality)
         }
+        if format == .avif, !format.usesImageIO {
+            return try encodeAVIFWithFFmpeg(image, quality: quality)
+        }
+        if !format.usesImageIO {
+            return try encodeWithMagick(image, as: format, quality: quality)
+        }
         var image = image
         if !format.supportsTransparency, hasAlpha(image) {
             image = flattened(image, background: .white) ?? image
@@ -121,6 +232,51 @@ enum ImageToolkit {
             throw DocumentError.writeFailed("\(format.label) encoding failed.")
         }
         return data as Data
+    }
+
+    /// AVIF via SVT-AV1 still-picture encoding where ImageIO can't write AVIF (older iOS).
+    static func encodeAVIFWithFFmpeg(_ image: CGImage, quality: Double) throws -> Data {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("avif-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let source = folder.appendingPathComponent("source.png")
+        let output = folder.appendingPathComponent("output.avif")
+        // AV1 4:2:0 needs even dimensions; pad by at most one pixel.
+        var prepared = flattened(image, background: .white) ?? image
+        if prepared.width % 2 == 1 || prepared.height % 2 == 1 {
+            prepared = resize(prepared, to: CGSize(width: prepared.width + prepared.width % 2, height: prepared.height + prepared.height % 2)) ?? prepared
+        }
+        guard let png = PDFRasterizer.encode(prepared, type: .png) else { throw DocumentError.writeFailed("Couldn't prepare the image.") }
+        try png.write(to: source)
+        // Map 0…1 quality onto SVT-AV1's CRF (lower is better).
+        let crf = Int((63 - quality * 45).rounded())
+        let command = "-y -i \(FFmpegCommandRunner.quoted(source.path)) -frames:v 1 -an -c:v libsvtav1 -pix_fmt yuv420p " +
+            "-mb-codec-opt:v preset=8 -mb-codec-opt:v crf=\(min(max(crf, 10), 63)) -f avif \(FFmpegCommandRunner.quoted(output.path))"
+        try FFmpegCommandRunner.runBlocking(command)
+        return try Data(contentsOf: output)
+    }
+
+    /// Writes a lossless PNG intermediate and lets ImageMagick produce the target format.
+    private static func encodeWithMagick(_ image: CGImage, as format: OutputFormat, quality: Double) throws -> Data {
+        var source = image
+        if format == .ico, max(image.width, image.height) > 256 {
+            // ICO entries top out at 256×256.
+            source = resize(image, mode: .maxDimension(256)) ?? image
+        }
+        if !format.supportsTransparency, hasAlpha(source) {
+            source = flattened(source, background: .white) ?? source
+        }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("encode-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let intermediate = folder.appendingPathComponent("source.png")
+        guard let png = PDFRasterizer.encode(source, type: .png) else { throw DocumentError.writeFailed("Couldn't prepare the image.") }
+        try png.write(to: intermediate)
+        let output = folder.appendingPathComponent("output.\(format.fileExtension)")
+        let percent = format.isLossy ? Int((quality * 100).rounded()) : 0
+        try Magick.convert(intermediate, to: output, format: format.magickCoder, quality: percent,
+                           flatten: !format.supportsTransparency, background: format.supportsTransparency ? nil : "#ffffff")
+        return try Data(contentsOf: output)
     }
 
     static func hasAlpha(_ image: CGImage) -> Bool {

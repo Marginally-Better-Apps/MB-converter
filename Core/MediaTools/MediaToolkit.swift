@@ -398,6 +398,39 @@ enum MediaToolkit {
         guard size > 0 else { throw ConversionError.engineFailed("The output file is empty.") }
     }
 
+    // MARK: - Animation (FFmpeg: palette GIF and animated WebP)
+
+    enum AnimationFormat: String, Sendable {
+        case gif, webp
+        var fileExtension: String { rawValue }
+    }
+
+    /// Single-input command for a looping animation. Frames are capped by count because
+    /// the adapter's option subset has no `-t`.
+    static func animationCommand(_ input: URL, start: Double, duration: Double?, fps: Int, width: Int,
+                                 format: AnimationFormat, quality: Int = 75, output: URL) -> String {
+        let scale = "fps=\(fps),scale=\(width):-2:flags=lanczos"
+        let seek = start > 0 ? "-ss \(String(format: "%.3f", start)) " : ""
+        let frames = duration.map { " -frames:v \(max(1, Int(($0 * Double(fps)).rounded())))" } ?? ""
+        switch format {
+        case .gif:
+            let graph = "\(scale),split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle"
+            return "-y \(seek)-i \(q(input))\(frames) -vf \(FFmpegCommandRunner.quoted(graph)) -an -c:v gif -f gif \(q(output))"
+        case .webp:
+            return "-y \(seek)-i \(q(input))\(frames) -vf \(FFmpegCommandRunner.quoted(scale)) -an -c:v libwebp_anim " +
+                "-mb-codec-opt:v quality=\(min(max(quality, 1), 100)) -mb-muxer-opt loop=0 -f webp \(q(output))"
+        }
+    }
+
+    static func makeAnimation(_ input: URL, start: Double, duration: Double?, fps: Int, width: Int,
+                              format: AnimationFormat, quality: Int = 75, output: URL,
+                              progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws {
+        let command = animationCommand(input, start: start, duration: duration, fps: fps, width: width,
+                                       format: format, quality: quality, output: output)
+        try await FFmpegCommandRunner().run(command, duration: duration, progress: progress)
+        try verifyOutput(output)
+    }
+
     // MARK: - Frames & GIF
 
     static func frames(_ input: URL, times: [Double], maxSide: Int) async throws -> [CGImage] {

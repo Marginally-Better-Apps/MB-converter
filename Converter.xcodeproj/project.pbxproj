@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		57B2E93AD5EA23E986DB3AB2 /* NativeFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831A58B22F2D1BFEE8B89C8C /* NativeFormatTests.swift */; };
+		6872A6D0816C7265A0C6E210 /* Core/ImageTools/MagickRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD52E5E61762F03193CB297B /* Core/ImageTools/MagickRuntime.swift */; };
+		F0000000000000000000C003 /* MBImageMagick in Frameworks */ = {isa = PBXBuildFile; productRef = F0000000000000000000C002 /* MBImageMagick */; };
 		F0000000000000000000B003 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = F0000000000000000000B002 /* ZIPFoundation */; };
 		5515E3084658006F4A84C792 /* Core/Files/FileFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 605E75F0B2AB275FE1CEF447 /* Core/Files/FileFormat.swift */; };
 		00735DEA58DC7CE66AF253FC /* Core/Documents/DocumentConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6E1EC2DB84D3AA049670B78 /* Core/Documents/DocumentConverter.swift */; };
@@ -171,6 +174,8 @@
 
 
 /* Begin PBXFileReference section */
+		831A58B22F2D1BFEE8B89C8C /* NativeFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFormatTests.swift; sourceTree = "<group>"; };
+		BD52E5E61762F03193CB297B /* Core/ImageTools/MagickRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ImageTools/MagickRuntime.swift; sourceTree = "<group>"; };
 		605E75F0B2AB275FE1CEF447 /* Core/Files/FileFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Files/FileFormat.swift; sourceTree = "<group>"; };
 		D6E1EC2DB84D3AA049670B78 /* Core/Documents/DocumentConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Documents/DocumentConverter.swift; sourceTree = "<group>"; };
 		CD2720295544DAD9C86F5BC9 /* Core/Documents/Writers/DOCXWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Documents/Writers/DOCXWriter.swift; sourceTree = "<group>"; };
@@ -329,6 +334,7 @@
 			files = (
 				7FD27FD33065C22000B5C378 /* libwebp in Frameworks */,
 				CAD5323895BC1027B5370F43 /* MBFFmpeg in Frameworks */,
+				F0000000000000000000C003 /* MBImageMagick in Frameworks */,
 				F0000000000000000000B003 /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -346,6 +352,7 @@
 		0A85897F1A32FE9B91C081CD = {
 			isa = PBXGroup;
 			children = (
+				BD52E5E61762F03193CB297B /* Core/ImageTools/MagickRuntime.swift */,
 				605E75F0B2AB275FE1CEF447 /* Core/Files/FileFormat.swift */,
 				D6E1EC2DB84D3AA049670B78 /* Core/Documents/DocumentConverter.swift */,
 				CD2720295544DAD9C86F5BC9 /* Core/Documents/Writers/DOCXWriter.swift */,
@@ -491,6 +498,7 @@
 		E1000000000000000000000D /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				831A58B22F2D1BFEE8B89C8C /* NativeFormatTests.swift */,
 				C2029C60E2CCED638CB48A12 /* TestSupport.swift */,
 				EE24DAD6F0F67A17DF449F6B /* DocumentFormatTests.swift */,
 				7B0176B68688057FD61C6730 /* SpreadsheetTests.swift */,
@@ -532,6 +540,7 @@
 			name = Converter;
 			packageProductDependencies = (
 				3AB25EE446E6B66FA9E3FFA0 /* MBFFmpeg */,
+				F0000000000000000000C002 /* MBImageMagick */,
 				C3D4E5F60718293A4B5C6D7E /* libwebp */,
 				F0000000000000000000B002 /* ZIPFoundation */,
 			);
@@ -589,6 +598,7 @@
 			mainGroup = 0A85897F1A32FE9B91C081CD;
 			packageReferences = (
 				24A2CFDF4C7B73DBCE0158A3 /* XCLocalSwiftPackageReference "Native/FFmpeg" */,
+				F0000000000000000000C001 /* XCLocalSwiftPackageReference "Native/ImageMagick" */,
 				D4E5F60718293A4B5C6D7E8F /* XCLocalSwiftPackageReference "Native/WebP" */,
 				F0000000000000000000B001 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 			);
@@ -634,6 +644,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6872A6D0816C7265A0C6E210 /* Core/ImageTools/MagickRuntime.swift in Sources */,
 				5515E3084658006F4A84C792 /* Core/Files/FileFormat.swift in Sources */,
 				00735DEA58DC7CE66AF253FC /* Core/Documents/DocumentConverter.swift in Sources */,
 				30461D297CACB5C6DC66EAE0 /* Core/Documents/Writers/DOCXWriter.swift in Sources */,
@@ -766,6 +777,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				57B2E93AD5EA23E986DB3AB2 /* NativeFormatTests.swift in Sources */,
 				8BFA5008DCB4443DC7AA7F2F /* TestSupport.swift in Sources */,
 				17485C67901465130ECEF30F /* DocumentFormatTests.swift in Sources */,
 				3E65B9FC4E742FF0B010B309 /* SpreadsheetTests.swift in Sources */,
@@ -1065,6 +1077,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Native/WebP;
 		};
+		F0000000000000000000C001 /* XCLocalSwiftPackageReference "Native/ImageMagick" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Native/ImageMagick;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -1095,6 +1111,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F0000000000000000000B001 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
 			productName = ZIPFoundation;
+		};
+		F0000000000000000000C002 /* MBImageMagick */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F0000000000000000000C001 /* XCLocalSwiftPackageReference "Native/ImageMagick" */;
+			productName = MBImageMagick;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -32,6 +32,11 @@ enum CodecCapability {
             // WebM output includes Opus audio when the input has an audio track.
             guard FFmpegRuntimeInfo.hasEncoder("libopus") else { return nil }
             (encoder, muxer) = ("libvpx-vp9", "webm")
+        case .mp4_av1:
+            (encoder, muxer) = ("libsvtav1", "mp4")
+        case .ogv:
+            guard FFmpegRuntimeInfo.hasEncoder("libvorbis") else { return nil }
+            (encoder, muxer) = ("libtheora", "ogg")
         case .mp3:
             (encoder, muxer) = ("libmp3lame", "mp3")
         case .m4a:

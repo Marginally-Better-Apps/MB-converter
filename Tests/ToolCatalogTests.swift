@@ -79,6 +79,7 @@ struct ToolCatalogStructureTests {
 
 /// Builds a real input file for any format a tool might need.
 enum ToolInputFactory {
+    // `#require` needs a throwing context; keep the factory's signature throwing.
     static func make(_ format: FileFormat) async throws -> URL {
         switch format {
         case .pdf:
@@ -101,6 +102,11 @@ enum ToolInputFactory {
         case .epub:
             let url = TestSupport.tempURL("epub")
             try EPUBWriter.write(TestSupport.sampleDocument, to: url)
+            return url
+        case .avif, .jxl, .jp2, .psd, .tga, .ico, .pnm, .pcx, .qoi, .dds, .sgi, .xpm, .hdr, .eps:
+            let format = try #require(ImageToolkit.OutputFormat(fileFormat: format))
+            let url = TestSupport.tempURL(format.fileExtension)
+            try ImageToolkit.encode(TestSupport.makeImage(width: 320, height: 240), as: format).write(to: url)
             return url
         case .png, .jpeg, .heic, .webp, .tiff, .bmp:
             let format = ImageToolkit.OutputFormat(fileFormat: format) ?? .png

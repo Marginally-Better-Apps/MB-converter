@@ -128,6 +128,10 @@ struct FileHubView: View {
     }
 
     private func open(_ target: FileFormat) {
+        if file.format.family == .image, file.format != .svg, let format = ImageToolkit.OutputFormat(fileFormat: target) {
+            path.append(.tool("image.convert", inputs: [file], preset: ["saveAs": format.rawValue]))
+            return
+        }
         if let preset = ToolCatalog.conversionTool(from: file.format, to: target) {
             path.append(.tool(preset.id, inputs: [file]))
         } else if file.format == .pdf, [.jpeg, .png, .tiff].contains(target) {

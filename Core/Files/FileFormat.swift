@@ -24,6 +24,8 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
     case pptx
     // Images
     case jpeg, png, heic, webp, tiff, gif, bmp, svg
+    // Images handled by ImageMagick (or ImageIO where available)
+    case avif, jxl, jp2, psd, tga, ico, pnm, pcx, qoi, dds, sgi, xpm, hdr, eps
     // Media (handled by the FFmpeg pipeline)
     case mp4, mov, m4v, mkv, webm, avi, mp3, m4a, wav, aac, flac, ogg, opus
     // Archives
@@ -37,7 +39,8 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
         case .docx, .odt, .rtf, .txt, .markdown, .html, .epub: .document
         case .xlsx, .ods, .csv, .tsv, .json, .xml: .spreadsheet
         case .pptx: .presentation
-        case .jpeg, .png, .heic, .webp, .tiff, .gif, .bmp, .svg: .image
+        case .jpeg, .png, .heic, .webp, .tiff, .gif, .bmp, .svg,
+             .avif, .jxl, .jp2, .psd, .tga, .ico, .pnm, .pcx, .qoi, .dds, .sgi, .xpm, .hdr, .eps: .image
         case .mp4, .mov, .m4v, .mkv, .webm, .avi: .video
         case .mp3, .m4a, .wav, .aac, .flac, .ogg, .opus: .audio
         case .zip: .archive
@@ -48,6 +51,7 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
         switch self {
         case .markdown: "md"
         case .jpeg: "jpg"
+        case .pnm: "ppm"
         case .tiff: "tiff"
         default: rawValue
         }
@@ -78,6 +82,20 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
         case .gif: "GIF"
         case .bmp: "BMP"
         case .svg: "SVG"
+        case .avif: "AVIF"
+        case .jxl: "JPEG XL"
+        case .jp2: "JPEG 2000"
+        case .psd: "Photoshop"
+        case .tga: "Targa"
+        case .ico: "Icon"
+        case .pnm: "Netpbm"
+        case .pcx: "PCX"
+        case .qoi: "QOI"
+        case .dds: "DirectDraw Surface"
+        case .sgi: "SGI"
+        case .xpm: "X Pixmap"
+        case .hdr: "Radiance HDR"
+        case .eps: "EPS"
         case .zip: "ZIP"
         default: rawValue.uppercased()
         }
@@ -147,6 +165,11 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
         "gif": .gif,
         "bmp": .bmp,
         "svg": .svg,
+        "avif": .avif, "jxl": .jxl, "jp2": .jp2, "j2k": .jp2, "jpf": .jp2,
+        "psd": .psd, "psb": .psd, "tga": .tga, "icb": .tga, "ico": .ico, "cur": .ico,
+        "ppm": .pnm, "pgm": .pnm, "pbm": .pnm, "pnm": .pnm, "pam": .pnm,
+        "pcx": .pcx, "qoi": .qoi, "dds": .dds, "sgi": .sgi, "rgb": .sgi, "xpm": .xpm, "hdr": .hdr,
+        "eps": .eps, "epsf": .eps,
         "mp4": .mp4, "mov": .mov, "m4v": .m4v, "mkv": .mkv, "webm": .webm, "avi": .avi,
         "mp3": .mp3, "m4a": .m4a, "wav": .wav, "aac": .aac, "flac": .flac, "ogg": .ogg, "opus": .opus,
         "zip": .zip
@@ -170,7 +193,36 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
     static let spreadsheetReadable: [FileFormat] = [.xlsx, .ods, .csv, .tsv, .json, .xml]
     static let spreadsheetWritable: [FileFormat] = [.xlsx, .ods, .csv, .tsv, .json, .xml, .html, .markdown, .pdf]
 
-    static let stillImages: [FileFormat] = [.jpeg, .png, .heic, .webp, .tiff, .gif, .bmp]
+    /// Raster images the tools can decode (ImageIO, or ImageMagick for the rest).
+    static let stillImages: [FileFormat] = [.jpeg, .png, .heic, .webp, .tiff, .gif, .bmp,
+                                            .avif, .jxl, .jp2, .psd, .tga, .ico, .pnm, .pcx, .qoi, .dds, .sgi, .xpm, .hdr]
+
+    /// ImageMagick coder name used when ImageIO can't handle the format.
+    var magickCoder: String? {
+        switch self {
+        case .avif: "avif"
+        case .jxl: "jxl"
+        case .jp2: "jp2"
+        case .psd: "psd"
+        case .tga: "tga"
+        case .ico: "ico"
+        case .pnm: "ppm"
+        case .pcx: "pcx"
+        case .qoi: "qoi"
+        case .dds: "dds"
+        case .sgi: "sgi"
+        case .xpm: "xpm"
+        case .hdr: "hdr"
+        case .eps: "eps"
+        case .bmp: "bmp"
+        case .gif: "gif"
+        case .tiff: "tiff"
+        case .png: "png"
+        case .jpeg: "jpeg"
+        case .webp: "webp"
+        default: nil
+        }
+    }
 }
 
 /// Picks the most useful conversion targets for a source format, best first.
@@ -186,7 +238,10 @@ enum ConversionTargets {
         case .spreadsheet:
             return FileFormat.spreadsheetWritable.filter { $0 != source }
         case .image:
-            return source == .svg ? [.png, .jpeg, .pdf] : [.pdf]
+            if source == .eps { return [] } // EPS can be written, not read (that needs Ghostscript).
+            let raster: [FileFormat] = [.png, .jpeg, .webp, .heic, .avif, .jxl, .tiff, .gif, .bmp, .psd, .tga,
+                                        .ico, .jp2, .qoi, .pnm, .pcx, .dds, .sgi, .xpm, .hdr, .eps]
+            return [.pdf] + raster.filter { $0 != source && (ImageToolkit.OutputFormat(fileFormat: $0)?.isAvailable ?? false) }
         default:
             return []
         }

@@ -34,6 +34,29 @@ extension ToolCatalog {
         input.url.pathExtension.lowercased() == "mov" ? "mov" : "mp4"
     }
 
+    /// Video → GIF/animated WebP with FFmpeg's palette encoder; falls back to AVFoundation frames for GIF.
+    @MainActor
+    static func runAnimation(_ context: ToolContext, format: MediaToolkit.AnimationFormat) async throws -> ToolOutput {
+        let input = try context.first
+        let probe = try await MediaToolkit.probe(input.url)
+        var range = context.editor.range ?? (0, min(probe.duration, 6))
+        if range.end - range.start > 30 { range.end = range.start + 30 }
+        let duration = max(0.1, range.end - range.start)
+        let fps = context.options.int("fps")
+        let width = context.options.int("width")
+        let url = context.outputURL(input.baseName, format.fileExtension)
+        let progress = context.progress
+        do {
+            try await MediaToolkit.makeAnimation(input.url, start: range.start, duration: duration, fps: fps, width: width,
+                                                 format: format, quality: context.options["quality"] == nil ? 75 : context.options.int("quality"),
+                                                 output: url) { progress.report($0) }
+        } catch where format == .gif && !(error is CancellationError) {
+            let data = try await MediaToolkit.makeGIF(input.url, start: range.start, duration: duration, fps: fps, width: width)
+            try data.write(to: url)
+        }
+        return ToolOutput(files: [url], summary: ToolOutputFile(url: url).byteCount.formattedBytes)
+    }
+
     static func mediaConverter(_ id: ToolID, _ title: String, summary: String, symbol: String, category: ToolCategory, inputs: Set<FileFormat>, keywords: [String], featured: Bool = false) -> ToolDefinition {
         ToolDefinition(
             id: id, title: title, summary: summary, symbol: symbol, category: category,
@@ -72,12 +95,20 @@ extension ToolCatalog {
             ],
             editor: .mediaRange, keywords: ["mp4 to gif", "mov to gif", "animated", "convert to gif"], isFeatured: true, actionTitle: "Make GIF"
         ) { context in
-            let input = try context.first
-            let probe = try await MediaToolkit.probe(input.url)
-            var range = context.editor.range ?? (0, min(probe.duration, 5))
-            if range.end - range.start > 30 { range.end = range.start + 30 }
-            let data = try await MediaToolkit.makeGIF(input.url, start: range.start, duration: range.end - range.start, fps: context.options.int("fps"), width: context.options.int("width"))
-            return ToolOutput(files: [try ToolHelpers.write(data, input.baseName, "gif", context)], summary: Int64(data.count).formattedBytes)
+            try await runAnimation(context, format: .gif)
+        },
+
+        ToolDefinition(
+            id: "video.webp", title: "Video to WebP", summary: "Animated WebP: smaller than GIF, full color",
+            symbol: "photo.stack", category: .video, input: .one(videoInputs, noun: "video"),
+            options: [
+                .choice("fps", "Frame rate", [ToolChoice("10", "10 fps"), ToolChoice("15", "15 fps"), ToolChoice("24", "24 fps")], default: "15", segmented: true),
+                .choice("width", "Width", [ToolChoice("320", "320"), ToolChoice("480", "480"), ToolChoice("640", "640"), ToolChoice("800", "800")], default: "480", segmented: true),
+                .slider("quality", "Quality", range: 30 ... 100, default: 75, format: { "\(Int($0))%" })
+            ],
+            editor: .mediaRange, keywords: ["mp4 to webp", "animated webp", "video to webp", "sticker"], actionTitle: "Make WebP"
+        ) { context in
+            try await runAnimation(context, format: .webp)
         },
 
         ToolDefinition(
