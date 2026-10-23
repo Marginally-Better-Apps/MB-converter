@@ -33,7 +33,19 @@ enum MediaFixtures {
         let frameCount = Int(seconds * Double(fps))
         var sine = SineGenerator(frequency: 440, totalSamples: Int(seconds * 44_100))
         for frame in 0 ..< frameCount {
-            while !videoInput.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(1)) }
+            // The writer can hold video back until audio catches up, so keep audio flowing while
+            // waiting — and fail loudly instead of hanging if neither input ever becomes ready.
+            var waited = 0
+            while !videoInput.isReadyForMoreMediaData {
+                if let audioInput, audioInput.isReadyForMoreMediaData, sine.written < sine.totalSamples {
+                    let ahead = min(sine.totalSamples, sine.written + 4_096)
+                    try await sine.append(to: audioInput, upTo: ahead)
+                    continue
+                }
+                try await Task.sleep(for: .milliseconds(1))
+                waited += 1
+                if waited > 5_000 { throw ConversionError.engineFailed("Video writer stalled at frame \(frame)") }
+            }
             var buffer: CVPixelBuffer?
             CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &buffer)
             let pixelBuffer = buffer!
@@ -162,7 +174,8 @@ struct MediaCommandTests {
     }
 }
 
-@Suite(.serialized)
+/// Time limits turn a hang on slow CI runners into a named failure instead of a job timeout.
+@Suite(.serialized, .timeLimit(.minutes(5)))
 struct MediaToolRunTests {
     @Test func trimsVideoPreciselyAndFast() async throws {
         let source = try await MediaFixtures.video(seconds: 3)

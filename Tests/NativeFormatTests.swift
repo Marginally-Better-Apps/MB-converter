@@ -4,6 +4,8 @@ import ImageIO
 import Testing
 @testable import Converter
 
+/// Time limits turn a hang on slow CI runners into a named failure instead of a job timeout.
+@Suite(.timeLimit(.minutes(3)))
 struct ImageMagickFormatTests {
     @Test func runtimeIsLinkedWithExpectedCoders() {
         #expect(Magick.isAvailable)
@@ -66,7 +68,7 @@ struct ImageMagickFormatTests {
     }
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(5)))
 struct ExtendedVideoFormatTests {
     @Test func newEncodersAreAvailable() {
         #expect(FFmpegRuntimeInfo.hasEncoder("libsvtav1"))

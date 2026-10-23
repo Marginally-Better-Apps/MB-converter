@@ -133,7 +133,7 @@ enum ToolInputFactory {
     static let preferredOrder: [FileFormat] = [.pdf, .docx, .xlsx, .csv, .png, .jpeg, .mp4, .m4a, .markdown, .json, .xml, .pptx, .odt, .ods, .rtf, .html, .txt, .epub, .svg, .zip]
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(3)))
 struct ToolRunTests {
     /// Tools needing the network or a picker-only handoff are covered elsewhere.
     static let skipped: Set<String> = ["util.webpdf", "util.webimage"]
