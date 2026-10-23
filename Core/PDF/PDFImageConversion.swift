@@ -173,7 +173,7 @@ enum PDFToImages {
     }
 }
 
-/// Pulls embedded image XObjects out of a PDF without re-rendering.
+/// Pulls the images out of a PDF as they appear on screen (see `PDFPageImages`).
 enum PDFImageExtractor {
     struct ExtractedImage {
         let pageIndex: Int
@@ -181,114 +181,12 @@ enum PDFImageExtractor {
         let fileExtension: String
     }
 
-    static func extract(_ document: PDFDocument, minimumSide: Int = 16) -> [ExtractedImage] {
-        var results: [ExtractedImage] = []
-        var seen: Set<Int> = []
-        for index in 0 ..< document.pageCount {
-            guard let page = document.page(at: index)?.pageRef, let dictionary = page.dictionary else { continue }
-            var resources: CGPDFDictionaryRef?
-            guard CGPDFDictionaryGetDictionary(dictionary, "Resources", &resources), let resources else { continue }
-            collect(resources: resources, pageIndex: index, depth: 0, minimumSide: minimumSide, seen: &seen, results: &results)
+    static func extract(_ document: PDFDocument, pages: [Int]? = nil, minimumSide: Int = 16) -> [ExtractedImage] {
+        var seen: Set<Data> = []
+        return PDFPageImages.images(in: document, pages: pages, minimumSide: minimumSide, includeUnplaced: true).compactMap { placed in
+            // The same picture embedded on several pages is saved once.
+            guard seen.insert(placed.image.data).inserted else { return nil }
+            return ExtractedImage(pageIndex: placed.pageIndex, data: placed.image.data, fileExtension: placed.image.fileExtension)
         }
-        return results
-    }
-
-    private final class Context {
-        var images: [(name: String, stream: CGPDFStreamRef)] = []
-        var forms: [CGPDFStreamRef] = []
-    }
-
-    private static func collect(resources: CGPDFDictionaryRef, pageIndex: Int, depth: Int, minimumSide: Int, seen: inout Set<Int>, results: inout [ExtractedImage]) {
-        guard depth < 4 else { return }
-        var xObjects: CGPDFDictionaryRef?
-        guard CGPDFDictionaryGetDictionary(resources, "XObject", &xObjects), let xObjects else { return }
-        let context = Context()
-        CGPDFDictionaryApplyBlock(xObjects, { key, object, info in
-            guard let info else { return true }
-            let context = Unmanaged<Context>.fromOpaque(info).takeUnretainedValue()
-            var stream: CGPDFStreamRef?
-            guard CGPDFObjectGetValue(object, .stream, &stream), let stream, let streamDictionary = CGPDFStreamGetDictionary(stream) else { return true }
-            var subtype: UnsafePointer<Int8>?
-            guard CGPDFDictionaryGetName(streamDictionary, "Subtype", &subtype), let subtype else { return true }
-            switch String(cString: subtype) {
-            case "Image": context.images.append((String(cString: key), stream))
-            case "Form": context.forms.append(stream)
-            default: break
-            }
-            return true
-        }, Unmanaged.passUnretained(context).toOpaque())
-
-        for (_, stream) in context.images {
-            if let image = decode(stream, minimumSide: minimumSide) {
-                let hash = image.data.hashValue
-                guard !seen.contains(hash) else { continue }
-                seen.insert(hash)
-                results.append(ExtractedImage(pageIndex: pageIndex, data: image.data, fileExtension: image.ext))
-            }
-        }
-        for form in context.forms {
-            guard let formDictionary = CGPDFStreamGetDictionary(form) else { continue }
-            var formResources: CGPDFDictionaryRef?
-            if CGPDFDictionaryGetDictionary(formDictionary, "Resources", &formResources), let formResources {
-                collect(resources: formResources, pageIndex: pageIndex, depth: depth + 1, minimumSide: minimumSide, seen: &seen, results: &results)
-            }
-        }
-    }
-
-    private static func decode(_ stream: CGPDFStreamRef, minimumSide: Int) -> (data: Data, ext: String)? {
-        guard let dictionary = CGPDFStreamGetDictionary(stream) else { return nil }
-        var width: CGPDFInteger = 0
-        var height: CGPDFInteger = 0
-        CGPDFDictionaryGetInteger(dictionary, "Width", &width)
-        CGPDFDictionaryGetInteger(dictionary, "Height", &height)
-        guard width >= minimumSide || height >= minimumSide else { return nil }
-        var format = CGPDFDataFormat.raw
-        guard let cfData = CGPDFStreamCopyData(stream, &format) else { return nil }
-        let data = cfData as Data
-        switch format {
-        case .jpegEncoded:
-            return (data, "jpg")
-        case .JPEG2000:
-            return (data, "jp2")
-        case .raw:
-            var bitsPerComponent: CGPDFInteger = 8
-            CGPDFDictionaryGetInteger(dictionary, "BitsPerComponent", &bitsPerComponent)
-            let components = componentCount(dictionary)
-            guard bitsPerComponent == 8, components == 1 || components == 3 || components == 4 else { return nil }
-            let bytesPerRow = Int(width) * components
-            guard data.count >= bytesPerRow * Int(height), let provider = CGDataProvider(data: data as CFData) else { return nil }
-            let colorSpace = components == 1 ? CGColorSpaceCreateDeviceGray() : (components == 4 ? CGColorSpaceCreateDeviceCMYK() : CGColorSpaceCreateDeviceRGB())
-            guard let image = CGImage(width: Int(width), height: Int(height), bitsPerComponent: 8, bitsPerPixel: 8 * components, bytesPerRow: bytesPerRow, space: colorSpace, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue), provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent),
-                  let png = PDFRasterizer.encode(image, type: components == 4 ? .jpeg : .png, quality: 0.92)
-            else { return nil }
-            return (png, components == 4 ? "jpg" : "png")
-        @unknown default:
-            return nil
-        }
-    }
-
-    private static func componentCount(_ dictionary: CGPDFDictionaryRef) -> Int {
-        var name: UnsafePointer<Int8>?
-        if CGPDFDictionaryGetName(dictionary, "ColorSpace", &name), let name {
-            switch String(cString: name) {
-            case "DeviceGray", "CalGray": return 1
-            case "DeviceCMYK": return 4
-            default: return 3
-            }
-        }
-        var array: CGPDFArrayRef?
-        if CGPDFDictionaryGetArray(dictionary, "ColorSpace", &array), let array {
-            var family: UnsafePointer<Int8>?
-            if CGPDFArrayGetName(array, 0, &family), let family, String(cString: family) == "ICCBased" {
-                var profile: CGPDFStreamRef?
-                if CGPDFArrayGetStream(array, 1, &profile), let profile, let profileDictionary = CGPDFStreamGetDictionary(profile) {
-                    var n: CGPDFInteger = 3
-                    CGPDFDictionaryGetInteger(profileDictionary, "N", &n)
-                    return Int(n)
-                }
-            }
-            if let family, String(cString: family) == "Indexed" { return -1 }
-        }
-        return 3
     }
 }
