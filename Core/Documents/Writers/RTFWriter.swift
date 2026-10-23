@@ -113,6 +113,11 @@ enum RTFWriter {
             case .image(let image):
                 guard includeImages, let pict = picture(image) else { return "" }
                 return "\\pard\\plain\\qc \(pict)\\par\n"
+            case .imageRow(let row):
+                guard includeImages, !row.isEmpty else { return "" }
+                let sizes = ImageRowLayout.sizes(for: row, available: CGFloat(textWidthTwips) / 20 - 4, gap: 8)
+                let picts = zip(row, sizes).compactMap { picture($0, size: $1) }
+                return picts.isEmpty ? "" : "\\pard\\plain\\qc " + picts.joined(separator: "  ") + "\\par\n"
             case .quote(let blocks):
                 return blocks.map { child -> String in
                     if case .paragraph(let runs, _) = child {
@@ -152,7 +157,7 @@ enum RTFWriter {
             }.joined()
         }
 
-        func picture(_ image: ImageBlock) -> String? {
+        func picture(_ image: ImageBlock, size fixedSize: CGSize? = nil) -> String? {
             var data = image.data
             var kind = "\\pngblip"
             switch image.mimeType {
@@ -162,7 +167,7 @@ enum RTFWriter {
                 guard let png = UIImage(data: image.data)?.pngData() else { return nil }
                 data = png
             }
-            let size = image.size ?? EmbeddedImageSizing.pointSize(of: data) ?? CGSize(width: 300, height: 200)
+            let size = fixedSize ?? image.size ?? EmbeddedImageSizing.pointSize(of: data) ?? CGSize(width: 300, height: 200)
             let maxWidth = CGFloat(textWidthTwips) / 20
             let scale = size.width > maxWidth ? maxWidth / size.width : 1
             let goalWidth = Int(size.width * scale * 20)

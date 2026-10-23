@@ -193,8 +193,9 @@ struct ToolOption: Identifiable, @unchecked Sendable {
         ToolOption(key: key, label: label, kind: .image, defaultValue: .data(nil), footnote: footnote, section: section, isVisible: visible)
     }
 
-    static func dynamicChoice(_ key: String, _ label: String, section: String? = nil, choices: @escaping ([ToolInputFile]) -> [ToolChoice]) -> ToolOption {
-        ToolOption(key: key, label: label, kind: .dynamicChoice(choices), defaultValue: .string(""), section: section)
+    /// Choices computed from the inputs. Hidden while the provider returns no choices.
+    static func dynamicChoice(_ key: String, _ label: String, section: String? = nil, footnote: String? = nil, visible: @escaping (ToolOptionValues) -> Bool = { _ in true }, choices: @escaping ([ToolInputFile]) -> [ToolChoice]) -> ToolOption {
+        ToolOption(key: key, label: label, kind: .dynamicChoice(choices), defaultValue: .string(""), footnote: footnote, section: section, isVisible: visible)
     }
 }
 

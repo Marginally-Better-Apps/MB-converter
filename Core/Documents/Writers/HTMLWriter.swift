@@ -90,7 +90,7 @@ enum HTMLWriter {
         hr { border: none; border-top: 0.75pt solid #c9d3dd; margin: 1.2em 0; }
         a { color: #0b5fa5; }
         .page-break { page-break-after: always; break-after: page; height: 0; }
-        .center { text-align: center; } .right { text-align: right; } .justify { text-align: justify; }
+        .center { text-align: center; } .image-row { text-align: center; } .image-row img { vertical-align: bottom; margin: 0 0.6%; } .right { text-align: right; } .justify { text-align: justify; }
         """
     }
 
@@ -149,6 +149,17 @@ enum HTMLWriter {
                     attributes += " style=\"width: \(Int(size.width))pt;\""
                 }
                 return "<p class=\"center\"><img \(attributes)/></p>"
+            case .imageRow(let row):
+                guard options.includeImages, !row.isEmpty else { return "" }
+                // Percent widths keep the row's proportions on any screen.
+                let sizes = ImageRowLayout.sizes(for: row, available: .greatestFiniteMagnitude, gap: 0)
+                let total = max(1, sizes.map(\.width).reduce(0, +))
+                let share = min(100, total / 4.68) // 468pt ≈ a printed text column; narrower rows stay narrower.
+                let images = zip(row, sizes).map { image, size in
+                    let width = size.width / total * share * 0.96
+                    return "<img src=\"\(XMLEscaping.escape(imageSource(image)))\" alt=\"\(XMLEscaping.escape(image.altText ?? ""))\" style=\"width: \(String(format: "%.2f", width))%;\"/>"
+                }
+                return "<p class=\"image-row\">" + images.joined(separator: " ") + "</p>"
             case .quote(let blocks):
                 return "<blockquote>" + blocks.map { self.block($0) }.joined(separator: "\n") + "</blockquote>"
             case .code(let code):

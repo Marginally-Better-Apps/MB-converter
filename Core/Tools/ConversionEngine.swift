@@ -8,6 +8,8 @@ enum ConversionEngine {
     struct Settings {
         var document = DocumentExportOptions()
         var layout: DocumentConverter.Layout = .reformat
+        /// PDF → HTML: a page-exact replica (default) instead of reflowed text and images.
+        var pdfHTMLExact = true
         var imageDPI: CGFloat = 150
         var imageQuality: Double = 0.9
         /// For spreadsheet → single-sheet formats: nil = every sheet as its own file.
@@ -109,6 +111,35 @@ enum ConversionEngine {
         case (.pdf, .spreadsheet), (.document, .spreadsheet), (.presentation, .spreadsheet):
             let workbook = try SpreadsheetConverter.read(input.url, format: source)
             return try await writeWorkbook(workbook, as: target, base: base, settings: settings, context: context)
+
+        case (.pdf, _) where target == .html && settings.pdfHTMLExact:
+            let url = context.outputURL(base, target.fileExtension)
+            let document = try PDFToolkit.open(input.url, password: settings.password ?? context.password)
+            var options = PDFHTMLExporter.Options()
+            options.title = settings.document.title
+            let progress = context.progress
+            options.progress = { progress.report($0) }
+            let exportOptions = options
+            try await background { try PDFHTMLExporter.write(document, to: url, options: exportOptions) }
+            return [url]
+
+        case (_, _) where target == .markdown:
+            // Markdown can't embed pictures sensibly; save them beside the .md and link by file name.
+            let url = context.outputURL(base, target.fileExtension)
+            let document = try DocumentConverter.read(input.url, format: source, password: settings.password ?? context.password)
+            guard !document.isEffectivelyEmpty else { throw DocumentError.empty("No readable content was found in this file.") }
+            var images: [URL] = []
+            var names: [ImageBlock: String] = [:]
+            let includeImages = settings.document.includeImages
+            for block in document.allImages where includeImages && names[block] == nil {
+                let imageURL = context.outputURL("\(base)-image-\(names.count + 1)", block.fileExtension)
+                try block.data.write(to: imageURL)
+                names[block] = imageURL.lastPathComponent
+                images.append(imageURL)
+            }
+            let resolved = names
+            try MarkdownWriter.data(document, imageSource: { resolved[$0].map { $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? $0 } ?? "" }).write(to: url)
+            return [url] + images
 
         default:
             let url = context.outputURL(base, target.fileExtension)

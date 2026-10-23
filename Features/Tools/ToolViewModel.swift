@@ -34,7 +34,11 @@ final class ToolViewModel {
     // MARK: Derived state
 
     var visibleOptions: [ToolOption] {
-        tool.options.filter { $0.isVisible(values) }
+        tool.options.filter { option in
+            guard option.isVisible(values) else { return false }
+            if case .dynamicChoice(let provider) = option.kind { return !provider(inputs).isEmpty }
+            return true
+        }
     }
 
     /// Visible options grouped by section, in declaration order.
@@ -179,7 +183,9 @@ final class ToolViewModel {
                 let output = try await tool.run(context)
                 try Task.checkCancellation()
                 Haptics.success()
-                return ToolRun(toolID: tool.id, inputs: inputs, output: output)
+                let run = ToolRun(toolID: tool.id, inputs: inputs, output: output)
+                ConversionHistoryStore.shared.record(run, title: tool.title)
+                return run
             } catch is CancellationError {
                 return nil
             } catch ConversionError.cancelled {

@@ -12,12 +12,20 @@ extension ToolCatalog {
         }
         let reflows: (ToolOptionValues) -> Bool = { values in
             guard let target = target(values), documentTargets.contains(target) else { return false }
+            if target == .html, values.string("htmlLayout") == PDFHTMLLayout.exact.rawValue { return false }
             return !(target == .pdf && values.string("layout") == DocumentConverter.Layout.original.rawValue)
         }
         let paged: (ToolOptionValues) -> Bool = { values in
             reflows(values) && [.pdf, .docx, .odt, .rtf].contains(target(values) ?? .txt)
         }
         return [
+            .dynamicChoice("htmlLayout", "Layout", section: "Layout",
+                           footnote: "“Exact copy” looks just like the PDF, with selectable text. “Reflowable” is text and pictures that adapt to any screen.",
+                           visible: { target($0) == .html }) { inputs in
+                // Only PDFs have a fixed layout to reproduce.
+                guard !inputs.isEmpty, inputs.allSatisfy({ $0.format == .pdf }) else { return [] }
+                return PDFHTMLLayout.allCases.map { ToolChoice($0.rawValue, $0.label) }
+            },
             .choice("layout", "Layout", DocumentConverter.Layout.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: DocumentConverter.Layout.reformat.rawValue, segmented: true, section: "Layout",
                     footnote: "“Keep original” renders Word, PowerPoint, Excel, RTF and web pages exactly as designed.",
                     visible: { target($0) == .pdf }),
@@ -32,6 +40,11 @@ extension ToolCatalog {
             .text("title", "Title", placeholder: "Keep from file", section: "Document info", visible: reflows),
             .text("author", "Author", placeholder: "Keep from file", section: "Document info", visible: reflows)
         ]
+    }
+
+    enum PDFHTMLLayout: String, CaseIterable {
+        case exact, reflow
+        var label: String { self == .exact ? "Exact copy" : "Reflowable" }
     }
 
     static func conversionSettings(_ values: ToolOptionValues) -> ConversionEngine.Settings {
@@ -49,6 +62,7 @@ extension ToolCatalog {
         document.author = values.string("author").nilIfBlank
         settings.document = document
         settings.layout = DocumentConverter.Layout(rawValue: values.string("layout")) ?? .reformat
+        settings.pdfHTMLExact = values.string("htmlLayout") != PDFHTMLLayout.reflow.rawValue
         if values["dpi"] != nil { settings.imageDPI = CGFloat(values.double("dpi")) }
         return settings
     }
@@ -113,7 +127,7 @@ extension ToolCatalog {
         conversion("convert.pdf.odt", "PDF to OpenDocument", summary: "Editable ODT for LibreOffice", from: [.pdf], to: .odt, category: .pdf),
         conversion("convert.pdf.txt", "PDF to Text", summary: "Plain text from every page", from: [.pdf], to: .txt, category: .pdf, symbol: "text.alignleft", keywords: ["extract text", "copy text"]),
         conversion("convert.pdf.md", "PDF to Markdown", summary: "Clean Markdown for notes apps", from: [.pdf], to: .markdown, category: .pdf, symbol: "number.square"),
-        conversion("convert.pdf.html", "PDF to HTML", summary: "A web page with the PDF's text", from: [.pdf], to: .html, category: .pdf, symbol: "chevron.left.forwardslash.chevron.right"),
+        conversion("convert.pdf.html", "PDF to HTML", summary: "A web page that looks just like the PDF", from: [.pdf], to: .html, category: .pdf, symbol: "chevron.left.forwardslash.chevron.right"),
         conversion("convert.pdf.epub", "PDF to EPUB", summary: "Reflowable e-book for Books and e-readers", from: [.pdf], to: .epub, category: .pdf, symbol: "book.closed", keywords: ["ebook", "kindle"]),
         conversion("convert.pdf.xlsx", "PDF to Excel", summary: "Tables recovered into a spreadsheet", from: [.pdf], to: .xlsx, category: .pdf, symbol: "tablecells", keywords: ["pdf to spreadsheet"]),
         conversion("convert.pdf.csv", "PDF to CSV", summary: "Tables recovered as CSV", from: [.pdf], to: .csv, category: .pdf, symbol: "tablecells"),

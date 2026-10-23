@@ -27,6 +27,8 @@ indirect enum Block: Hashable, Sendable {
     case list(ordered: Bool, items: [[Block]])
     case table(TableBlock)
     case image(ImageBlock)
+    /// Pictures that sit side by side (e.g. a grid of photos in a PDF), scaled together to fit the line.
+    case imageRow([ImageBlock])
     case quote([Block])
     case code(String)
     case rule
@@ -153,9 +155,31 @@ extension RichDocument {
         metadata.title?.nilIfBlank ?? firstHeadingText
     }
 
+    /// Every picture in document order, including inside lists, tables and quotes.
+    var allImages: [ImageBlock] {
+        func images(in blocks: [Block]) -> [ImageBlock] {
+            blocks.flatMap { block -> [ImageBlock] in
+                switch block {
+                case .image(let image): [image]
+                case .imageRow(let row): row
+                case .list(_, let items): items.flatMap(images(in:))
+                case .table(let table): table.rows.flatMap { $0.flatMap(images(in:)) }
+                case .quote(let children): images(in: children)
+                default: []
+                }
+            }
+        }
+        return images(in: blocks)
+    }
+
     var isEffectivelyEmpty: Bool {
         plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !blocks.contains { if case .image = $0 { true } else { false } }
+            && !blocks.contains { block in
+                switch block {
+                case .image, .imageRow: true
+                default: false
+                }
+            }
     }
 
     /// Splits the document into chapters at level-1 headings (or page breaks when there are none).
@@ -242,5 +266,15 @@ extension String {
             }
         }
         return result
+    }
+}
+
+/// Shared sizing for `Block.imageRow`: natural sizes, scaled uniformly when the row is wider than the line.
+enum ImageRowLayout {
+    static func sizes(for images: [ImageBlock], available width: CGFloat, gap: CGFloat) -> [CGSize] {
+        let natural = images.map { $0.size ?? EmbeddedImageSizing.pointSize(of: $0.data) ?? CGSize(width: 150, height: 150) }
+        let total = natural.map(\.width).reduce(0, +) + gap * CGFloat(max(0, images.count - 1))
+        let scale = total > width && total > 0 ? max(0.05, (width - gap * CGFloat(max(0, images.count - 1))) / natural.map(\.width).reduce(0, +)) : 1
+        return natural.map { CGSize(width: $0.width * scale, height: $0.height * scale) }
     }
 }

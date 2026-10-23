@@ -122,6 +122,11 @@ enum DOCXWriter {
             case .image(let image):
                 guard options.includeImages else { return "" }
                 return "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>\(drawing(image))</w:p>"
+            case .imageRow(let images):
+                guard options.includeImages, !images.isEmpty else { return "" }
+                let sizes = ImageRowLayout.sizes(for: images, available: textWidthPoints - 4, gap: 8)
+                let spacer = "<w:r><w:t xml:space=\"preserve\">  </w:t></w:r>"
+                return "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>" + zip(images, sizes).map { drawing($0, size: $1) }.joined(separator: spacer) + "</w:p>"
             case .quote(let blocks):
                 return blocks.map { child -> String in
                     if case .paragraph(let runs, _) = child {
@@ -234,9 +239,9 @@ enum DOCXWriter {
             return xml + "</w:tbl><w:p/>"
         }
 
-        mutating func drawing(_ image: ImageBlock) -> String {
+        mutating func drawing(_ image: ImageBlock, size fixedSize: CGSize? = nil) -> String {
             let pixelSize = Self.pixelSize(of: image.data) ?? CGSize(width: 400, height: 300)
-            var size = image.size ?? pixelSize
+            var size = fixedSize ?? image.size ?? pixelSize
             if size.width > textWidthPoints {
                 size = CGSize(width: textWidthPoints, height: size.height * textWidthPoints / size.width)
             }

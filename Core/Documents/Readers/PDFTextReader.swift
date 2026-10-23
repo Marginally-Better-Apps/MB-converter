@@ -9,7 +9,12 @@ enum PDFTextReader {
         var pageBreaks = true
         /// Rasterize pages that have no text layer (scans) so the output isn't empty.
         var imagesForScannedPages = true
+        /// Keep embedded pictures, placed between paragraphs in reading order.
+        var includeImages = true
     }
+
+    /// Pictures smaller than this (points) are bullets, rules or logos' fragments — not content.
+    static let minimumImageSide: CGFloat = 24
 
     static func read(url: URL, password: String? = nil, options: Options = Options()) throws -> RichDocument {
         guard let document = PDFDocument(url: url) else {
@@ -33,13 +38,23 @@ enum PDFTextReader {
             allLines.append(contentsOf: pageLines)
         }
         let baseSize = dominantSize(allLines)
+        let placed = options.includeImages
+            ? Dictionary(grouping: PDFPageImages.images(in: document, minimumSide: Int(minimumImageSide)), by: \.pageIndex)
+            : [:]
         var blocks: [Block] = []
         for (index, pageLines) in lines.enumerated() {
-            var pageBlocks = paragraphs(from: pageLines, baseSize: baseSize)
-            if pageBlocks.isEmpty, options.imagesForScannedPages, let page = document.page(at: index),
-               let image = PDFRasterizer.jpegData(page: page, dpi: 110, quality: 0.7) {
-                let bounds = page.bounds(for: .cropBox)
-                pageBlocks = [.image(ImageBlock(data: image, mimeType: "image/jpeg", size: bounds.size, altText: "Page \(index + 1)"))]
+            guard let page = document.page(at: index) else { continue }
+            let pageBox = page.bounds(for: .cropBox)
+            var pageBlocks: [Block]
+            if pageLines.isEmpty {
+                // No text layer: a scan or vector art. The rendered page is the only faithful version.
+                pageBlocks = []
+                if options.imagesForScannedPages, let image = PDFRasterizer.jpegData(page: page, dpi: 110, quality: 0.7) {
+                    pageBlocks = [.image(ImageBlock(data: image, mimeType: "image/jpeg", size: pageBox.size, altText: "Page \(index + 1)"))]
+                }
+            } else {
+                let images = contentImages(placed[index] ?? [], pageBox: pageBox)
+                pageBlocks = interleave(lines: pageLines, images: images, baseSize: baseSize)
             }
             if options.pageBreaks, !blocks.isEmpty, !pageBlocks.isEmpty { blocks.append(.pageBreak) }
             blocks.append(contentsOf: pageBlocks)
@@ -57,10 +72,56 @@ enum PDFTextReader {
         return result
     }
 
+    /// Drops decorations and full-page backgrounds (the picture behind a scanned page's OCR text).
+    static func contentImages(_ images: [PDFPageImages.PlacedImage], pageBox: CGRect) -> [PDFPageImages.PlacedImage] {
+        images.filter { image in
+            guard let rect = image.rect?.intersection(pageBox), !rect.isNull else { return false }
+            guard rect.width >= minimumImageSide, rect.height >= minimumImageSide else { return false }
+            return rect.width * rect.height < pageBox.width * pageBox.height * 0.85
+        }
+    }
+
+    /// Places each picture before the first line that sits below its center, left-to-right within a row.
+    static func interleave(lines: [Line], images: [PDFPageImages.PlacedImage], baseSize: CGFloat) -> [Block] {
+        let rowTolerance = max(baseSize, 6)
+        var pending = images.sorted { first, second in
+            let a = first.rect ?? .zero, b = second.rect ?? .zero
+            if abs(a.maxY - b.maxY) < rowTolerance { return a.minX < b.minX }
+            return a.maxY > b.maxY
+        }
+        var blocks: [Block] = []
+        var segment: [Line] = []
+        func imageBlock(_ image: PDFPageImages.PlacedImage) -> ImageBlock {
+            ImageBlock(data: image.image.data, mimeType: image.image.mimeType, size: image.rect?.size, altText: nil)
+        }
+        /// Takes the next picture plus any others on the same row, as one block.
+        func popRow() -> Block {
+            let first = pending.removeFirst()
+            var row = [first]
+            while let next = pending.first, let a = first.rect, let b = next.rect, abs(a.maxY - b.maxY) < rowTolerance {
+                row.append(pending.removeFirst())
+            }
+            return row.count == 1 ? .image(imageBlock(first)) : .imageRow(row.map(imageBlock))
+        }
+        for line in lines {
+            while let next = pending.first, let rect = next.rect, rect.midY > line.bounds.midY {
+                blocks += paragraphs(from: segment, baseSize: baseSize)
+                segment = []
+                blocks.append(popRow())
+            }
+            segment.append(line)
+        }
+        blocks += paragraphs(from: segment, baseSize: baseSize)
+        while !pending.isEmpty { blocks.append(popRow()) }
+        return blocks
+    }
+
     struct Line {
         let text: NSAttributedString
         let bounds: CGRect
         let fontSize: CGFloat
+        /// Character range in `page.string`, when PDFKit can report it.
+        var range: NSRange?
 
         var plain: String { text.string }
     }
@@ -77,7 +138,8 @@ enum PDFTextReader {
                 if let font = value as? UIFont { size = max(size, font.pointSize) }
             }
             let bounds = lineSelection.bounds(for: page)
-            return Line(text: trimmed, bounds: bounds, fontSize: size > 0 ? size : bounds.height * 0.8)
+            let range = lineSelection.numberOfTextRanges(on: page) > 0 ? lineSelection.range(at: 0, on: page) : nil
+            return Line(text: trimmed, bounds: bounds, fontSize: size > 0 ? size : bounds.height * 0.8, range: range)
         }
     }
 

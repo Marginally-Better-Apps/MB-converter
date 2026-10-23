@@ -44,6 +44,8 @@ enum PlainTextWriter {
             }.joined(separator: "\n")
         case .image(let image):
             return image.altText.map { indent + "[\($0)]" } ?? ""
+        case .imageRow(let images):
+            return images.compactMap { $0.altText.map { indent + "[\($0)]" } }.joined(separator: " ")
         case .quote(let blocks):
             return blocks.map { render($0, indent: indent + "    ") }.joined(separator: "\n\n")
         case .code(let code):

@@ -70,6 +70,21 @@ enum ODTWriter {
             return xml
         }
 
+
+        mutating func frame(_ image: ImageBlock, size: CGSize) -> String {
+
+            let index = images.count + 1
+
+            let path = "Pictures/image\(index).\(image.fileExtension)"
+
+            images.append(EmbeddedImage(path: path, mimeType: image.mimeType, data: image.data))
+
+            let alt = XMLEscaping.escape(image.altText ?? "")
+
+            return "<draw:frame draw:name=\"Image\(index)\" text:anchor-type=\"as-char\" svg:width=\"\(String(format: "%.2f", size.width))pt\" svg:height=\"\(String(format: "%.2f", size.height))pt\"><draw:image xlink:href=\"\(path)\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\"/><svg:desc>\(alt)</svg:desc></draw:frame>"
+
+        }
+
         mutating func block(_ block: Block, inList: Bool = false) -> String {
             switch block {
             case .heading(let level, let runs):
@@ -114,16 +129,17 @@ enum ODTWriter {
                 return xml + "</table:table>"
             case .image(let image):
                 guard options.includeImages else { return "" }
-                let index = images.count + 1
-                let path = "Pictures/image\(index).\(image.fileExtension)"
-                images.append(EmbeddedImage(path: path, mimeType: image.mimeType, data: image.data))
                 let textWidth = max(72, options.pageRect.width - options.marginPoints * 2)
                 var size = image.size ?? EmbeddedImageSizing.pointSize(of: image.data) ?? CGSize(width: 300, height: 200)
                 if size.width > textWidth {
                     size = CGSize(width: textWidth, height: size.height * textWidth / size.width)
                 }
-                let alt = XMLEscaping.escape(image.altText ?? "")
-                return "<text:p text:style-name=\"PCenter\"><draw:frame draw:name=\"Image\(index)\" text:anchor-type=\"as-char\" svg:width=\"\(String(format: "%.2f", size.width))pt\" svg:height=\"\(String(format: "%.2f", size.height))pt\"><draw:image xlink:href=\"\(path)\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\"/><svg:desc>\(alt)</svg:desc></draw:frame></text:p>"
+                return "<text:p text:style-name=\"PCenter\">\(frame(image, size: size))</text:p>"
+            case .imageRow(let row):
+                guard options.includeImages, !row.isEmpty else { return "" }
+                let textWidth = max(72, options.pageRect.width - options.marginPoints * 2)
+                let sizes = ImageRowLayout.sizes(for: row, available: textWidth - 4, gap: 8)
+                return "<text:p text:style-name=\"PCenter\">" + zip(row, sizes).map { frame($0, size: $1) }.joined(separator: "<text:s text:c=\"2\"/>") + "</text:p>"
             case .quote(let blocks):
                 return blocks.map { child -> String in
                     if case .paragraph(let runs, _) = child {
@@ -229,7 +245,7 @@ enum ODTWriter {
         let lineHeight = Int((options.lineSpacing * 100).rounded())
         return """
         <?xml version="1.0" encoding="UTF-8"?>
-        <office:document-styles \(namespaces)><office:font-face-decls><style:font-face style:name="\(font)" svg:font-family="'\(font)'"/><style:font-face style:name="Courier New" svg:font-family="'Courier New'" style:font-family-generic="modern" style:font-pitch="fixed"/></office:font-face-decls><office:styles><style:default-style style:family="paragraph"><style:paragraph-properties fo:line-height="\(lineHeight)%"/><style:text-properties style:font-name="\(font)" fo:font-family="'\(font)'" fo:font-size="\(String(format: "%.1f", size))pt" fo:language="en" fo:country="US"/></style:default-style><style:style style:name="Standard" style:family="paragraph" style:class="text"><style:paragraph-properties fo:margin-top="0in" fo:margin-bottom="0.08in"/></style:style><style:style style:name="Heading" style:family="paragraph" style:parent-style-name="Standard" style:next-style-name="Standard" style:class="text"><style:paragraph-properties fo:margin-top="0.17in" fo:margin-bottom="0.08in" fo:keep-with-next="always"/></style:style>\(headings)<style:style style:name="List_20_Contents" style:display-name="List Contents" style:family="paragraph" style:parent-style-name="Standard" style:class="list"><style:paragraph-properties fo:margin-bottom="0.03in"/></style:style><style:style style:name="Quotations" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:margin-left="0.4in" fo:margin-right="0.4in"/><style:text-properties fo:font-style="italic"/></style:style><style:style style:name="Preformatted_20_Text" style:display-name="Preformatted Text" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:margin-top="0in" fo:margin-bottom="0in" fo:background-color="#f4f6f8"/><style:text-properties style:font-name="Courier New" fo:font-family="'Courier New'" fo:font-size="\(String(format: "%.1f", max(7, size - 1)))pt"/></style:style><style:style style:name="Table_20_Contents" style:display-name="Table Contents" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:paragraph-properties fo:margin-bottom="0in"/></style:style><style:style style:name="Footer" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:paragraph-properties fo:text-align="center"/></style:style></office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="\(String(format: "%.2f", page.width))pt" fo:page-height="\(String(format: "%.2f", page.height))pt" style:print-orientation="\(options.orientation.rawValue)" fo:margin-top="\(Int(margin))pt" fo:margin-bottom="\(Int(margin))pt" fo:margin-left="\(Int(margin))pt" fo:margin-right="\(Int(margin))pt"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1">\(footer)</style:master-page></office:master-styles></office:document-styles>
+        <office:document-styles \(namespaces)><office:font-face-decls><style:font-face style:name="\(font)" svg:font-family="'\(font)'"/><style:font-face style:name="Courier New" svg:font-family="'Courier New'" style:font-family-generic="modern" style:font-pitch="fixed"/></office:font-face-decls><office:styles><style:default-style style:family="paragraph"><style:paragraph-properties fo:line-height="\(lineHeight)%"/><style:text-properties style:font-name="\(font)" fo:font-family="'\(font)'" fo:color="#000000" fo:font-size="\(String(format: "%.1f", size))pt" fo:language="en" fo:country="US"/></style:default-style><style:style style:name="Standard" style:family="paragraph" style:class="text"><style:paragraph-properties fo:margin-top="0in" fo:margin-bottom="0.08in"/></style:style><style:style style:name="Heading" style:family="paragraph" style:parent-style-name="Standard" style:next-style-name="Standard" style:class="text"><style:paragraph-properties fo:margin-top="0.17in" fo:margin-bottom="0.08in" fo:keep-with-next="always"/></style:style>\(headings)<style:style style:name="List_20_Contents" style:display-name="List Contents" style:family="paragraph" style:parent-style-name="Standard" style:class="list"><style:paragraph-properties fo:margin-bottom="0.03in"/></style:style><style:style style:name="Quotations" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:margin-left="0.4in" fo:margin-right="0.4in"/><style:text-properties fo:font-style="italic"/></style:style><style:style style:name="Preformatted_20_Text" style:display-name="Preformatted Text" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:margin-top="0in" fo:margin-bottom="0in" fo:background-color="#f4f6f8"/><style:text-properties style:font-name="Courier New" fo:font-family="'Courier New'" fo:font-size="\(String(format: "%.1f", max(7, size - 1)))pt"/></style:style><style:style style:name="Table_20_Contents" style:display-name="Table Contents" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:paragraph-properties fo:margin-bottom="0in"/></style:style><style:style style:name="Footer" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:paragraph-properties fo:text-align="center"/></style:style></office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="\(String(format: "%.2f", page.width))pt" fo:page-height="\(String(format: "%.2f", page.height))pt" style:print-orientation="\(options.orientation.rawValue)" fo:background-color="#ffffff" fo:margin-top="\(Int(margin))pt" fo:margin-bottom="\(Int(margin))pt" fo:margin-left="\(Int(margin))pt" fo:margin-right="\(Int(margin))pt"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1">\(footer)</style:master-page></office:master-styles></office:document-styles>
         """
     }
 

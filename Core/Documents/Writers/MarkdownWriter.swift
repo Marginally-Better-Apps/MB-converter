@@ -1,20 +1,25 @@
 import Foundation
 
 enum MarkdownWriter {
-    static func render(_ document: RichDocument) -> String {
+    /// Where an image is written in the Markdown. Defaults to an inline data URI.
+    typealias ImageSource = @Sendable (ImageBlock) -> String
+    static let dataURI: ImageSource = { "data:\($0.mimeType);base64,\($0.data.base64EncodedString())" }
+
+    static func render(_ document: RichDocument, imageSource: @escaping ImageSource = dataURI) -> String {
         var parts: [String] = []
         for block in document.blocks {
-            let text = render(block)
+            let text = render(block, imageSource: imageSource)
             if !text.isEmpty { parts.append(text) }
         }
         return parts.joined(separator: "\n\n") + (parts.isEmpty ? "" : "\n")
     }
 
-    static func data(_ document: RichDocument) -> Data {
-        Data(render(document).utf8)
+    static func data(_ document: RichDocument, imageSource: @escaping ImageSource = dataURI) -> Data {
+        Data(render(document, imageSource: imageSource).utf8)
     }
 
-    static func render(_ block: Block) -> String {
+    static func render(_ block: Block, imageSource: @escaping ImageSource = dataURI) -> String {
+        let child: (Block) -> String = { MarkdownWriter.render($0, imageSource: imageSource) }
         switch block {
         case .heading(let level, let runs):
             return String(repeating: "#", count: min(max(level, 1), 6)) + " " + inline(runs)
@@ -24,7 +29,7 @@ enum MarkdownWriter {
             return items.enumerated().map { index, blocks in
                 let marker = ordered ? "\(index + 1). " : "- "
                 let pad = String(repeating: " ", count: marker.count)
-                let rendered = blocks.map { ($0, render($0)) }.filter { !$0.1.isEmpty }
+                let rendered = blocks.map { ($0, child($0)) }.filter { !$0.1.isEmpty }
                 guard let first = rendered.first else { return marker }
                 var lines = [marker + indented(first.1, by: pad, skipFirst: true)]
                 for (block, text) in rendered.dropFirst() {
@@ -37,11 +42,11 @@ enum MarkdownWriter {
         case .table(let table):
             return renderTable(table)
         case .image(let image):
-            let alt = escape(image.altText ?? "image")
-            let uri = "data:\(image.mimeType);base64,\(image.data.base64EncodedString())"
-            return "![\(alt)](\(uri))"
+            return picture(image, imageSource)
+        case .imageRow(let images):
+            return images.map { picture($0, imageSource) }.filter { !$0.isEmpty }.joined(separator: " ")
         case .quote(let blocks):
-            return blocks.map(render).filter { !$0.isEmpty }.joined(separator: "\n\n")
+            return blocks.map(child).filter { !$0.isEmpty }.joined(separator: "\n\n")
                 .split(separator: "\n", omittingEmptySubsequences: false)
                 .map { $0.isEmpty ? ">" : "> " + $0 }
                 .joined(separator: "\n")
@@ -83,6 +88,12 @@ enum MarkdownWriter {
             output += rendered.joined(separator: "  \n")
         }
         return output
+    }
+
+    /// An empty source means "leave this picture out".
+    private static func picture(_ image: ImageBlock, _ imageSource: ImageSource) -> String {
+        let source = imageSource(image)
+        return source.isEmpty ? "" : "![\(escape(image.altText ?? "image"))](\(source))"
     }
 
     private static func renderTable(_ table: TableBlock) -> String {
