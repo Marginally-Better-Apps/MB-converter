@@ -40,6 +40,7 @@ Build the pinned custom engine first. See [runtime build details](../Native/FFmp
 python3 -m venv build/ffmpeg/tools
 build/ffmpeg/tools/bin/python -m pip install meson==1.7.2 ninja==1.11.1.3
 python3 Scripts/BuildFFmpeg.py --platform ios --platform ios-simulator
+python3 Scripts/BuildImageMagick.py --platform ios --platform ios-simulator
 python3 Scripts/VerifyFFmpeg.py
 ```
 

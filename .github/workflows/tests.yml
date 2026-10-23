@@ -41,10 +41,19 @@ jobs:
           path: |
             Native/FFmpeg/Artifacts
             build/ffmpeg/downloads
-          key: ffmpeg-sim-${{ hashFiles('Native/FFmpeg/sources.json', 'Native/FFmpeg/patches/**', 'Native/MBFFmpegBridge/**', 'Scripts/BuildFFmpeg.py') }}
+          key: ffmpeg-ios-${{ hashFiles('Native/FFmpeg/sources.json', 'Native/FFmpeg/patches/**', 'Native/MBFFmpegBridge/**', 'Scripts/BuildFFmpeg.py') }}
+
+      - name: Restore ImageMagick runtime cache
+        id: magick-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            Native/ImageMagick/Artifacts
+            build/imagemagick/downloads
+          key: magick-${{ hashFiles('Native/ImageMagick/sources.json', 'Native/MBImageMagickBridge/**', 'Scripts/BuildImageMagick.py') }}
 
       - name: Install native build tools
-        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true' || steps.magick-cache.outputs.cache-hit != 'true'
         run: |
           brew install python@3.12 cmake pkg-config autoconf automake libtool
           echo "$(brew --prefix python@3.12)/libexec/bin" >> "$GITHUB_PATH"
@@ -55,6 +64,15 @@ jobs:
           python3 -m venv build/ffmpeg/tools
           build/ffmpeg/tools/bin/python -m pip install meson==1.7.2 ninja==1.11.1.3
           python3 Scripts/BuildFFmpeg.py --platform ios --platform ios-simulator
+
+      - name: Build pinned ImageMagick runtime (device + simulator slices)
+        if: steps.magick-cache.outputs.cache-hit != 'true'
+        run: python3 Scripts/BuildImageMagick.py --platform ios --platform ios-simulator
+
+      - name: Verify native runtimes
+        run: |
+          python3 Scripts/VerifyFFmpeg.py
+          python3 Scripts/VerifyImageMagick.py
 
       - name: Pick a simulator
         id: sim
@@ -81,3 +99,20 @@ jobs:
           name: TestResults
           path: TestResults.xcresult
           retention-days: 7
+
+  imagemagick-bridge:
+    name: ImageMagick bridge (macOS host)
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native build tools
+        run: brew install cmake pkg-config autoconf automake libtool
+      - name: Build pinned macOS image libraries
+        run: python3 Scripts/BuildImageMagick.py --platform macos --libraries-only
+      - name: Round-trip formats, resource limits and failure handling
+        run: python3 Native/MBImageMagickBridge/tests/run_tests.py

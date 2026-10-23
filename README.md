@@ -35,10 +35,10 @@
 
 | | Save as |
 | --- | --- |
-| 📷 Photos | JPEG, PNG, HEIC, WebP, TIFF |
-| 🎬 Videos | MP4 (H.264 / HEVC), MOV, WebM |
+| 📷 Photos | JPEG, PNG, HEIC, WebP, AVIF, JPEG XL, TIFF, GIF, BMP, PSD, TGA, ICO, JPEG 2000, QOI, PCX, DDS, SGI, XPM, HDR, PPM, EPS |
+| 🎬 Videos | MP4 (H.264 / HEVC / AV1), MOV, WebM, OGV |
 | 🎵 Audio | MP3, M4A, AAC, WAV, FLAC, Ogg, Opus |
-| 🎞️ GIFs | MP4, or a still image |
+| 🎞️ Animations | GIF and animated WebP from videos; GIF ⇄ WebP |
 
 It opens most common files, including MKV, AVI, AV1, WebP, AVIF, and FLAC. You can also pull the audio out of any video.
 
