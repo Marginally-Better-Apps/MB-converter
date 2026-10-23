@@ -84,7 +84,7 @@ enum ToolInputFactory {
         switch format {
         case .pdf:
             let url = TestSupport.tempURL("pdf")
-            try PDFToolkit.write(TestSupport.makePDF(pages: 3, body: "Quarterly numbers for Page review. Account 555-0100."), to: url)
+            try PDFToolkit.write(TestSupport.makePDF(pages: 3, body: "Quarterly numbers for Page review. Account 555-0100.", picture: true), to: url)
             return url
         case .docx, .odt, .rtf, .pptx, .xlsx, .ods:
             let source = try TestSupport.fixture("sample.\(format.fileExtension)")
@@ -157,9 +157,32 @@ struct ToolRunTests {
         "image.blurfaces": "no faces in a synthetic image",
         "image.removebg": "subject lifting can be unavailable on simulators",
         "pdf.removeblank": "the sample has no blank pages",
-        "pdf.extractimages": "the sample PDF has no images",
         "image.ocr": "the synthetic image has no text (covered by ImageToolTests)"
     ]
+
+    /// Tools whose whole point is to drop or replace the text layer.
+    static let dropsText: Set<String> = []
+
+    /// Tools that may legitimately produce a single-color image.
+    static let flatImageTools: Set<String> = []
+
+    /// A distinctive word from each text-bearing input that every text-bearing output should keep.
+    static func textMarkers(for inputs: [ToolInputFile]) -> [String] {
+        inputs.compactMap { input -> String? in
+            let text: String
+            switch input.format.family {
+            case .spreadsheet:
+                guard let workbook = try? SpreadsheetConverter.read(input.url, format: input.format) else { return nil }
+                text = workbook.asDocument(includeSheetTitles: false).plainText
+            case .pdf, .document, .presentation:
+                guard let document = try? DocumentConverter.read(input.url, format: input.format) else { return nil }
+                text = document.plainText
+            default:
+                return nil
+            }
+            return text.components(separatedBy: CharacterSet.letters.inverted).first { $0.count >= 5 }
+        }
+    }
 
     static var runnableIDs: [String] {
         ToolCatalog.all.filter { !$0.opensMediaConverter && !skipped.contains($0.id.rawValue) }.map(\.id.rawValue)
@@ -193,10 +216,24 @@ struct ToolRunTests {
         do {
             let output = try await tool.run(context)
             #expect(!output.files.isEmpty, "\(id) produced no files")
+            var expectations = OutputValidator.Expectations()
+            let markers = Self.textMarkers(for: inputs)
+            // One output per page/sheet: each word only has to survive somewhere in the set.
+            expectations.text = output.files.count == 1 ? markers : []
+            expectations.allowsTextLoss = Self.dropsText.contains(id)
+            expectations.allowsFlatImage = Self.flatImageTools.contains(id)
             for file in output.files {
                 #expect(file.byteCount > 0, "\(id) wrote an empty \(file.name)")
-                if file.format == .pdf {
-                    #expect(PDFDocument(url: file.url) != nil || id == "pdf.protect", "\(id) wrote an unreadable PDF")
+                for problem in await OutputValidator.problems(in: file.url, expecting: expectations) {
+                    Issue.record("\(id): \(problem)")
+                }
+            }
+            if output.files.count > 1, !expectations.allowsTextLoss {
+                let combined = output.files.compactMap { OutputValidator.text(of: $0.url) }.joined(separator: "\n").lowercased()
+                if !combined.isEmpty {
+                    for marker in markers where !combined.contains(marker.lowercased()) {
+                        Issue.record("\(id): no output kept the text “\(marker)”")
+                    }
                 }
             }
         } catch {

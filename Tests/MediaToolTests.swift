@@ -38,7 +38,20 @@ enum MediaFixtures {
             CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &buffer)
             let pixelBuffer = buffer!
             CVPixelBufferLockBaseAddress(pixelBuffer, [])
-            memset(CVPixelBufferGetBaseAddress(pixelBuffer)!, Int32((frame * 9) % 255), CVPixelBufferGetDataSize(pixelBuffer))
+            // A gradient with a moving bright square, so every frame has real picture content.
+            let base = CVPixelBufferGetBaseAddress(pixelBuffer)!.assumingMemoryBound(to: UInt8.self)
+            let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
+            let squareX = (frame * 8) % max(1, width - 40)
+            for y in 0 ..< height {
+                let row = base + y * stride
+                for x in 0 ..< width {
+                    let inSquare = x >= squareX && x < squareX + 40 && y >= height / 3 && y < height / 3 + 40
+                    row[x * 4] = inSquare ? 255 : UInt8(x * 255 / max(1, width))      // B
+                    row[x * 4 + 1] = inSquare ? 255 : UInt8(y * 255 / max(1, height)) // G
+                    row[x * 4 + 2] = inSquare ? 255 : UInt8((frame * 9) % 255)       // R
+                    row[x * 4 + 3] = 255
+                }
+            }
             CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
             adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: Int64(frame), timescale: CMTimeScale(fps)))
             if let audioInput {

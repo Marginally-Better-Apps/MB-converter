@@ -50,6 +50,8 @@ struct WorkbookFormatTests {
         #expect(sales[2][2] == .number(10.25))
         #expect(sales[1][3] == .bool(true))
         #expect(sales[3][0] == .string("Americas, North"))
+        // A formula saved without a calculated result shows the formula instead of a blank cell.
+        #expect(sales[1][4] == .string("=B2*C2"))
         let notes = workbook.sheets[1].rows
         #expect(notes[0][0] == .string("Shared “quotes” & ampersands"))
         #expect(notes[2][1] == .date(CellValue.dateFormatter.date(from: "2026-10-21")!))

@@ -20,18 +20,38 @@ enum TestSupport {
     }
 
     /// A PDF whose pages each say "Page N" (plus optional body text), for structural tests.
-    static func makePDF(pages: Int, size: CGSize = CGSize(width: 612, height: 792), body: String? = nil) -> PDFDocument {
+    /// With `picture`, page 1 also carries a photo with a transparent cut-out (embedded with an SMask).
+    static func makePDF(pages: Int, size: CGSize = CGSize(width: 612, height: 792), body: String? = nil, picture: Bool = false) -> PDFDocument {
+        let photo = picture ? transparentPicture() : nil
         let data = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: size)).pdfData { context in
             for index in 0 ..< pages {
                 context.beginPage()
                 let title = "Page \(index + 1)" as NSString
                 title.draw(at: CGPoint(x: 72, y: 72), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 28)])
                 if let body {
-                    (body as NSString).draw(in: CGRect(x: 72, y: 130, width: size.width - 144, height: size.height - 200), withAttributes: [.font: UIFont.systemFont(ofSize: 12)])
+                    (body as NSString).draw(in: CGRect(x: 72, y: 130, width: size.width - 144, height: 200), withAttributes: [.font: UIFont.systemFont(ofSize: 12)])
+                }
+                if index == 0, let photo {
+                    photo.draw(in: CGRect(x: 72, y: 360, width: 240, height: 180))
                 }
             }
         }
         return PDFDocument(data: data)!
+    }
+
+    /// Orange and teal halves with a transparent circle punched out of the middle.
+    static func transparentPicture() -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: CGSize(width: 320, height: 240), format: format).image { context in
+            UIColor.systemOrange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 160, height: 240))
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(x: 160, y: 0, width: 160, height: 240))
+            context.cgContext.setBlendMode(.clear)
+            context.cgContext.fillEllipse(in: CGRect(x: 110, y: 70, width: 100, height: 100))
+        }
     }
 
     static func pageTitles(_ document: PDFDocument) -> [String] {
