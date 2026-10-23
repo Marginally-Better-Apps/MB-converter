@@ -80,7 +80,8 @@ struct ImageToolTests {
         #expect(ImageToolkit.decodeQRCodes(in: code) == ["https://marginally-better.app"])
     }
 
-    @Test func recognizesText() throws {
+    // Vision may use Swift concurrency internally; keep blocking calls off the cooperative pool.
+    @MainActor @Test func recognizesText() throws {
         let lines = try TextRecognizer.recognize(TestSupport.textImage("Hello Converter"), languages: ["en-US"])
         #expect(TextRecognizer.text(from: lines).contains("Hello Converter"))
     }

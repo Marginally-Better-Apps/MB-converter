@@ -228,7 +228,8 @@ struct PDFRenderingTests {
         #expect(image.width == 300 && image.height == 200)
     }
 
-    @Test func ocrMakesScannedPDFSearchable() throws {
+    // Vision may use Swift concurrency internally; keep blocking calls off the cooperative pool.
+    @MainActor @Test func ocrMakesScannedPDFSearchable() throws {
         let scan = try TestSupport.writeImage(TestSupport.textImage("Invoice 2026"))
         let scanned = try #require(PDFDocument(data: ImagesToPDF.makePDF(from: [scan])))
         #expect(!PDFToolkit.hasTextLayer(scanned))

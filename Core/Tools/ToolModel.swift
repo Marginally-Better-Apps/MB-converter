@@ -441,8 +441,15 @@ extension Int64 {
 }
 
 /// Runs CPU-heavy work off the main actor.
+/// Runs blocking work (Vision, ImageMagick, PDF rendering, FFmpeg) on a GCD worker thread.
+/// It must not occupy Swift's cooperative pool: that pool has one thread per core, and frameworks
+/// that use Swift concurrency internally (Vision) deadlock once every pool thread is blocked.
 func background<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-    try await Task.detached(priority: .userInitiated) { try work() }.value
+    try await withCheckedThrowingContinuation { continuation in
+        DispatchQueue.global(qos: .userInitiated).async {
+            continuation.resume(with: Result { try work() })
+        }
+    }
 }
 
 /// The user's preferred page size for document exports (Settings).
