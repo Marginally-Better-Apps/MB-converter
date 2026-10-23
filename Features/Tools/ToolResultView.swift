@@ -273,7 +273,8 @@ struct ToolResultView: View {
     private func shareZip() {
         do {
             let base = files.first.map { ($0.name as NSString).deletingPathExtension } ?? "Files"
-            let directory = urls.first?.deletingLastPathComponent() ?? ToolStorage.newRunDirectory()
+            // Never write the archive into History's folder.
+            let directory = ToolStorage.newRunDirectory()
             let zip = try ToolStorage.zip(urls, named: tool.map { "\($0.title)" } ?? base, in: directory)
             share = IdentifiableURLs(urls: [zip])
         } catch {
@@ -287,6 +288,7 @@ struct ToolResultView: View {
         do {
             try FileManager.default.moveItem(at: file.url, to: destination)
             if let index = files.firstIndex(of: file) { files[index] = ToolOutputFile(url: destination) }
+            ConversionHistoryStore.shared.renameToolOutput(runID: run.id, from: file.name, to: destination.lastPathComponent)
             Haptics.success()
         } catch {
             errorMessage = error.localizedDescription

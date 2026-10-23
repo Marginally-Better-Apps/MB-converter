@@ -8,7 +8,7 @@ struct ConversionHistoryListView: View {
     @Environment(\.isRootSectionActive) private var isRootSectionActive
     @State private var store = ConversionHistoryStore.shared
     @State private var isClearAllConfirming = false
-    @State private var entryPendingDeletion: ConversionHistoryEntry?
+    @State private var entryPendingDeletion: HistoryItem?
 
     var body: some View {
         List {
@@ -21,16 +21,16 @@ struct ConversionHistoryListView: View {
             if entries.isEmpty {
                 Section {
                     ContentUnavailableView(
-                        "No Conversions Yet",
+                        "Nothing Here Yet",
                         systemImage: "clock.arrow.circlepath",
-                        description: Text("Converted files will appear here.")
+                        description: Text("Files you convert or make with Tools will appear here.")
                     )
                     .frame(maxWidth: .infinity)
                 }
             } else {
-                Section("Conversions") {
+                Section("Recent") {
                     ForEach(entries) { entry in
-                        historyRow(entry: entry)
+                        historyRow(item: entry)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
                                     Haptics.warning()
@@ -77,7 +77,7 @@ struct ConversionHistoryListView: View {
             Text("This removes every result file shown in History. This action cannot be undone.")
         }
         .confirmationDialog(
-            "Delete this conversion?",
+            "Delete from History?",
             isPresented: deleteEntryConfirmationBinding,
             titleVisibility: .visible
         ) {
@@ -92,7 +92,7 @@ struct ConversionHistoryListView: View {
             }
         } message: {
             if let entry = entryPendingDeletion {
-                Text("This removes the result file for \(entry.input.originalFilename) from History.")
+                Text("This removes the result \(entry.fileCount == 1 ? "file" : "files") for \(entry.displayName) from History.")
             }
         }
     }
@@ -105,7 +105,7 @@ struct ConversionHistoryListView: View {
                 Text(store.storageSummaryTitle)
                     .font(.body)
                     .foregroundStyle(Theme.text)
-                Text("\(entries.count) \(entries.count == 1 ? "conversion" : "conversions")")
+                Text("\(entries.count) \(entries.count == 1 ? "item" : "items")")
                     .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
             }
@@ -126,8 +126,8 @@ struct ConversionHistoryListView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var entries: [ConversionHistoryEntry] {
-        previewEntries ?? store.entries
+    private var entries: [HistoryItem] {
+        previewEntries?.map(HistoryItem.conversion) ?? store.items
     }
 
     private var storageBytes: Int64 {
@@ -145,40 +145,30 @@ struct ConversionHistoryListView: View {
         )
     }
 
-    private func historyRow(entry: ConversionHistoryEntry) -> some View {
+    private func historyRow(item: HistoryItem) -> some View {
         Button {
             Haptics.impact(.light)
-            path.append(
-                .result(
-                    entry.input,
-                    entry.config,
-                    entry.result,
-                    fromHistory: true
-                )
-            )
+            switch item {
+            case .conversion(let entry):
+                path.append(.result(entry.input, entry.config, entry.result, fromHistory: true))
+            case .tool(let entry):
+                path.append(.toolResult(entry.run))
+            }
         } label: {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 5) {
-                    rowText(entry: entry)
+                    rowText(item: item)
                 }
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 HStack(alignment: .center, spacing: 14) {
-                    MediaPreview(
-                        url: entry.result.url,
-                        category: entry.result.outputFormat.category,
-                        compact: true,
-                        showsChrome: false,
-                        isInteractive: false
-                    )
-                    .frame(width: 60, height: 60)
-                    .background(Theme.background)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .accessibilityHidden(true)
+                    HistoryThumbnail(item: item)
+                        .frame(width: 60, height: 60)
+                        .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        rowText(entry: entry)
+                        rowText(item: item)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -192,22 +182,90 @@ struct ConversionHistoryListView: View {
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
-        .accessibilityHint("Opens the converted file")
+        .accessibilityHint("Opens the result")
     }
 
     @ViewBuilder
-    private func rowText(entry: ConversionHistoryEntry) -> some View {
-        Text(entry.input.originalFilename)
+    private func rowText(item: HistoryItem) -> some View {
+        Text(item.displayName)
             .font(.body.weight(.medium))
             .foregroundStyle(Theme.text)
             .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
             .truncationMode(.middle)
-        Text("\(entry.result.outputFormat.displayName) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))")
+        Text(item.detail)
             .font(.subheadline)
             .foregroundStyle(Theme.textMuted)
-        Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
+            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+        Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
             .font(.caption)
             .foregroundStyle(Theme.textTertiary)
+    }
+}
+
+/// The result's own preview: media for conversions, the first output file for tool runs.
+struct HistoryThumbnail: View {
+    let item: HistoryItem
+    var cornerRadius: CGFloat = 12
+
+    var body: some View {
+        GeometryReader { proxy in
+            Group {
+                switch item {
+                case .conversion(let entry):
+                    MediaPreview(
+                        url: entry.result.url,
+                        category: entry.result.outputFormat.category,
+                        compact: true,
+                        showsChrome: false,
+                        isInteractive: false
+                    )
+                case .tool(let entry):
+                    if let file = entry.files.first {
+                        FileThumbnail(url: file, size: proxy.size, format: FileFormat(url: file))
+                    } else if let tool = ToolCatalog.tool(entry.toolID) {
+                        ToolGlyph(symbol: tool.symbol, category: tool.category, size: proxy.size.width * 0.5)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .background(Theme.background)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+}
+
+extension HistoryItem {
+    /// What the user started from (or made, for tools without inputs).
+    var displayName: String {
+        switch self {
+        case .conversion(let entry):
+            return entry.input.originalFilename
+        case .tool(let entry):
+            if let first = entry.inputNames.first {
+                return entry.inputNames.count > 1 ? "\(first) + \(entry.inputNames.count - 1) more" : first
+            }
+            return entry.files.first?.lastPathComponent ?? entry.title
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .conversion(let entry):
+            return "\(entry.result.outputFormat.displayName) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))"
+        case .tool(let entry):
+            let files = entry.files.count == 1
+                ? (FileFormat(url: entry.files[0])?.displayName ?? entry.files[0].pathExtension.uppercased())
+                : "\(entry.files.count) files"
+            return entry.files.isEmpty ? entry.title : "\(entry.title) · \(files) · \(MetadataFormatter.bytes(entry.totalBytes))"
+        }
+    }
+
+    var fileCount: Int {
+        switch self {
+        case .conversion: 1
+        case .tool(let entry): entry.files.count
+        }
     }
 }
 

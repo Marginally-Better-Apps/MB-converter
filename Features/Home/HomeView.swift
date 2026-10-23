@@ -294,8 +294,8 @@ struct HomeView: View {
 
     // MARK: - Recent
 
-    private var recentEntries: [ConversionHistoryEntry] {
-        Array(historyStore.entries.prefix(12))
+    private var recentEntries: [HistoryItem] {
+        Array(historyStore.items.prefix(12))
     }
 
     /// The newest conversions, like Recently Played in Apple Music.
@@ -312,7 +312,12 @@ struct HomeView: View {
                     ForEach(recentEntries) { entry in
                         Button {
                             Haptics.impact(.light)
-                            path.append(.result(entry.input, entry.config, entry.result, fromHistory: true))
+                            switch entry {
+                            case .conversion(let conversion):
+                                path.append(.result(conversion.input, conversion.config, conversion.result, fromHistory: true))
+                            case .tool(let run):
+                                path.append(.toolResult(run.run))
+                            }
                         } label: {
                             RecentConversionCard(entry: entry)
                         }
@@ -687,30 +692,22 @@ private struct SourceRow: View {
 
 /// A square thumbnail with a caption, like an album in a shelf.
 private struct RecentConversionCard: View {
-    let entry: ConversionHistoryEntry
+    let entry: HistoryItem
     @ScaledMetric(relativeTo: .body) private var side: CGFloat = 132
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            MediaPreview(
-                url: entry.result.url,
-                category: entry.result.outputFormat.category,
-                compact: true,
-                showsChrome: false,
-                isInteractive: false
-            )
-            .frame(width: side, height: side)
-            .background(Theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .accessibilityHidden(true)
+            HistoryThumbnail(item: entry, cornerRadius: 16)
+                .frame(width: side, height: side)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.input.originalFilename)
+                Text(entry.displayName)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.text)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("\(entry.result.outputFormat.displayName) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))")
+                Text(entry.detail)
                     .font(.caption)
                     .foregroundStyle(Theme.textMuted)
                     .lineLimit(1)

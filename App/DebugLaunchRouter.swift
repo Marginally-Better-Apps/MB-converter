@@ -5,6 +5,7 @@ import Foundation
 ///   -MBRoute tab:convert|tools|history | category:pdf | tool:pdf.merge | hub | result:pdf.compress
 ///   -MBInputs /path/one.pdf,/path/two.pdf   (host paths are readable from the simulator)
 ///   -MBEditor 1                              (auto-open the tool's editor)
+///   -MBThen tab:history                      (after a result: switch tabs, e.g. to check History)
 enum DebugLaunchRouter {
     static var arguments: [String: String] {
         let args = ProcessInfo.processInfo.arguments
@@ -24,7 +25,7 @@ enum DebugLaunchRouter {
     }
 
     @MainActor
-    static func apply(selectTab: (RootSection) -> Void, push: @escaping (AppRoute) -> Void) {
+    static func apply(selectTab: @escaping (RootSection) -> Void, push: @escaping (AppRoute) -> Void) {
         guard let route = arguments["MBRoute"] else { return }
         let parts = route.split(separator: ":", maxSplits: 1).map(String.init)
         let value = parts.count > 1 ? parts[1] : ""
@@ -46,14 +47,15 @@ enum DebugLaunchRouter {
             if let file = inputs().first { push(.fileHub(file)) }
         case "result":
             guard let tool = ToolCatalog.tool(ToolID(rawValue: value)) else { return }
-            let files = inputs()
+            // Same path as tapping the tool's action button, including History.
+            let model = ToolViewModel(tool: tool, inputs: inputs())
             Task {
-                var options = ToolOptionValues(defaults: tool.options)
-                for option in tool.options {
-                    if case .dynamicChoice(let provider) = option.kind { options[option.key] = .string(provider(files).first?.value ?? "") }
-                }
-                if let output = try? await tool.run(ToolContext(inputs: files, options: options)) {
-                    push(.toolResult(ToolRun(toolID: tool.id, inputs: files, output: output)))
+                if let run = await model.run() {
+                    push(.toolResult(run))
+                    if let then = arguments["MBThen"], then.hasPrefix("tab:") {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        selectTab(RootSection(rawValue: String(then.dropFirst(4))) ?? .history)
+                    }
                 }
             }
         default:

@@ -39,10 +39,20 @@ enum AppRoute: Hashable {
 
 /// A finished tool run, shown on the result screen.
 struct ToolRun: Hashable {
-    let id = UUID()
+    let id: UUID
     let toolID: ToolID
     let inputs: [ToolInputFile]
     let output: ToolOutput
+    /// Reopened from History rather than just finished.
+    var fromHistory = false
+
+    init(id: UUID = UUID(), toolID: ToolID, inputs: [ToolInputFile], output: ToolOutput, fromHistory: Bool = false) {
+        self.id = id
+        self.toolID = toolID
+        self.inputs = inputs
+        self.output = output
+        self.fromHistory = fromHistory
+    }
 }
 
 enum RootSection: String, CaseIterable, Identifiable, Hashable {

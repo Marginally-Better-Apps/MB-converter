@@ -301,9 +301,62 @@ struct QuickLookPreview: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, QLPreviewControllerDataSource {
         let urls: [URL]
+        private var items: [Int: QLPreviewItem] = [:]
         init(urls: [URL]) { self.urls = urls }
         func numberOfPreviewItems(in controller: QLPreviewController) -> Int { urls.count }
-        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { urls[index] as NSURL }
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            if let item = items[index] { return item }
+            let item = QuickLookStandIn.item(for: urls[index])
+            items[index] = item
+            return item
+        }
+    }
+}
+
+/// A Quick Look item whose title stays the real file name even when a stand-in file is shown.
+final class NamedPreviewItem: NSObject, QLPreviewItem {
+    let previewItemURL: URL?
+    let previewItemTitle: String?
+
+    init(url: URL, title: String) {
+        previewItemURL = url
+        previewItemTitle = title
+    }
+}
+
+/// Quick Look can't show OpenDocument, EPUB, Markdown or the rarer image formats on iOS.
+/// For those, preview a faithful stand-in: the document rendered as a web page, or the image as PNG.
+enum QuickLookStandIn {
+    static let renderedFormats: Set<FileFormat> = [.odt, .ods, .epub, .markdown]
+
+    static func item(for url: URL) -> QLPreviewItem {
+        let title = url.lastPathComponent
+        guard let format = FileFormat(url: url) else { return url as NSURL }
+        let needsStandIn = renderedFormats.contains(format) || !QLPreviewController.canPreview(url as NSURL)
+        guard needsStandIn, let standIn = try? standIn(for: url, format: format) else { return url as NSURL }
+        return NamedPreviewItem(url: standIn, title: title)
+    }
+
+    private static func standIn(for url: URL, format: FileFormat) throws -> URL? {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("previews", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let base = folder.appendingPathComponent(UUID().uuidString)
+        switch format.family {
+        case .image:
+            return try Magick.pngProxy(for: url)
+        case .spreadsheet:
+            let document = try SpreadsheetConverter.read(url, format: format).asDocument()
+            let output = base.appendingPathExtension("html")
+            try HTMLWriter.data(document, options: .default).write(to: output)
+            return output
+        case .document, .presentation:
+            let document = try DocumentConverter.read(url, format: format)
+            let output = base.appendingPathExtension("html")
+            try HTMLWriter.data(document, options: .default).write(to: output)
+            return output
+        default:
+            return nil
+        }
     }
 }
 
