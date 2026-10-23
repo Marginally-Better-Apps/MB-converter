@@ -81,6 +81,11 @@ enum XLSXReader {
     private static func cellValue(_ cell: XElement, sharedStrings: [String], dateStyles: Set<Int>, uses1904: Bool) -> CellValue {
         let type = cell.attribute("t") ?? "n"
         let raw = cell.child("v")?.text
+        // Files written by scripts (not Excel) can carry a formula with no calculated result.
+        // Show the formula rather than an empty cell.
+        if raw?.isEmpty ?? true, let formula = cell.child("f")?.text, !formula.isEmpty, type != "inlineStr" {
+            return .string("=" + formula)
+        }
         switch type {
         case "s":
             guard let index = raw.flatMap(Int.init), index < sharedStrings.count else { return .empty }

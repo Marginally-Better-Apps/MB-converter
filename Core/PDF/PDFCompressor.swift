@@ -86,11 +86,7 @@ enum PDFCompressor {
                     cg.draw(image, in: CGRect(origin: .zero, size: size))
                     cg.restoreGState()
                 }
-                for line in PDFTextReader.lines(on: page) {
-                    let frame = PDFStamper.normalizedFrame(of: line.bounds, on: page)
-                    let rect = CGRect(x: frame.minX * size.width, y: frame.minY * size.height, width: frame.width * size.width, height: frame.height * size.height)
-                    PDFStamper.drawInvisibleText(line.plain, in: rect, context: cg)
-                }
+                PDFStamper.drawTextLayer(of: page, size: size, context: cg)
             }
         }
     }

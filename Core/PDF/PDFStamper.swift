@@ -15,7 +15,8 @@ enum PDFStamper {
         overlay: Overlay? = nil,
         rasterize: (Int) -> Bool = { _ in false },
         rasterDPI: CGFloat = 200,
-        grayscale: Bool = false
+        grayscale: Bool = false,
+        hiddenText: (Int) -> [CGRect] = { _ in [] }
     ) -> Data {
         let format = UIGraphicsPDFRendererFormat()
         format.documentInfo = documentInfo(from: source)
@@ -37,6 +38,8 @@ enum PDFStamper {
                         cg.draw(image, in: bounds)
                         cg.restoreGState()
                     }
+                    // Keep the page selectable and searchable, minus anything under a redaction.
+                    drawTextLayer(of: page, size: size, context: cg, excluding: hiddenText(index))
                     continue
                 }
                 if let underlay {
@@ -270,11 +273,12 @@ enum PDFStamper {
     static func apply(_ items: [PDFOverlayItem], to source: PDFDocument) -> Data {
         let byPage = Dictionary(grouping: items, by: \.pageIndex)
         let redactedPages = Set(items.filter { $0.kind == .redaction }.map(\.pageIndex))
+        let redactionFrames = Dictionary(grouping: items.filter { $0.kind == .redaction }, by: \.pageIndex).mapValues { $0.map(\.frame) }
         return render(source, overlay: { context, index, size in
             for item in byPage[index] ?? [] {
                 draw(item, in: context, pageSize: size)
             }
-        }, rasterize: { redactedPages.contains($0) })
+        }, rasterize: { redactedPages.contains($0) }, hiddenText: { redactionFrames[$0] ?? [] })
     }
 
     static func draw(_ item: PDFOverlayItem, in context: CGContext, pageSize: CGSize) {
@@ -356,6 +360,46 @@ enum PDFStamper {
     }
 
     // MARK: - Invisible text (searchable layers)
+
+    /// Re-adds a page's text as an invisible layer over its rasterized image.
+    /// Characters whose boxes touch any `excluding` frame (normalized, top-left) are left out entirely.
+    static func drawTextLayer(of page: PDFPage, size: CGSize, context: CGContext, excluding hidden: [CGRect] = []) {
+        let pageText = (page.string ?? "") as NSString
+        for line in PDFTextReader.lines(on: page) {
+            var text = line.plain
+            if !hidden.isEmpty {
+                let lineFrame = normalizedFrame(of: line.bounds, on: page)
+                guard hidden.contains(where: { $0.intersects(lineFrame) }) else {
+                    drawLine(text, frame: lineFrame, size: size, context: context)
+                    continue
+                }
+                // Only keep characters we can prove are outside every redaction box. Selections pair each
+                // character with its own bounds (`characterBounds(at:)` indexes differently from `page.string`).
+                guard let range = line.range, range.location != NSNotFound, NSMaxRange(range) <= pageText.length else { continue }
+                var kept = ""
+                for offset in 0 ..< range.length {
+                    guard let selection = page.selection(for: NSRange(location: range.location + offset, length: 1)),
+                          let character = selection.string, !character.isEmpty
+                    else { continue }
+                    if character.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) == nil {
+                        kept += character
+                        continue
+                    }
+                    let box = selection.bounds(for: page)
+                    let isHidden = box.isEmpty || hidden.contains { $0.intersects(normalizedFrame(of: box, on: page)) }
+                    kept += isHidden ? " " : character
+                }
+                text = kept.trimmingCharacters(in: .newlines)
+            }
+            drawLine(text, frame: normalizedFrame(of: line.bounds, on: page), size: size, context: context)
+        }
+    }
+
+    private static func drawLine(_ text: String, frame: CGRect, size: CGSize, context: CGContext) {
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let rect = CGRect(x: frame.minX * size.width, y: frame.minY * size.height, width: frame.width * size.width, height: frame.height * size.height)
+        drawInvisibleText(text, in: rect, context: context)
+    }
 
     /// Draws text that is selectable and searchable but not visible, fitted to `rect` (top-left space).
     static func drawInvisibleText(_ text: String, in rect: CGRect, context: CGContext) {
