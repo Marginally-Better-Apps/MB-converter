@@ -22,26 +22,26 @@ enum MediaFixtures {
                 AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 96_000
             ])
             input.expectsMediaDataInRealTime = false
+            // Store audio as one block ahead of the video instead of interleaving: AVAssetWriter's
+            // interleaving made slow (CI) simulators hold video back near the end of the clip forever.
+            input.mediaDataLocation = .beforeMainMediaDataNotInterleaved
             writer.add(input)
             audioInput = input
         }
         guard writer.startWriting() else { throw writer.error ?? ConversionError.engineFailed("writer") }
         writer.startSession(atSourceTime: .zero)
 
-        // Interleave video frames and audio chunks; AVAssetWriter stalls if one track runs far ahead.
         let fps = 15
         let frameCount = Int(seconds * Double(fps))
-        var sine = SineGenerator(frequency: 440, totalSamples: Int(seconds * 44_100))
+        if let audioInput {
+            var sine = SineGenerator(frequency: 440, totalSamples: Int(seconds * 44_100))
+            try await sine.append(to: audioInput, upTo: sine.totalSamples)
+            audioInput.markAsFinished()
+        }
         for frame in 0 ..< frameCount {
-            // The writer can hold video back until audio catches up, so keep audio flowing while
-            // waiting — and fail loudly instead of hanging if neither input ever becomes ready.
+            // Fail loudly instead of hanging if the encoder never accepts another frame.
             var waited = 0
             while !videoInput.isReadyForMoreMediaData {
-                if let audioInput, audioInput.isReadyForMoreMediaData, sine.written < sine.totalSamples {
-                    let ahead = min(sine.totalSamples, sine.written + 4_096)
-                    try await sine.append(to: audioInput, upTo: ahead)
-                    continue
-                }
                 try await Task.sleep(for: .milliseconds(1))
                 waited += 1
                 if waited > 5_000 { throw ConversionError.engineFailed("Video writer stalled at frame \(frame)") }
@@ -66,16 +66,8 @@ enum MediaFixtures {
             }
             CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
             adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: Int64(frame), timescale: CMTimeScale(fps)))
-            if let audioInput {
-                let until = Int(Double(frame + 1) / Double(fps) * 44_100)
-                try await sine.append(to: audioInput, upTo: until)
-            }
         }
         videoInput.markAsFinished()
-        if let audioInput {
-            try await sine.append(to: audioInput, upTo: sine.totalSamples)
-            audioInput.markAsFinished()
-        }
         await writer.finishWriting()
         guard writer.status == .completed else { throw writer.error ?? ConversionError.engineFailed("writer") }
         return url
