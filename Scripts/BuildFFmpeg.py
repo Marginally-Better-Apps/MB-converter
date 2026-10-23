@@ -24,9 +24,10 @@ CACHE = ROOT / "build/ffmpeg"
 PACKAGE = ROOT / "Native/FFmpeg"
 SOURCES = json.loads((PACKAGE / "sources.json").read_text())
 LIBRARIES = ["avfilter", "avformat", "avcodec", "swresample", "swscale", "avutil",
-             "mp3lame", "vorbisenc", "vorbis", "ogg", "opus", "vpx", "dav1d", "zimg"]
+             "mp3lame", "vorbisenc", "vorbis", "theoraenc", "theoradec", "ogg", "opus", "vpx", "dav1d",
+             "zimg", "webpmux", "webp", "sharpyuv", "SvtAv1Enc"]
 FRAMEWORK = "MBFFmpegBridge"
-REVISION = 2  # Bump when changing dependency configuration/build recipes.
+REVISION = 3  # Bump when changing dependency configuration/build recipes.
 
 
 def capture(args, env=None):
@@ -78,11 +79,17 @@ def fetch_sources(offline):
             if offline:
                 raise RuntimeError(f"Missing cached source: {archive}; run without --offline to fetch")
             temporary = archive.with_suffix(archive.suffix + ".part")
-            subprocess.run(["curl", "--fail", "--location", "--retry", "2", "--output",
-                            str(temporary), spec["url"]], check=True)
-            if digest(temporary) != spec["sha256"]:
-                raise RuntimeError(f"Source checksum mismatch: {name}")
-            temporary.replace(archive)
+            # Upstream hosts occasionally reset connections; retry, then try pinned mirrors.
+            # Every candidate must still match the recorded SHA-256.
+            for candidate in [spec["url"]] + spec.get("mirrors", []):
+                download = subprocess.run(["curl", "--fail", "--location", "--retry", "5", "--retry-all-errors",
+                                           "--retry-delay", "3", "--output", str(temporary), candidate])
+                if download.returncode == 0 and digest(temporary) == spec["sha256"]:
+                    temporary.replace(archive)
+                    break
+                temporary.unlink(missing_ok=True)
+            else:
+                raise RuntimeError(f"Could not download {name} with the pinned checksum")
         if digest(archive) != spec["sha256"]:
             raise RuntimeError(f"Source checksum mismatch: {archive}")
         directory = source_root / spec.get("directory", f"{name}-{spec['version']}")
@@ -197,6 +204,46 @@ def build_platform(platform, sources, jobs, libraries_only):
         run(["cmake", "--install", build], build, env, work / f"{name}.log")
         finish(build)
 
+    # libwebp (BSD): still and animated WebP encoding inside FFmpeg.
+    for name, options in [
+        ("libwebp", ["-DWEBP_BUILD_ANIM_UTILS=OFF", "-DWEBP_BUILD_CWEBP=OFF", "-DWEBP_BUILD_DWEBP=OFF",
+                     "-DWEBP_BUILD_GIF2WEBP=OFF", "-DWEBP_BUILD_IMG2WEBP=OFF", "-DWEBP_BUILD_VWEBP=OFF",
+                     "-DWEBP_BUILD_WEBPINFO=OFF", "-DWEBP_BUILD_WEBPMUX=OFF", "-DWEBP_BUILD_EXTRAS=OFF",
+                     "-DWEBP_BUILD_LIBWEBPMUX=ON", "-DWEBP_ENABLE_SWAP_16BIT_CSP=OFF"]),
+        # SVT-AV1 (BSD-3-Clause-Clear): AV1 video and AVIF still encoding. NEON paths need no assembler.
+        ("svt-av1", ["-DBUILD_APPS=OFF", "-DBUILD_DEC=OFF", "-DBUILD_TESTING=OFF", "-DCOVERAGE=OFF",
+                     "-DENABLE_NASM=OFF", "-DSVT_AV1_LTO=OFF", "-DUSE_CPUINFO=OFF"]),
+    ]:
+        build = prepare(name)
+        if not build:
+            continue
+        args = ["cmake", "-S", sources[name], "-B", build,
+                "-DCMAKE_POLICY_VERSION_MINIMUM=3.5", "-DCMAKE_BUILD_TYPE=Release",
+                f"-DCMAKE_INSTALL_PREFIX={prefix}", "-DCMAKE_INSTALL_LIBDIR=lib", f"-DCMAKE_PREFIX_PATH={prefix}",
+                f"-DCMAKE_C_COMPILER={cc}", f"-DCMAKE_CXX_COMPILER={cxx}",
+                "-DCMAKE_OSX_ARCHITECTURES=arm64", f"-DCMAKE_OSX_SYSROOT={sysroot}",
+                f"-DCMAKE_OSX_DEPLOYMENT_TARGET={minimum}", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+                "-DBUILD_SHARED_LIBS=OFF"] + options
+        if platform != "macos":
+            args += ["-DCMAKE_SYSTEM_NAME=iOS", "-DCMAKE_SYSTEM_PROCESSOR=arm64"]
+        run(args, build, env, work / f"{name}.log")
+        run(["cmake", "--build", build, "--parallel", str(jobs)], build, env, work / f"{name}.log")
+        run(["cmake", "--install", build], build, env, work / f"{name}.log")
+        finish(build)
+
+    # libtheora (BSD): Theora video for OGV output.
+    build = prepare("libtheora")
+    if build:
+        args = [sources["libtheora"] / "configure", f"--prefix={prefix}", "--host=aarch64-apple-darwin",
+                "--disable-shared", "--enable-static", "--with-pic", "--disable-examples", "--disable-spec",
+                "--disable-doc", "--disable-oggtest", "--disable-vorbistest", "--disable-sdltest",
+                "--disable-asm", f"--with-ogg={prefix}"]
+        run(args, build, env, work / "libtheora.log")
+        run(["make", "-C", "lib", f"-j{jobs}"], build, env, work / "libtheora.log")
+        run(["make", "-C", "lib", "install"], build, env, work / "libtheora.log")
+        run(["make", "-C", "include", "install"], build, env, work / "libtheora.log")
+        finish(build)
+
     build = prepare("libvpx")
     if build:
         vpx_env = env.copy()
@@ -258,6 +305,7 @@ def build_platform(platform, sources, jobs, libraries_only):
                 "--disable-network", "--disable-devices", "--disable-avdevice",
                 "--enable-libmp3lame", "--enable-libopus", "--enable-libvorbis",
                 "--enable-libvpx", "--enable-libdav1d", "--enable-libzimg", "--enable-videotoolbox",
+                "--enable-libwebp", "--enable-libsvtav1", "--enable-libtheora",
                 "--enable-audiotoolbox", "--enable-zlib", "--enable-bzlib", "--enable-iconv"]
         run(args, build, env, work / "ffmpeg.log")
         config = (build / "config.h").read_text()
