@@ -90,7 +90,8 @@ with zipfile.ZipFile(sys.argv[1]) as ipa:
     framework = 'Payload/Converter.app/Frameworks/MBFFmpegBridge.framework/'
     assert ipa.getinfo(framework + 'MBFFmpegBridge').file_size > 0
     assert ipa.getinfo(framework + 'BuildManifest.json').file_size > 0
-    assert ipa.getinfo(framework + 'Licenses/ffmpeg/COPYING.LGPLv2.1').file_size > 0
+    assert ipa.getinfo(framework + 'Licenses/ffmpeg/COPYING.GPLv2').file_size > 0
+    assert ipa.getinfo(framework + 'Licenses/x264/COPYING').file_size > 0
     magick = 'Payload/Converter.app/Frameworks/MBImageMagickBridge.framework/'
     assert ipa.getinfo(magick + 'MBImageMagickBridge').file_size > 0
     assert ipa.getinfo(magick + 'Licenses/ImageMagick/LICENSE').file_size > 0

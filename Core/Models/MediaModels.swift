@@ -107,9 +107,6 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
     /// All converter outputs are regular files; copy puts raw bytes on the pasteboard with a matching UTI.
     var supportsClipboardCopy: Bool { true }
 
-    /// VP9 supports a statistics pass. VideoToolbox H.264/HEVC do not produce
-    /// the pass statistics required by FFmpeg's two-pass encoding interface.
-    var supportsTwoPassVideoEncoding: Bool { self == .webm }
 }
 
 extension OutputFormat {
@@ -608,11 +605,6 @@ struct ConversionConfig: Hashable {
     var prefersRemuxWhenPossible: Bool
     var metadata: MetadataExportPolicy
 
-    /// Use this effective mode for execution and progress, including configurations
-    /// created before the bundled encoder capabilities changed.
-    var usesTwoPassVideoEncoding: Bool {
-        outputFormat.supportsTwoPassVideoEncoding && !usesSinglePassVideoTargetEncode
-    }
 
     init(
         outputFormat: OutputFormat,

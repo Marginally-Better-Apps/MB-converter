@@ -40,7 +40,7 @@ final class VideoConverter: Converter {
         progress: @escaping @Sendable (Double) -> Void,
         encodingStats: (@Sendable (FFmpegEncodingDisplayStats) -> Void)?
     ) async throws -> ConversionResult {
-        guard let videoCodec = Self.videoCodec(for: config.outputFormat) else {
+        guard let defaultVideoCodec = Self.videoCodec(for: config.outputFormat) else {
             throw ConversionError.codecUnavailable(
                 reason: CodecCapability.unsupportedReason(for: config.outputFormat) ?? "The selected video encoder is unavailable."
             )
@@ -76,6 +76,9 @@ final class VideoConverter: Converter {
             }
         }
 
+        // Two-pass H.264 runs on x264: VideoToolbox can't produce pass statistics.
+        let twoPassEncoder = config.usesTwoPassVideoEncoding ? config.outputFormat.twoPassVideoEncoder : nil
+        let videoCodec = (twoPassEncoder?.name ?? defaultVideoCodec) + (twoPassEncoder?.arguments ?? "")
         let outputURL = TempStorage.url(for: config.outputFormat)
         let passLog = TempStorage.url(extension: "log")
         let targetBytes = config.targetSizeBytes ?? input.sizeOnDisk
@@ -395,7 +398,9 @@ final class VideoConverter: Converter {
         let paths = [
             url.path,
             "\(url.path)-0.log",
-            "\(url.path)-0.log.mbtree"
+            "\(url.path)-0.log.temp",
+            "\(url.path)-0.log.mbtree",
+            "\(url.path)-0.log.mbtree.temp"
         ]
         for path in paths {
             try? FileManager.default.removeItem(atPath: path)

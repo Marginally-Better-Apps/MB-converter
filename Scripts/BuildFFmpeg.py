@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a pinned LGPL2.1 FFmpeg runtime without downloading executable codecs.
+"""Build a pinned FFmpeg runtime (GPL-2.0-or-later: includes libx264) without downloading executable codecs.
 
 Requires Python 3.12+, Xcode, CMake and pkg-config. Meson/Ninja may be provided
 on PATH or in build/ffmpeg/tools/bin (see Native/FFmpeg/README.md).
@@ -25,9 +25,11 @@ PACKAGE = ROOT / "Native/FFmpeg"
 SOURCES = json.loads((PACKAGE / "sources.json").read_text())
 LIBRARIES = ["avfilter", "avformat", "avcodec", "swresample", "swscale", "avutil",
              "mp3lame", "vorbisenc", "vorbis", "theoraenc", "theoradec", "ogg", "opus", "vpx", "dav1d",
-             "zimg", "webpmux", "webp", "sharpyuv", "SvtAv1Enc"]
+             "zimg", "webpmux", "webp", "sharpyuv", "SvtAv1Enc", "x264"]
 FRAMEWORK = "MBFFmpegBridge"
-REVISION = 3  # Bump when changing dependency configuration/build recipes.
+REVISION = 4  # Bump when changing dependency configuration/build recipes.
+# x264 makes the runtime GPL; nonfree and (L)GPLv3-only components stay out.
+LICENSE_DEFINES = {"CONFIG_GPL": 1, "CONFIG_NONFREE": 0, "CONFIG_VERSION3": 0}
 
 
 def capture(args, env=None):
@@ -244,6 +246,22 @@ def build_platform(platform, sources, jobs, libraries_only):
         run(["make", "-C", "include", "install"], build, env, work / "libtheora.log")
         finish(build)
 
+    # x264 (GPL-2.0-or-later): two-pass H.264 for accurate target-size encodes, which
+    # VideoToolbox can't do. NEON assembly stays on; without it x264 is far too slow on a phone.
+    build = prepare("x264")
+    if build:
+        x264_env = env.copy()
+        x264_env["AS"] = cc
+        args = [sources["x264"] / "configure", f"--prefix={prefix}", "--host=aarch64-apple-darwin",
+                f"--sysroot={sysroot}", "--enable-static", "--enable-pic", "--disable-cli",
+                "--disable-opencl", "--bit-depth=8", "--chroma-format=all",
+                f"--extra-cflags={shlex.join(flags)}", f"--extra-asflags={shlex.join(flags)}",
+                f"--extra-ldflags={shlex.join(flags)}"]
+        run(args, build, x264_env, work / "x264.log")
+        run(["make", f"-j{jobs}"], build, x264_env, work / "x264.log")
+        run(["make", "install-lib-static"], build, x264_env, work / "x264.log")
+        finish(build)
+
     build = prepare("libvpx")
     if build:
         vpx_env = env.copy()
@@ -299,7 +317,7 @@ def build_platform(platform, sources, jobs, libraries_only):
                 "--target-os=darwin", "--enable-cross-compile", f"--cc={cc}", f"--cxx={cxx}",
                 f"--sysroot={sysroot}", f"--extra-cflags={shlex.join(flags + [f'-I{prefix}/include'])}",
                 f"--extra-ldflags={shlex.join(flags + [f'-L{prefix}/lib'])}",
-                "--pkg-config-flags=--static", "--disable-gpl", "--disable-nonfree",
+                "--pkg-config-flags=--static", "--enable-gpl", "--enable-libx264", "--disable-nonfree",
                 "--disable-version3", "--disable-autodetect", "--disable-shared", "--enable-static",
                 "--enable-pic", "--disable-programs", "--disable-doc", "--disable-debug",
                 "--disable-network", "--disable-devices", "--disable-avdevice",
@@ -309,8 +327,8 @@ def build_platform(platform, sources, jobs, libraries_only):
                 "--enable-audiotoolbox", "--enable-zlib", "--enable-bzlib", "--enable-iconv"]
         run(args, build, env, work / "ffmpeg.log")
         config = (build / "config.h").read_text()
-        for key in ["CONFIG_GPL", "CONFIG_NONFREE", "CONFIG_VERSION3"]:
-            if f"#define {key} 0" not in config:
+        for key, value in LICENSE_DEFINES.items():
+            if f"#define {key} {value}" not in config:
                 raise RuntimeError(f"Unexpected license configuration: {key}")
         run(["make", f"-j{jobs}"], build, env, work / "ffmpeg.log")
         run(["make", "install"], build, env, work / "ffmpeg.log")
@@ -318,8 +336,8 @@ def build_platform(platform, sources, jobs, libraries_only):
 
     # Validate cached builds too; a completion marker is never a license check.
     config = (work / "ffmpeg/config.h").read_text()
-    for key in ["CONFIG_GPL", "CONFIG_NONFREE", "CONFIG_VERSION3"]:
-        if f"#define {key} 0" not in config:
+    for key, value in LICENSE_DEFINES.items():
+        if f"#define {key} {value}" not in config:
             raise RuntimeError(f"Unexpected license configuration: {key}")
 
     if libraries_only:
@@ -360,12 +378,12 @@ def build_platform(platform, sources, jobs, libraries_only):
             for license_file in source.glob(pattern):
                 if license_file.is_file():
                     shutil.copy2(license_file, destination)
-    shutil.copy2(ROOT / "LICENSE", notices / "MBFFmpegBridge-MIT.txt")
+    shutil.copy2(ROOT / "LICENSE", notices / "MBFFmpegBridge-LICENSE.txt")
     manifest = {"sources": SOURCES, "platform": platform, "target": target,
                 "toolchain": toolchain, "recipe_revision": REVISION,
                 "recipe_sha256": recipe_hash, "patches_sha256": patch_hash, "bridge_sha256": tree_digest(bridge),
                 "sdk_build": sdk_build, "tools": tools,
-                "license": "LGPL-2.1-or-later", "linkage": "dynamic framework; static PIC intermediates"}
+                "license": "GPL-2.0-or-later", "linkage": "dynamic framework; static PIC intermediates"}
     (framework / "BuildManifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"[{platform}] framework ready: {framework}", flush=True)
     return framework

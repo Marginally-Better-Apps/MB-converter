@@ -94,6 +94,26 @@ struct ExtendedVideoFormatTests {
         #expect(abs((output.duration ?? 0) - 1.5) < 0.3)
     }
 
+    /// The reason for the GPL runtime: VideoToolbox can't do two passes, so H.264 target sizes were a guess.
+    @Test func h264TargetSizeLandsOnTargetWithX264TwoPass() async throws {
+        #expect(FFmpegRuntimeInfo.hasEncoder("libx264"), "The bundled runtime must include libx264")
+        let source = try await MediaFixtures.video(seconds: 6, width: 640, height: 360)
+        let media = try await MediaInspector.inspect(url: source)
+        let target: Int64 = 260_000
+        let config = ConversionConfig(outputFormat: .mp4_h264, targetSizeBytes: target)
+        #expect(config.usesTwoPassVideoEncoding)
+        let result = try await VideoConverter().convert(input: media, config: config, progress: { _ in })
+        defer { try? FileManager.default.removeItem(at: result.url) }
+        let error = abs(Double(result.sizeOnDisk - target)) / Double(target)
+        #expect(error < 0.12, "Two-pass output was \(result.sizeOnDisk) bytes for a \(target)-byte target (\(Int(error * 100))% off)")
+        #expect(result.videoCodec?.lowercased().contains("h264") == true || result.videoCodec?.lowercased().contains("avc") == true,
+                "Got \(result.videoCodec ?? "nil")")
+        #expect(abs((result.duration ?? 0) - 6) < 0.5)
+        // No pass statistics are left behind.
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: FileManager.default.temporaryDirectory.path)) ?? []
+        #expect(!leftovers.contains { $0.hasSuffix("-0.log") || $0.hasSuffix(".mbtree") }, "Pass logs left in tmp: \(leftovers.filter { $0.contains(".log") })")
+    }
+
     @Test(arguments: [MediaToolkit.AnimationFormat.gif, .webp])
     func makesAnimations(format: MediaToolkit.AnimationFormat) async throws {
         let source = try await MediaFixtures.video(seconds: 2)
@@ -113,3 +133,4 @@ struct ExtendedVideoFormatTests {
         #expect(arguments.contains("24") && arguments.contains("-frames:v"))
     }
 }
+

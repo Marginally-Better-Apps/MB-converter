@@ -4,7 +4,7 @@
     "archive": "ffmpeg-9.0.1.tar.xz",
     "url": "https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz",
     "sha256": "cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635",
-    "license": "LGPL-2.1-or-later"
+    "license": "GPL-2.0-or-later (built with --enable-gpl for libx264)"
   },
   "lame": {
     "version": "3.100",
@@ -86,5 +86,13 @@
     ],
     "sha256": "ebdf77a8f5c0a8f7a9e42323844fa09502b34eb1d1fece7b5f54da41fe2122ec",
     "license": "BSD-3-Clause"
+  },
+  "x264": {
+    "version": "stable-b35605ac",
+    "archive": "x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.bz2",
+    "url": "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.bz2",
+    "directory": "x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+    "sha256": "6eeb82934e69fd51e043bd8c5b0d152839638d1ce7aa4eea65a3fedcf83ff224",
+    "license": "GPL-2.0-or-later"
   }
 }

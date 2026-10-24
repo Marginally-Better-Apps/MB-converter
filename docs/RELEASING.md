@@ -2,6 +2,12 @@
 
 [Build and run](DEVELOPMENT.md) · [App Store listing copy](app-store-metadata.md) · [Screenshots](app-store-screenshots/README.md)
 
+## License obligations (GPL)
+
+Since 2026-10-24 the app is GPL-3.0-or-later and its FFmpeg runtime is GPL-2.0-or-later (it links x264). Every distributed build must come with the complete corresponding source: this repository at the release commit plus the pinned sources in `Native/*/sources.json`. The release workflow already attaches a source archive and checksums to each GitHub release; keep doing that for any other channel too.
+
+**App Store:** Apple's terms of service add usage restrictions that the FSF considers incompatible with the GPL. In practice this means a copyright holder of GPL code in the app — including the x264 and FFmpeg authors — can ask Apple to remove it (VLC was pulled in 2011 for this reason). Sideloaded/AltStore distribution of the unsigned IPA has no such conflict. Decide per release whether App Store distribution is worth that risk; building without x264 (revert to `--disable-gpl` and drop it from `sources.json`) restores the previous LGPL runtime.
+
 ## Automatic GitHub releases with an IPA
 
 The [Release IPA workflow](../.github/workflows/release.yml) runs on every push to `main`, including merged pull requests. It can also be started from **Actions → Release IPA → Run workflow**, with `main` selected.

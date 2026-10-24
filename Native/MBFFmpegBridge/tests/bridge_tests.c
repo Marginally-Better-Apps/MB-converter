@@ -75,7 +75,9 @@ int main(int argc, char **argv) {
     for (int i = 0; i < COUNT(encoders); ++i) if (!mbf_has_encoder(encoders[i])) fail(encoders[i]);
     if (!mbf_has_decoder("libdav1d") || !mbf_has_muxer("mp3")) fail("required capabilities");
     if (mbf_has_encoder("not_a_codec") || mbf_has_muxer("not_a_muxer")) fail("false capability");
-    if (!strstr(mbf_license(), "2.1") || strstr(mbf_configuration(), "--enable-gpl")) fail("license configuration");
+    // GPL build (libx264); nonfree code must never be linked.
+    if (!strstr(mbf_license(), "GPL version 2 or later") || !strstr(mbf_configuration(), "--enable-gpl") ||
+        strstr(mbf_configuration(), "--enable-nonfree")) fail("license configuration");
 
     const char *extensions[] = {"mp3", "opus", "ogg", "flac"};
     for (int i = 0; i < COUNT(extensions); ++i) {
@@ -156,6 +158,20 @@ int main(int argc, char **argv) {
     path(output, directory, "av1.png");
     const char *av1_decode[] = {"-y", "-i", av1, "-frames:v", "1", "-c:v", "png", output};
     execute(COUNT(av1_decode), av1_decode);
+
+    // libx264 two-pass (GPL build): x264 keeps its own stats file; the result must land near the target bitrate.
+    if (!mbf_has_encoder("libx264")) fail("libx264 encoder");
+    char x264_input[PATH_MAX], x264_log[PATH_MAX];
+    path(x264_input, directory, "rate-source.mp4");
+    path(x264_log, directory, "x264-pass");
+    path(output, directory, "x264-pass1.mp4");
+    const char *x264_pass1[] = {"-y", "-i", x264_input, "-c:v", "libx264", "-b:v", "400k", "-mb-codec-opt:v", "preset=veryfast",
+        "-pass", "1", "-passlogfile", x264_log, "-an", "-f", "mp4", output};
+    execute(COUNT(x264_pass1), x264_pass1);
+    path(output, directory, "x264-pass2.mp4");
+    const char *x264_pass2[] = {"-y", "-i", x264_input, "-c:v", "libx264", "-b:v", "400k", "-mb-codec-opt:v", "preset=veryfast",
+        "-pass", "2", "-passlogfile", x264_log, "-an", "-movflags", "+faststart", "-f", "mp4", output};
+    execute(COUNT(x264_pass2), x264_pass2);
 
     // Encoders added for AV1/AVIF, animated WebP and Theora, plus private option pass-through.
     const char *extra_encoders[] = {"libsvtav1", "libwebp", "libwebp_anim", "libtheora"};
