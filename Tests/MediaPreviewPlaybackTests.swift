@@ -67,7 +67,8 @@ final class MediaPreviewPlaybackTests: XCTestCase {
             try? await Task.sleep(for: .seconds(1))
             return AVPlayerItem(url: preparedURL)
         }
-        for _ in 0..<100 where !startedBuilding { try await Task.sleep(for: .milliseconds(20)) }
+        // Generous on slow CI runners; the test is about ordering, not speed.
+        for _ in 0..<500 where !startedBuilding { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertTrue(startedBuilding)
         playback.stop()
         try await Task.sleep(for: .milliseconds(150))

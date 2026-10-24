@@ -42,6 +42,23 @@ class ConverterUITestCase: XCTestCase {
         return element
     }
 
+    /// Waits for an element while answering system permission prompts the way a user would.
+    /// (iOS asks for notification permission during a first conversion; the app stays inactive,
+    /// and holds its result screen, until the prompt is answered.)
+    @discardableResult
+    func waitAnsweringSystemPrompts(for element: XCUIElement, _ timeout: TimeInterval, _ message: String) -> XCUIElement {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists { return element }
+            let allow = springboard.alerts.buttons["Allow"]
+            if allow.exists { allow.tap() }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(element.exists, message)
+        return element
+    }
+
     func tapTab(_ name: String) {
         let tab = app.tabBars.buttons[name].exists ? app.tabBars.buttons[name] : app.buttons[name].firstMatch
         wait(for: tab, 10, "No \(name) tab").tap()
@@ -222,7 +239,7 @@ final class MediaFlowUITests: ConverterUITestCase {
         convert.tap()
         Thread.sleep(forTimeInterval: 4)
         attach("Converting", app.screenshot())
-        wait(for: app.buttons["media.done"], 120, "Video conversion didn't finish")
+        waitAnsweringSystemPrompts(for: app.buttons["media.done"], 180, "Video conversion didn't finish")
         attach("Video result", app.screenshot())
         app.buttons["media.done"].tap()
         tapTab("History")
