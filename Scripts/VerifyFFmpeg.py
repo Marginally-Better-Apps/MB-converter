@@ -8,7 +8,7 @@ from BuildFFmpeg import digest, tree_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACT = ROOT / "Native/FFmpeg/Artifacts/MBFFmpegBridge.xcframework"
-REQUIRED = ["libmp3lame", "libopus", "libvorbis", "libvpx", "libdav1d", "libzimg", "libwebp", "libsvtav1", "libtheora"]
+REQUIRED = ["libmp3lame", "libopus", "libvorbis", "libvpx", "libdav1d", "libzimg", "libwebp", "libsvtav1", "libtheora", "libx264"]
 
 
 def output(*args):
@@ -34,9 +34,11 @@ def main():
             assert path.startswith(("/System/Library/", "/usr/lib/", "@rpath/MBFFmpegBridge.framework/")), path
         strings = output("strings", str(binary))
         configuration = next(line for line in strings.splitlines() if "--enable-libmp3lame" in line and "--prefix=" in line)
-        for flag in ("gpl", "nonfree", "version3"):
+        # GPL (for libx264) is intended; nonfree and v3-only components must stay out.
+        assert "--enable-gpl" in configuration, configuration
+        for flag in ("nonfree", "version3"):
             assert f"--disable-{flag}" in configuration and f"--enable-{flag}" not in configuration, configuration
-        assert "LGPL version 2.1 or later" in strings, "Unexpected runtime license"
+        assert "GPL version 2 or later" in strings, "Unexpected runtime license"
         assert "nonfree and unredistributable" not in strings, "Nonredistributable runtime"
         for library in REQUIRED:
             assert f"--enable-{library}" in configuration, f"Missing {library}"
@@ -48,13 +50,14 @@ def main():
         assert manifest["recipe_sha256"] == digest(ROOT / "Scripts/BuildFFmpeg.py"), "Stale recipe; rebuild FFmpeg"
         assert manifest["bridge_sha256"] == tree_digest(ROOT / "Native/MBFFmpegBridge"), "Stale adapter; rebuild FFmpeg"
         assert manifest["patches_sha256"] == tree_digest(ROOT / "Native/FFmpeg/patches"), "Stale patches; rebuild FFmpeg"
-        assert manifest["license"] == "LGPL-2.1-or-later"
-        assert (folder / "Licenses/ffmpeg/COPYING.LGPLv2.1").exists()
+        assert manifest["license"] == "GPL-2.0-or-later"
+        assert (folder / "Licenses/ffmpeg/COPYING.GPLv2").exists()
+        assert (folder / "Licenses/x264/COPYING").exists(), "Missing x264 notice"
         assert (folder / "Licenses/zimg/COPYING").exists(), "Missing zimg notice"
         assert manifest.get("patches_sha256"), "Missing decoder hardware policy patch identity"
         for name in ("scale_vt", "transpose_vt", "zscale", "tonemap"):
             assert name in strings.splitlines(), f"Missing video filter: {name}"
-        print(f"Verified {item['LibraryIdentifier']}: dynamic runtime, LGPL2.1, required codecs, Apple system dependencies")
+        print(f"Verified {item['LibraryIdentifier']}: dynamic runtime, GPL2+ (x264), required codecs, Apple system dependencies")
 
 
 if __name__ == "__main__":

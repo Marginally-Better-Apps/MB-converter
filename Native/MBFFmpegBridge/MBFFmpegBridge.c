@@ -506,6 +506,14 @@ static int mbf_pass_options(MBFJob *job, MBFStream *stream) {
     if (!job->options.pass || stream->decoder->codec_type != AVMEDIA_TYPE_VIDEO) return 0;
     char *filename = av_asprintf("%s-0.log", job->options.pass_log);
     if (!filename) return AVERROR(ENOMEM);
+    // x264 reads and writes its own statistics file (and .mbtree) instead of
+    // stats_out/stats_in, so hand it the path and leave the file to it.
+    if (!strcmp(stream->encoder->codec->name, "libx264")) {
+        stream->encoder->flags |= job->options.pass == 1 ? AV_CODEC_FLAG_PASS1 : AV_CODEC_FLAG_PASS2;
+        int error = av_opt_set(stream->encoder->priv_data, "stats", filename, 0);
+        av_free(filename);
+        return error;
+    }
     if (job->options.pass == 1) {
         stream->encoder->flags |= AV_CODEC_FLAG_PASS1;
         stream->pass_file = fopen(filename, "wb");

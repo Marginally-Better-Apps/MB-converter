@@ -37,7 +37,7 @@ def main():
                    "-L", PREFIX / "lib"]
         command += ["-l" + lib for lib in ["avfilter", "avformat", "avcodec", "swresample", "swscale", "avutil",
                                           "mp3lame", "vorbisenc", "vorbis", "theoraenc", "theoradec", "ogg", "opus", "vpx",
-                                          "dav1d", "zimg", "webpmux", "webp", "sharpyuv", "SvtAv1Enc"]]
+                                          "dav1d", "zimg", "webpmux", "webp", "sharpyuv", "SvtAv1Enc", "x264"]]
         for framework in ["AudioToolbox", "VideoToolbox", "CoreMedia", "CoreVideo", "CoreFoundation", "Security"]:
             command += ["-framework", framework]
         command += ["-lz", "-lbz2", "-liconv", "-lm", "-lc++", "-o", executable]
@@ -60,6 +60,9 @@ def main():
             "-c", "copy", directory / "rotated.mp4")
         run(ffmpeg, "-v", "error", "-y", "-i", directory / "input.mp4", "-an", "-frames:v", "2",
             "-c:v", "libaom-av1", "-cpu-used", "8", directory / "av1.mkv")
+        # A busier 6 s clip so the two-pass bitrate check has something to allocate bits across.
+        run(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30", "-t", "6",
+            "-c:v", "libx264", "-crf", "12", "-pix_fmt", "yuv420p", directory / "rate-source.mp4")
         # PNG tagged with the RGB identity matrix (cICP), like iOS screenshots/exports.
         run(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=82x48", "-frames:v", "1",
             "-color_primaries", "bt709", "-color_trc", "iec61966-2-1", "-colorspace", "rgb", directory / "rgb.png")
@@ -116,6 +119,10 @@ def main():
         assert abs(float(encoded["format"]["duration"]) - 1.5) < 0.1
         still = probe("still.avif")
         assert still["streams"][0]["codec_name"] == "av1" and still["streams"][0]["width"] == 160
+        x264 = probe("x264-pass2.mp4")
+        assert x264["streams"][0]["codec_name"] == "h264", x264
+        x264_kbps = int(x264["streams"][0]["bit_rate"]) / 1000
+        assert 340 <= x264_kbps <= 460, f"x264 two-pass missed its 400 kb/s target: {x264_kbps:.0f} kb/s"
         rgb_still = probe("rgb.avif")["streams"][0]
         assert rgb_still["codec_name"] == "av1" and rgb_still.get("color_space") != "gbr", rgb_still
         animated = probe("animated.webp")
