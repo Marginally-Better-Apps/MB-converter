@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import PDFKit
 import UIKit
 
@@ -75,7 +76,7 @@ enum PDFTextReader {
     /// Drops decorations and full-page backgrounds (the picture behind a scanned page's OCR text).
     static func contentImages(_ images: [PDFPageImages.PlacedImage], pageBox: CGRect) -> [PDFPageImages.PlacedImage] {
         images.filter { image in
-            guard let rect = image.rect?.intersection(pageBox), !rect.isNull else { return false }
+            guard let rect = image.shownRect?.intersection(pageBox), !rect.isNull else { return false }
             guard rect.width >= minimumImageSide, rect.height >= minimumImageSide else { return false }
             return rect.width * rect.height < pageBox.width * pageBox.height * 0.85
         }
@@ -85,26 +86,26 @@ enum PDFTextReader {
     static func interleave(lines: [Line], images: [PDFPageImages.PlacedImage], baseSize: CGFloat) -> [Block] {
         let rowTolerance = max(baseSize, 6)
         var pending = images.sorted { first, second in
-            let a = first.rect ?? .zero, b = second.rect ?? .zero
+            let a = first.shownRect ?? .zero, b = second.shownRect ?? .zero
             if abs(a.maxY - b.maxY) < rowTolerance { return a.minX < b.minX }
             return a.maxY > b.maxY
         }
         var blocks: [Block] = []
         var segment: [Line] = []
         func imageBlock(_ image: PDFPageImages.PlacedImage) -> ImageBlock {
-            ImageBlock(data: image.image.data, mimeType: image.image.mimeType, size: image.rect?.size, altText: nil)
+            visibleImageBlock(image)
         }
         /// Takes the next picture plus any others on the same row, as one block.
         func popRow() -> Block {
             let first = pending.removeFirst()
             var row = [first]
-            while let next = pending.first, let a = first.rect, let b = next.rect, abs(a.maxY - b.maxY) < rowTolerance {
+            while let next = pending.first, let a = first.shownRect, let b = next.shownRect, abs(a.maxY - b.maxY) < rowTolerance {
                 row.append(pending.removeFirst())
             }
             return row.count == 1 ? .image(imageBlock(first)) : .imageRow(row.map(imageBlock))
         }
         for line in lines {
-            while let next = pending.first, let rect = next.rect, rect.midY > line.bounds.midY {
+            while let next = pending.first, let rect = next.shownRect, rect.midY > line.bounds.midY {
                 blocks += paragraphs(from: segment, baseSize: baseSize)
                 segment = []
                 blocks.append(popRow())
@@ -114,6 +115,20 @@ enum PDFTextReader {
         blocks += paragraphs(from: segment, baseSize: baseSize)
         while !pending.isEmpty { blocks.append(popRow()) }
         return blocks
+    }
+
+    /// The picture as it appears on the page: cropped to the part clipping leaves visible.
+    static func visibleImageBlock(_ image: PDFPageImages.PlacedImage) -> ImageBlock {
+        let size = image.shownRect?.size
+        guard image.visibleFraction < 0.95, let crop = image.visiblePixelRect,
+              let source = CGImageSourceCreateWithData(image.image.data as CFData, nil),
+              let full = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let cropped = full.cropping(to: crop),
+              let data = PDFRasterizer.encode(cropped, type: image.image.hasAlpha ? .png : .jpeg, quality: 0.92)
+        else {
+            return ImageBlock(data: image.image.data, mimeType: image.image.mimeType, size: size, altText: nil)
+        }
+        return ImageBlock(data: data, mimeType: image.image.hasAlpha ? "image/png" : "image/jpeg", size: size, altText: nil)
     }
 
     struct Line {

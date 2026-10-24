@@ -25,8 +25,33 @@ enum PDFPageImages {
         /// Where the image is painted, in page space (PDF points, origin bottom-left).
         /// `nil` for images that are only reachable through resources (patterns, unused XObjects).
         let rect: CGRect?
+        /// The part of `rect` left visible by clipping paths and the page's crop box.
+        var visibleRect: CGRect?
+        /// The image is drawn upright and unflipped, so `visibleRect` maps straight onto its pixels.
+        var isUpright = false
         let image: DecodedImage
+
+        /// Where the picture can actually be seen on the page.
+        var shownRect: CGRect? { visibleRect ?? rect }
+
+        /// Fraction of the image actually shown on the page (1 = entirely visible).
+        var visibleFraction: CGFloat {
+            guard let rect, let visibleRect, rect.width > 0, rect.height > 0 else { return 1 }
+            return (visibleRect.width * visibleRect.height) / (rect.width * rect.height)
+        }
+
+        /// The visible portion in the image's own pixel space (top-left origin), for upright images.
+        var visiblePixelRect: CGRect? {
+            guard isUpright, let rect, let visibleRect, rect.width > 0, rect.height > 0 else { return nil }
+            let size = image.pixelSize
+            let x = (visibleRect.minX - rect.minX) / rect.width * size.width
+            let y = (rect.maxY - visibleRect.maxY) / rect.height * size.height
+            return CGRect(x: x, y: y, width: visibleRect.width / rect.width * size.width, height: visibleRect.height / rect.height * size.height).integral
+        }
     }
+
+    /// Images clipped down to less than this share of their area are treated as hidden.
+    static let hiddenFraction: CGFloat = 0.02
 
     /// Images in painting order per page. The same image XObject drawn twice on a page is reported once.
     static func images(
@@ -47,12 +72,22 @@ enum PDFPageImages {
         for index in pages ?? Array(0 ..< document.pageCount) {
             guard let page = document.page(at: index)?.pageRef else { continue }
             var seenOnPage: Set<UnsafeRawPointer> = []
+            var hiddenOnPage: Set<UnsafeRawPointer> = []
             for placement in placements(on: page) {
                 let key = identity(placement.stream)
-                guard !seenOnPage.contains(key), let image = autoreleasepool(invoking: { decoded(placement.stream) }) else { continue }
+                guard !seenOnPage.contains(key) else { continue }
+                // Pictures entirely clipped away are junk to the user, not content.
+                let visible = placement.visibleRect
+                let area = placement.rect.width * placement.rect.height
+                if visible.isNull || area <= 0 || visible.width * visible.height < area * hiddenFraction {
+                    hiddenOnPage.insert(key)
+                    continue
+                }
+                guard let image = autoreleasepool(invoking: { decoded(placement.stream) }) else { continue }
                 seenOnPage.insert(key)
-                results.append(PlacedImage(pageIndex: index, rect: placement.rect, image: image))
+                results.append(PlacedImage(pageIndex: index, rect: placement.rect, visibleRect: visible, isUpright: placement.isUpright, image: image))
             }
+            seenOnPage.formUnion(hiddenOnPage)
             guard includeUnplaced, let dictionary = page.dictionary else { continue }
             var resources: CGPDFDictionaryRef?
             guard CGPDFDictionaryGetDictionary(dictionary, "Resources", &resources), let resources else { continue }
@@ -73,28 +108,89 @@ enum PDFPageImages {
 
     struct Placement {
         let rect: CGRect
+        /// `rect` after clipping paths, form bounding boxes and the crop box.
+        let visibleRect: CGRect
+        let isUpright: Bool
         let stream: CGPDFStreamRef
     }
 
     private final class ScanState {
         var ctm: CGAffineTransform = .identity
-        var stack: [CGAffineTransform] = []
+        /// Bounding box of the current clip (conservative: curves use their control points).
+        var clip: CGRect = .infinite
+        var stack: [(CGAffineTransform, CGRect)] = []
+        var path: CGRect = .null
+        var pendingClip = false
         var placements: [Placement] = []
         var formPath: [UnsafeRawPointer] = []
+
+        func addPoint(_ x: CGFloat, _ y: CGFloat) {
+            let point = CGPoint(x: x, y: y).applying(ctm)
+            path = path.union(CGRect(origin: point, size: .zero))
+        }
+
+        /// A painting operator ends the path; a preceding W/W* makes it the new clip.
+        func endPath() {
+            if pendingClip { clip = path.isNull ? .null : clip.intersection(path) }
+            pendingClip = false
+            path = .null
+        }
+    }
+
+    private static func state(_ info: UnsafeMutableRawPointer?) -> ScanState? {
+        info.map { Unmanaged<ScanState>.fromOpaque($0).takeUnretainedValue() }
+    }
+
+    private static func pop(_ count: Int, from scanner: CGPDFScannerRef) -> [CGFloat]? {
+        var values = [CGPDFReal](repeating: 0, count: count)
+        for index in stride(from: count - 1, through: 0, by: -1) {
+            guard CGPDFScannerPopNumber(scanner, &values[index]) else { return nil }
+        }
+        return values
     }
 
     private static let operatorTable: CGPDFOperatorTableRef = {
         let table = CGPDFOperatorTableCreate()!
         CGPDFOperatorTableSetCallback(table, "q") { _, info in
-            guard let state = info.map({ Unmanaged<ScanState>.fromOpaque($0).takeUnretainedValue() }) else { return }
-            state.stack.append(state.ctm)
+            guard let state = state(info) else { return }
+            state.stack.append((state.ctm, state.clip))
         }
         CGPDFOperatorTableSetCallback(table, "Q") { _, info in
-            guard let state = info.map({ Unmanaged<ScanState>.fromOpaque($0).takeUnretainedValue() }) else { return }
-            if let last = state.stack.popLast() { state.ctm = last }
+            guard let state = state(info) else { return }
+            if let last = state.stack.popLast() { (state.ctm, state.clip) = last }
+        }
+        // Path construction, for clip bounds.
+        CGPDFOperatorTableSetCallback(table, "m") { scanner, info in
+            guard let state = state(info), let v = pop(2, from: scanner) else { return }
+            state.addPoint(v[0], v[1])
+        }
+        CGPDFOperatorTableSetCallback(table, "l") { scanner, info in
+            guard let state = state(info), let v = pop(2, from: scanner) else { return }
+            state.addPoint(v[0], v[1])
+        }
+        CGPDFOperatorTableSetCallback(table, "c") { scanner, info in
+            guard let state = state(info), let v = pop(6, from: scanner) else { return }
+            state.addPoint(v[0], v[1]); state.addPoint(v[2], v[3]); state.addPoint(v[4], v[5])
+        }
+        for name in ["v", "y"] {
+            CGPDFOperatorTableSetCallback(table, name) { scanner, info in
+                guard let state = state(info), let v = pop(4, from: scanner) else { return }
+                state.addPoint(v[0], v[1]); state.addPoint(v[2], v[3])
+            }
+        }
+        CGPDFOperatorTableSetCallback(table, "re") { scanner, info in
+            guard let state = state(info), let v = pop(4, from: scanner) else { return }
+            state.addPoint(v[0], v[1]); state.addPoint(v[0] + v[2], v[1] + v[3])
+            state.addPoint(v[0] + v[2], v[1]); state.addPoint(v[0], v[1] + v[3])
+        }
+        for name in ["W", "W*"] {
+            CGPDFOperatorTableSetCallback(table, name) { _, info in state(info)?.pendingClip = true }
+        }
+        for name in ["n", "f", "F", "f*", "S", "s", "B", "B*", "b", "b*"] {
+            CGPDFOperatorTableSetCallback(table, name) { _, info in state(info)?.endPath() }
         }
         CGPDFOperatorTableSetCallback(table, "cm") { scanner, info in
-            guard let state = info.map({ Unmanaged<ScanState>.fromOpaque($0).takeUnretainedValue() }) else { return }
+            guard let state = state(info) else { return }
             var values = [CGPDFReal](repeating: 0, count: 6)
             for index in stride(from: 5, through: 0, by: -1) {
                 guard CGPDFScannerPopNumber(scanner, &values[index]) else { return }
@@ -103,7 +199,7 @@ enum PDFPageImages {
             state.ctm = matrix.concatenating(state.ctm)
         }
         CGPDFOperatorTableSetCallback(table, "Do") { scanner, info in
-            guard let state = info.map({ Unmanaged<ScanState>.fromOpaque($0).takeUnretainedValue() }) else { return }
+            guard let state = state(info) else { return }
             var name: UnsafePointer<Int8>?
             guard CGPDFScannerPopName(scanner, &name), let name,
                   let object = CGPDFContentStreamGetResource(CGPDFScannerGetContentStream(scanner), "XObject", name)
@@ -116,8 +212,10 @@ enum PDFPageImages {
             case "Image":
                 var stencil: CGPDFBoolean = 0
                 if CGPDFDictionaryGetBoolean(dictionary, "ImageMask", &stencil), stencil != 0 { return }
-                let rect = CGRect(x: 0, y: 0, width: 1, height: 1).applying(state.ctm)
-                state.placements.append(Placement(rect: rect.standardized, stream: stream))
+                let rect = CGRect(x: 0, y: 0, width: 1, height: 1).applying(state.ctm).standardized
+                let ctm = state.ctm
+                let upright = abs(ctm.b) < 1e-6 && abs(ctm.c) < 1e-6 && ctm.a > 0 && ctm.d > 0
+                state.placements.append(Placement(rect: rect, visibleRect: rect.intersection(state.clip), isUpright: upright, stream: stream))
             case "Form":
                 let key = identity(stream)
                 guard state.formPath.count < 12, !state.formPath.contains(key) else { return }
@@ -132,16 +230,23 @@ enum PDFPageImages {
                 CGPDFDictionaryGetDictionary(dictionary, "Resources", &resources)
                 let parent = CGPDFScannerGetContentStream(scanner)
                 let content = CGPDFContentStreamCreateWithStream(stream, resources ?? dictionary, parent)
-                let saved = (state.ctm, state.stack)
+                let saved = (state.ctm, state.stack, state.clip)
                 state.ctm = matrix.concatenating(state.ctm)
                 state.stack = []
+                // A form only shows what falls inside its bounding box.
+                if CGPDFDictionaryGetArray(dictionary, "BBox", &array), let array, CGPDFArrayGetCount(array) == 4 {
+                    var box = [CGPDFReal](repeating: 0, count: 4)
+                    for index in 0 ..< 4 { CGPDFArrayGetNumber(array, index, &box[index]) }
+                    let bounds = CGRect(x: min(box[0], box[2]), y: min(box[1], box[3]), width: abs(box[2] - box[0]), height: abs(box[3] - box[1]))
+                    state.clip = state.clip.intersection(bounds.applying(state.ctm))
+                }
                 state.formPath.append(key)
                 let nested = CGPDFScannerCreate(content, operatorTable, info)
                 CGPDFScannerScan(nested)
                 CGPDFScannerRelease(nested)
                 CGPDFContentStreamRelease(content)
                 state.formPath.removeLast()
-                (state.ctm, state.stack) = saved
+                (state.ctm, state.stack, state.clip) = saved
             default:
                 break
             }
@@ -151,6 +256,7 @@ enum PDFPageImages {
 
     static func placements(on page: CGPDFPage) -> [Placement] {
         let state = ScanState()
+        state.clip = page.getBoxRect(.cropBox)
         let content = CGPDFContentStreamCreateWithPage(page)
         let scanner = CGPDFScannerCreate(content, operatorTable, Unmanaged.passUnretained(state).toOpaque())
         CGPDFScannerScan(scanner)
