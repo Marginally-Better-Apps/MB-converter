@@ -36,7 +36,8 @@ def main():
                    ROOT / "Native/MBFFmpegBridge/MBFFmpegBridge.c", Path(__file__).with_name("bridge_tests.c"),
                    "-L", PREFIX / "lib"]
         command += ["-l" + lib for lib in ["avfilter", "avformat", "avcodec", "swresample", "swscale", "avutil",
-                                          "mp3lame", "vorbisenc", "vorbis", "ogg", "opus", "vpx", "dav1d", "zimg"]]
+                                          "mp3lame", "vorbisenc", "vorbis", "theoraenc", "theoradec", "ogg", "opus", "vpx",
+                                          "dav1d", "zimg", "webpmux", "webp", "sharpyuv", "SvtAv1Enc"]]
         for framework in ["AudioToolbox", "VideoToolbox", "CoreMedia", "CoreVideo", "CoreFoundation", "Security"]:
             command += ["-framework", framework]
         command += ["-lz", "-lbz2", "-liconv", "-lm", "-lc++", "-o", executable]
@@ -59,6 +60,9 @@ def main():
             "-c", "copy", directory / "rotated.mp4")
         run(ffmpeg, "-v", "error", "-y", "-i", directory / "input.mp4", "-an", "-frames:v", "2",
             "-c:v", "libaom-av1", "-cpu-used", "8", directory / "av1.mkv")
+        # PNG tagged with the RGB identity matrix (cICP), like iOS screenshots/exports.
+        run(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=82x48", "-frames:v", "1",
+            "-color_primaries", "bt709", "-color_trc", "iec61966-2-1", "-colorspace", "rgb", directory / "rgb.png")
         input_digest = hashlib.sha256((directory / "input.mp4").read_bytes()).digest()
         run(executable, directory)
         run(directory / "vp9_tests", directory / "input.mp4", directory / "vp9-threading.webm")
@@ -107,6 +111,18 @@ def main():
         assert probe("seek.png")["streams"][0]["codec_name"] == "png"
         assert (directory / "seek.png").read_bytes() == (directory / "seek-reference.png").read_bytes(), "Seeking must return the requested frame"
         assert probe("concurrent.mp3")["streams"][0]["codec_name"] == "mp3"
+        encoded = probe("av1-encoded.mp4")
+        assert [stream["codec_name"] for stream in encoded["streams"]] == ["av1", "aac"]
+        assert abs(float(encoded["format"]["duration"]) - 1.5) < 0.1
+        still = probe("still.avif")
+        assert still["streams"][0]["codec_name"] == "av1" and still["streams"][0]["width"] == 160
+        rgb_still = probe("rgb.avif")["streams"][0]
+        assert rgb_still["codec_name"] == "av1" and rgb_still.get("color_space") != "gbr", rgb_still
+        animated = probe("animated.webp")
+        assert animated["streams"][0]["codec_name"] == "webp_anim", "WebP output must be animated"
+        assert (directory / "animated.webp").read_bytes()[12:16] == b"VP8X", "Animated WebP must use the extended container"
+        ogv = probe("theora.ogv")
+        assert [stream["codec_name"] for stream in ogv["streams"]] == ["theora", "vorbis"]
         if os.environ.get("MBF_TEST_VIDEOTOOLBOX"):
             assert probe("h264.mp4")["streams"][0]["codec_name"] == "h264"
             assert probe("hevc.mp4")["streams"][0]["codec_tag_string"] == "hvc1"

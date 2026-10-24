@@ -302,7 +302,7 @@ enum BitrateCalculator {
         switch format {
         case .mp4_hevc:
             hevcMinVideoBitsPerPixelPerFrame
-        case .webm:
+        case .webm, .mp4_av1:
             av1LikeMinVideoBitsPerPixelPerFrame
         default:
             h264MinVideoBitsPerPixelPerFrame
@@ -313,7 +313,7 @@ enum BitrateCalculator {
         switch format {
         case .mp4_hevc:
             0.10
-        case .webm:
+        case .webm, .mp4_av1:
             0.075
         default:
             0.14

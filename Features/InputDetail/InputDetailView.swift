@@ -193,6 +193,8 @@ struct InputDetailView: View {
                     }
                     .accessibilityLabel("Back to main page")
                 }
+
+                ToolbarItem(placement: .topBarTrailing) { moreToolsMenu }
             }
         }
         .background(
@@ -645,6 +647,7 @@ struct InputDetailView: View {
         } label: {
             PrimaryActionLabel(title: "Convert", systemImage: "arrow.triangle.2.circlepath")
         }
+        .accessibilityIdentifier("media.convert")
         .glassButtonStyle(prominent: true)
         .buttonBorderShape(.capsule)
         .controlSize(.large)
@@ -657,6 +660,32 @@ struct InputDetailView: View {
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 6)
+    }
+
+    /// Hands this file to the tools layer (remove background, make a GIF, image to PDF…).
+    @ViewBuilder
+    private var moreToolsMenu: some View {
+        let media = viewModel.media
+        if let format = FileFormat(url: media.url) ?? FileFormat(fileExtension: media.containerFormat) {
+            let tools = ToolCatalog.tools(accepting: format).filter { !$0.opensMediaConverter }
+            if !tools.isEmpty {
+                Menu {
+                    ForEach(tools.prefix(14)) { tool in
+                        Button {
+                            if let input = try? ToolInputFile(url: media.url, displayName: media.originalFilename, format: format) {
+                                path.append(.tool(tool.id, inputs: [input]))
+                            }
+                        } label: {
+                            Label(tool.title, systemImage: tool.symbol)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "wand.and.stars")
+                        .foregroundStyle(Theme.tint)
+                }
+                .accessibilityLabel("More tools for this file")
+            }
+        }
     }
 
     private func handleConvertTap(viewModel: OutputConfigViewModel) {

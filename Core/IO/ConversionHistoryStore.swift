@@ -48,12 +48,40 @@ final class ConversionHistoryStore {
     }
 
     private(set) var entries: [ConversionHistoryEntry] = [] {
-        didSet { totalStorageBytes = Self.computeTotalBytes(from: entries) }
+        didSet { recomputeTotals() }
+    }
+
+    /// Finished tool runs (PDF, document, image and utility tools).
+    private(set) var toolEntries: [ToolHistoryEntry] = [] {
+        didSet { recomputeTotals() }
+    }
+
+    /// Conversions and tool runs together, newest first.
+    var items: [HistoryItem] {
+        (entries.map(HistoryItem.conversion) + toolEntries.map(HistoryItem.tool)).sorted { $0.createdAt > $1.createdAt }
     }
 
     private(set) var totalStorageBytes: Int64 = 0
     private var persistedEntries: [ConversionHistoryEntry] = []
     private var sessionEntries: [ConversionHistoryEntry] = []
+    private var persistedToolEntries: [ToolHistoryEntry] = []
+    private var sessionToolEntries: [ToolHistoryEntry] = []
+
+    private var toolsDirectory: URL {
+        rootDirectory.appendingPathComponent("tools", isDirectory: true)
+    }
+
+    private var sessionToolsDirectory: URL {
+        Self.sessionRootDirectory.appendingPathComponent("tools", isDirectory: true)
+    }
+
+    private var toolIndexURL: URL {
+        rootDirectory.appendingPathComponent("tools.json", isDirectory: false)
+    }
+
+    private func recomputeTotals() {
+        totalStorageBytes = Self.computeTotalBytes(from: entries) + toolEntries.reduce(0) { $0 + $1.totalBytes }
+    }
 
     private init() {
         do {
@@ -62,6 +90,7 @@ final class ConversionHistoryStore {
             DiagnosticsLog.shared.record(error: error, context: "Create saved history directory")
         }
         reloadFromDisk()
+        reloadToolsFromDisk()
         refreshForCurrentSettings()
     }
 
@@ -75,9 +104,9 @@ final class ConversionHistoryStore {
 
     var storageSummaryDescription: String {
         if isEnabled {
-            return "New conversions are copied to this device and stay in History until you delete them."
+            return "Conversions and tool results are copied to this device and stay in History until you delete them."
         }
-        return "New conversions are kept for this app session only. They are removed after you quit and reopen the app."
+        return "Conversions and tool results are kept for this app session only. They are removed after you quit and reopen the app."
     }
 
     static func cleanSessionHistory() {
@@ -86,12 +115,14 @@ final class ConversionHistoryStore {
 
     func refreshForCurrentSettings() {
         entries = isEnabled ? persistedEntries : sessionEntries
+        toolEntries = isEnabled ? persistedToolEntries : sessionToolEntries
     }
 
     /// Copies the current session's history into durable storage before saved history is enabled.
     /// Returns `false` without changing the session if any result cannot be copied or indexed.
     @discardableResult
     func persistSessionHistory() -> Bool {
+        guard persistSessionToolHistory() else { return false }
         guard !sessionEntries.isEmpty else { return true }
 
         do {
@@ -177,6 +208,11 @@ final class ConversionHistoryStore {
         }
         persistedEntries = []
         persistIndex()
+        for entry in persistedToolEntries {
+            try? fileManager.removeItem(at: entry.folder)
+        }
+        persistedToolEntries = []
+        persistToolIndex()
     }
 
     /// Records a successful conversion, either persistently or for the current app session.
@@ -247,6 +283,11 @@ final class ConversionHistoryStore {
     }
 
     func removeEntry(id: UUID) {
+        if toolEntries.contains(where: { $0.id == id }) {
+            removeToolEntry(id: id)
+            refreshForCurrentSettings()
+            return
+        }
         if isEnabled {
             removePersistedEntry(id: id)
         } else {
@@ -262,13 +303,161 @@ final class ConversionHistoryStore {
             }
             persistedEntries = []
             persistIndex()
+            for entry in persistedToolEntries {
+                try? fileManager.removeItem(at: entry.folder)
+            }
+            persistedToolEntries = []
+            persistToolIndex()
         } else {
             for entry in sessionEntries {
                 try? fileManager.removeItem(at: entry.result.url)
             }
             sessionEntries = []
+            for entry in sessionToolEntries {
+                try? fileManager.removeItem(at: entry.folder)
+            }
+            sessionToolEntries = []
         }
         refreshForCurrentSettings()
+    }
+
+    // MARK: Tool runs
+
+    /// Copies a finished tool run's outputs into history (saved or session-only, like conversions).
+    /// The entry shares the run's ID so later renames on the result screen can follow it.
+    func record(_ run: ToolRun, title: String) {
+        let sources = run.output.files.map(\.url).filter { fileManager.fileExists(atPath: $0.path) }
+        guard !sources.isEmpty || run.output.text?.nilIfBlank != nil else { return }
+        guard !toolEntries.contains(where: { $0.id == run.id }) else { return }
+        let savesPersistently = isEnabled
+        let folder = (savesPersistently ? toolsDirectory : sessionToolsDirectory)
+            .appendingPathComponent(run.id.uuidString, isDirectory: true)
+        var copies: [URL] = []
+        do {
+            try? fileManager.removeItem(at: folder)
+            try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+            for source in sources {
+                let destination = ToolStorage.uniqueURL(in: folder, baseName: source.deletingPathExtension().lastPathComponent, ext: source.pathExtension)
+                // APFS clones the file, so this costs no extra space until either copy changes.
+                try fileManager.copyItem(at: source, to: destination)
+                copies.append(destination)
+            }
+        } catch {
+            try? fileManager.removeItem(at: folder)
+            DiagnosticsLog.shared.record(error: error, context: "Record tool run in history", metadata: ["Tool": run.toolID.rawValue])
+            return
+        }
+        let entry = ToolHistoryEntry(
+            id: run.id,
+            createdAt: Date(),
+            toolID: run.toolID,
+            title: title,
+            inputNames: run.inputs.map(\.displayName),
+            files: copies,
+            summary: run.output.summary,
+            text: run.output.text
+        )
+        if savesPersistently {
+            persistedToolEntries.insert(entry, at: 0)
+            persistToolIndex()
+        } else {
+            sessionToolEntries.insert(entry, at: 0)
+        }
+        refreshForCurrentSettings()
+    }
+
+    func toolEntry(withId id: UUID) -> ToolHistoryEntry? {
+        toolEntries.first { $0.id == id }
+    }
+
+    /// Keeps history in step when a result file is renamed on the result screen.
+    func renameToolOutput(runID: UUID, from oldName: String, to newName: String) {
+        func rename(_ list: inout [ToolHistoryEntry]) -> Bool {
+            guard let index = list.firstIndex(where: { $0.id == runID }),
+                  let fileIndex = list[index].files.firstIndex(where: { $0.lastPathComponent == oldName })
+            else { return false }
+            let current = list[index].files[fileIndex]
+            let target = list[index].folder.appendingPathComponent(newName)
+            if current != target, fileManager.fileExists(atPath: current.path), !fileManager.fileExists(atPath: target.path) {
+                do { try fileManager.moveItem(at: current, to: target) } catch { return false }
+            }
+            guard fileManager.fileExists(atPath: target.path) else { return false }
+            list[index].files[fileIndex] = target
+            return true
+        }
+        if rename(&persistedToolEntries) { persistToolIndex() } else { _ = rename(&sessionToolEntries) }
+        refreshForCurrentSettings()
+    }
+
+    private func removeToolEntry(id: UUID) {
+        if let index = persistedToolEntries.firstIndex(where: { $0.id == id }) {
+            try? fileManager.removeItem(at: persistedToolEntries[index].folder)
+            persistedToolEntries.remove(at: index)
+            persistToolIndex()
+        } else if let index = sessionToolEntries.firstIndex(where: { $0.id == id }) {
+            try? fileManager.removeItem(at: sessionToolEntries[index].folder)
+            sessionToolEntries.remove(at: index)
+        }
+    }
+
+    /// Moves this session's tool runs into saved history. All-or-nothing.
+    private func persistSessionToolHistory() -> Bool {
+        guard !sessionToolEntries.isEmpty else { return true }
+        var promoted: [ToolHistoryEntry] = []
+        do {
+            try fileManager.createDirectory(at: toolsDirectory, withIntermediateDirectories: true)
+            for entry in sessionToolEntries {
+                let destination = toolsDirectory.appendingPathComponent(entry.id.uuidString, isDirectory: true)
+                try? fileManager.removeItem(at: destination)
+                try fileManager.copyItem(at: entry.folder, to: destination)
+                var moved = entry
+                moved.files = entry.files.map { destination.appendingPathComponent($0.lastPathComponent) }
+                promoted.append(moved)
+            }
+        } catch {
+            for entry in promoted { try? fileManager.removeItem(at: entry.folder) }
+            DiagnosticsLog.shared.record(error: error, context: "Enable saved tool history")
+            return false
+        }
+        let previous = persistedToolEntries
+        persistedToolEntries = (persistedToolEntries + promoted).sorted { $0.createdAt > $1.createdAt }
+        guard persistToolIndex() else {
+            persistedToolEntries = previous
+            for entry in promoted { try? fileManager.removeItem(at: entry.folder) }
+            return false
+        }
+        for entry in sessionToolEntries { try? fileManager.removeItem(at: entry.folder) }
+        sessionToolEntries = []
+        return true
+    }
+
+    @discardableResult
+    private func persistToolIndex() -> Bool {
+        let records = persistedToolEntries.map(PersistedToolEntry.init)
+        do {
+            try fileManager.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+            try JSONEncoder().encode(records).write(to: toolIndexURL, options: .atomic)
+            return true
+        } catch {
+            DiagnosticsLog.shared.record(error: error, context: "Write saved tool history index", metadata: ["Entry count": String(records.count)])
+            return false
+        }
+    }
+
+    private func reloadToolsFromDisk() {
+        guard let data = try? Data(contentsOf: toolIndexURL) else {
+            persistedToolEntries = []
+            return
+        }
+        do {
+            let records = try JSONDecoder().decode([PersistedToolEntry].self, from: data)
+            let loaded = records.compactMap { $0.entry(in: toolsDirectory) }
+            persistedToolEntries = loaded
+            if loaded.count != records.count { persistToolIndex() }
+        } catch {
+            DiagnosticsLog.shared.record(error: error, context: "Load saved tool history index")
+            persistedToolEntries = []
+        }
     }
 
     private func removePersistedEntry(id: UUID) {
@@ -360,6 +549,83 @@ private extension ConversionResult {
 }
 
 // MARK: - Runtime model
+
+/// One row in History: a media conversion or a tool run.
+enum HistoryItem: Identifiable, Hashable {
+    case conversion(ConversionHistoryEntry)
+    case tool(ToolHistoryEntry)
+
+    var id: UUID {
+        switch self {
+        case .conversion(let entry): entry.id
+        case .tool(let entry): entry.id
+        }
+    }
+
+    var createdAt: Date {
+        switch self {
+        case .conversion(let entry): entry.createdAt
+        case .tool(let entry): entry.createdAt
+        }
+    }
+}
+
+struct ToolHistoryEntry: Identifiable, Hashable {
+    let id: UUID
+    let createdAt: Date
+    let toolID: ToolID
+    let title: String
+    let inputNames: [String]
+    var files: [URL]
+    let summary: String?
+    let text: String?
+
+    /// Every output lives in its own folder named after the entry.
+    var folder: URL {
+        files.first?.deletingLastPathComponent()
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("MBConverter/SessionHistory/tools/\(id.uuidString)", isDirectory: true)
+    }
+
+    var totalBytes: Int64 {
+        files.reduce(0) { total, url in
+            total + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
+        }
+    }
+
+    /// Reopens the result screen for this entry.
+    var run: ToolRun {
+        ToolRun(id: id, toolID: toolID, inputs: [], output: ToolOutput(files: files, summary: summary, text: text), fromHistory: true)
+    }
+}
+
+private struct PersistedToolEntry: Codable {
+    var id: UUID
+    var createdAt: Date
+    var toolID: String
+    var title: String
+    var inputNames: [String]
+    var fileNames: [String]
+    var summary: String?
+    var text: String?
+
+    init(_ entry: ToolHistoryEntry) {
+        id = entry.id
+        createdAt = entry.createdAt
+        toolID = entry.toolID.rawValue
+        title = entry.title
+        inputNames = entry.inputNames
+        fileNames = entry.files.map(\.lastPathComponent)
+        summary = entry.summary
+        text = entry.text
+    }
+
+    func entry(in directory: URL) -> ToolHistoryEntry? {
+        let folder = directory.appendingPathComponent(id.uuidString, isDirectory: true)
+        let files = fileNames.map { folder.appendingPathComponent($0) }.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !files.isEmpty || text?.nilIfBlank != nil else { return nil }
+        return ToolHistoryEntry(id: id, createdAt: createdAt, toolID: ToolID(rawValue: toolID), title: title, inputNames: inputNames, files: files, summary: summary, text: text)
+    }
+}
 
 struct ConversionHistoryEntry: Identifiable, Hashable {
     let id: UUID

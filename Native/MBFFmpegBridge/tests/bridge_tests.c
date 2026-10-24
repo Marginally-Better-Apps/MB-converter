@@ -157,6 +157,40 @@ int main(int argc, char **argv) {
     const char *av1_decode[] = {"-y", "-i", av1, "-frames:v", "1", "-c:v", "png", output};
     execute(COUNT(av1_decode), av1_decode);
 
+    // Encoders added for AV1/AVIF, animated WebP and Theora, plus private option pass-through.
+    const char *extra_encoders[] = {"libsvtav1", "libwebp", "libwebp_anim", "libtheora"};
+    for (int i = 0; i < COUNT(extra_encoders); ++i) if (!mbf_has_encoder(extra_encoders[i])) fail(extra_encoders[i]);
+    if (!mbf_has_muxer("webp") || !mbf_has_muxer("avif") || !mbf_has_muxer("ogg")) fail("extra muxers");
+    path(output, directory, "av1-encoded.mp4");
+    const char *av1_encode[] = {"-y", "-i", input, "-c:v", "libsvtav1", "-b:v", "300k", "-mb-codec-opt:v", "preset=12",
+        "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", output};
+    execute(COUNT(av1_encode), av1_encode);
+    path(output, directory, "still.avif");
+    const char *avif[] = {"-y", "-i", input, "-an", "-frames:v", "1", "-c:v", "libsvtav1", "-mb-codec-opt:v", "preset=10",
+        "-f", "avif", output};
+    execute(COUNT(avif), avif);
+    char rgb_png[PATH_MAX], rgb_avif[PATH_MAX];
+    path(rgb_png, directory, "rgb.png");
+    path(rgb_avif, directory, "rgb.avif");
+    const char *rgb_to_avif[] = {"-y", "-i", rgb_png, "-frames:v", "1", "-c:v", "libsvtav1", "-pix_fmt", "yuv420p",
+        "-mb-codec-opt:v", "crf=40", "-f", "avif", rgb_avif};
+    execute(COUNT(rgb_to_avif), rgb_to_avif);
+    path(output, directory, "animated.webp");
+    const char *webp[] = {"-y", "-i", input, "-an", "-c:v", "libwebp_anim", "-mb-codec-opt:v", "quality=70",
+        "-mb-muxer-opt", "loop=0", "-f", "webp", output};
+    execute(COUNT(webp), webp);
+    path(output, directory, "theora.ogv");
+    const char *theora[] = {"-y", "-i", input, "-c:v", "libtheora", "-b:v", "400k", "-c:a", "libvorbis", "-b:a", "96k",
+        "-f", "ogg", output};
+    execute(COUNT(theora), theora);
+    path(output, directory, "rejected.mp4");
+    const char *unknown_codec_option[] = {"-y", "-i", input, "-an", "-c:v", "libsvtav1", "-mb-codec-opt:v", "not_an_option=1", output};
+    if (mbf_execute(COUNT(unknown_codec_option), unknown_codec_option, NULL, NULL, NULL, NULL) >= 0) fail("unknown encoder option accepted");
+    const char *unknown_muxer_option[] = {"-y", "-i", input, "-an", "-c:v", "libsvtav1", "-mb-muxer-opt", "not_an_option=1", output};
+    if (mbf_execute(COUNT(unknown_muxer_option), unknown_muxer_option, NULL, NULL, NULL, NULL) >= 0) fail("unknown muxer option accepted");
+    const char *malformed_option[] = {"-y", "-i", input, "-an", "-mb-codec-opt:v", "missing-equals", output};
+    if (mbf_execute(COUNT(malformed_option), malformed_option, NULL, NULL, NULL, NULL) >= 0) fail("malformed option accepted");
+
     path(output, directory, "invalid-output.png");
 
     TestContext pre_cancel = {.pre_cancel = 1};
@@ -187,6 +221,6 @@ int main(int argc, char **argv) {
             execute(COUNT(command), command);
         }
     }
-    printf("PASS: repeated native jobs, audio roundtrips, two-pass VP9, metadata, seek, orientation, AV1, cancellation and concurrency (%s)\n", mbf_version());
+    printf("PASS: repeated native jobs, audio roundtrips, two-pass VP9, metadata, seek, orientation, AV1 decode/encode, AVIF, animated WebP, Theora, option pass-through, cancellation and concurrency (%s)\n", mbf_version());
     return 0;
 }

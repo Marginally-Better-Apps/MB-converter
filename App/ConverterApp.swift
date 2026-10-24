@@ -7,11 +7,15 @@ struct ConverterApp: App {
 
 
     init() {
+        #if DEBUG
+        DebugLaunchRouter.prepareState()
+        #endif
         ConversionNotifications.shared.install()
         DiagnosticsLog.shared.beginSession()
         FFmpegRuntimeInfo.logSummary()
         TempStorage.cleanAll()
         ImportStorage.cleanAll()
+        ToolStorage.cleanAll()
         ConversionHistoryStore.cleanSessionHistory()
     }
 
@@ -29,10 +33,34 @@ enum AppRoute: Hashable {
     case inputDetail(MediaFile)
     case processing(MediaFile, ConversionConfig)
     case result(MediaFile, ConversionConfig, ConversionResult, fromHistory: Bool)
+    case category(ToolCategory)
+    case allTools
+    case tool(ToolID, inputs: [ToolInputFile], preset: [String: String] = [:])
+    case toolResult(ToolRun)
+    case fileHub(ToolInputFile)
+}
+
+/// A finished tool run, shown on the result screen.
+struct ToolRun: Hashable {
+    let id: UUID
+    let toolID: ToolID
+    let inputs: [ToolInputFile]
+    let output: ToolOutput
+    /// Reopened from History rather than just finished.
+    var fromHistory = false
+
+    init(id: UUID = UUID(), toolID: ToolID, inputs: [ToolInputFile], output: ToolOutput, fromHistory: Bool = false) {
+        self.id = id
+        self.toolID = toolID
+        self.inputs = inputs
+        self.output = output
+        self.fromHistory = fromHistory
+    }
 }
 
 enum RootSection: String, CaseIterable, Identifiable, Hashable {
     case convert
+    case tools
     case history
 
     var id: Self { self }
@@ -40,6 +68,7 @@ enum RootSection: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .convert: "Convert"
+        case .tools: "Tools"
         case .history: "History"
         }
     }
@@ -47,6 +76,7 @@ enum RootSection: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .convert: "arrow.triangle.2.circlepath"
+        case .tools: "square.grid.2x2"
         case .history: "clock.arrow.circlepath"
         }
     }
@@ -74,6 +104,7 @@ struct ConverterRootView: View {
 
     @State private var convertPath: [AppRoute] = []
     @State private var historyPath: [AppRoute] = []
+    @State private var toolsPath: [AppRoute] = []
     @State private var selectedSection: RootSection = .convert
     @AppStorage("appColorMode") private var appColorModeRawValue = AppColorMode.system.rawValue
 
@@ -85,6 +116,17 @@ struct ConverterRootView: View {
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
+            #if DEBUG
+            .task {
+                DebugLaunchRouter.apply(selectTab: { selectedSection = $0 }) { route in
+                    switch selectedSection {
+                    case .convert: convertPath.append(route)
+                    case .tools: toolsPath.append(route)
+                    case .history: historyPath.append(route)
+                    }
+                }
+            }
+            #endif
             .onReceive(NotificationCenter.default.publisher(for: .conversionWarningOpened)) { notification in
                 guard let id = notification.object as? UUID, id == session.attemptID,
                       let input = session.input, let config = session.config else { return }
@@ -108,6 +150,9 @@ struct ConverterRootView: View {
                 Tab(RootSection.convert.title, systemImage: RootSection.convert.systemImage, value: RootSection.convert) {
                     convertStack
                 }
+                Tab(RootSection.tools.title, systemImage: RootSection.tools.systemImage, value: RootSection.tools) {
+                    toolsStack
+                }
                 Tab(RootSection.history.title, systemImage: RootSection.history.systemImage, value: RootSection.history) {
                     historyStack
                 }
@@ -119,6 +164,9 @@ struct ConverterRootView: View {
                 convertStack
                     .tabItem { Label(RootSection.convert.title, systemImage: RootSection.convert.systemImage) }
                     .tag(RootSection.convert)
+                toolsStack
+                    .tabItem { Label(RootSection.tools.title, systemImage: RootSection.tools.systemImage) }
+                    .tag(RootSection.tools)
                 historyStack
                     .tabItem { Label(RootSection.history.title, systemImage: RootSection.history.systemImage) }
                     .tag(RootSection.history)
@@ -149,12 +197,25 @@ struct ConverterRootView: View {
         NavigationStack(path: $convertPath) {
             HomeView(path: $convertPath, onShowHistory: {
                 sectionSelection.wrappedValue = .history
+            }, onShowTools: {
+                sectionSelection.wrappedValue = .tools
             })
             .navigationDestination(for: AppRoute.self) { route in
                 destination(for: route, path: $convertPath) {
                     showConvertRoot()
                 }
             }
+        }
+    }
+
+    private var toolsStack: some View {
+        NavigationStack(path: $toolsPath) {
+            ToolBrowserView(path: $toolsPath)
+                .navigationDestination(for: AppRoute.self) { route in
+                    destination(for: route, path: $toolsPath) {
+                        showConvertRoot()
+                    }
+                }
         }
     }
 
@@ -181,11 +242,42 @@ struct ConverterRootView: View {
         session.dismissAttempt()
         convertPath.removeAll()
         historyPath.removeAll()
+        toolsPath.removeAll()
         selectedSection = .convert
     }
 
     @ViewBuilder
     private func destination(
+        for route: AppRoute,
+        path: Binding<[AppRoute]>,
+        onConvertAnother: @escaping () -> Void
+    ) -> some View {
+        switch route {
+        case .category(let category):
+            CategoryView(category: category, path: path)
+        case .allTools:
+            ToolBrowserView(path: path)
+        case .tool(let id, let inputs, let preset):
+            Group {
+                if let tool = ToolCatalog.tool(id) {
+                    ToolView(tool: tool, initialInputs: inputs, preset: preset, path: path)
+                } else {
+                    ContentUnavailableView("Tool Unavailable", systemImage: "questionmark.square.dashed")
+                }
+            }
+            .toolbar(.hidden, for: .tabBar)
+        case .toolResult(let run):
+            ToolResultView(run: run, path: path)
+                .toolbar(.hidden, for: .tabBar)
+        case .fileHub(let file):
+            FileHubView(file: file, path: path)
+        default:
+            conversionDestination(for: route, path: path, onConvertAnother: onConvertAnother)
+        }
+    }
+
+    @ViewBuilder
+    private func conversionDestination(
         for route: AppRoute,
         path: Binding<[AppRoute]>,
         onConvertAnother: @escaping () -> Void
@@ -205,6 +297,8 @@ struct ConverterRootView: View {
                     path: path,
                     onConvertAnother: onConvertAnother
                 )
+            default:
+                EmptyView()
             }
         }
         // Each step of a conversion is a focused task with its own bottom actions.

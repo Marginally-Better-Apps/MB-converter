@@ -2,7 +2,7 @@
 
 <img src="Assets.xcassets/AppIcon.appiconset/AppIcon-ios-marketing-1024x1024@1x.png" alt="MB Converter app icon" width="80" />
 
-**Convert and shrink photos, videos, and audio on your iPhone or iPad.** Free, open source, and no account needed.
+**Convert, shrink and edit photos, videos, audio, PDFs, documents and spreadsheets on your iPhone or iPad.** More than 100 tools, free, open source, and no account needed.
 
 <a href="https://apps.apple.com/us/app/mb-converter/id6763943720" target="_blank" rel="noopener noreferrer"><strong>Download on the App Store</strong></a> · iOS / iPadOS 17 or later
 
@@ -35,12 +35,25 @@
 
 | | Save as |
 | --- | --- |
-| 📷 Photos | JPEG, PNG, HEIC, WebP, TIFF |
-| 🎬 Videos | MP4 (H.264 / HEVC), MOV, WebM |
+| 📷 Photos | JPEG, PNG, HEIC, WebP, AVIF, JPEG XL, TIFF, GIF, BMP, PSD, TGA, ICO, JPEG 2000, QOI, PCX, DDS, SGI, XPM, HDR, PPM, EPS |
+| 🎬 Videos | MP4 (H.264 / HEVC / AV1), MOV, WebM, OGV |
 | 🎵 Audio | MP3, M4A, AAC, WAV, FLAC, Ogg, Opus |
-| 🎞️ GIFs | MP4, or a still image |
+| 🎞️ Animations | GIF and animated WebP from videos; GIF ⇄ WebP |
 
 It opens most common files, including MKV, AVI, AV1, WebP, AVIF, and FLAC. You can also pull the audio out of any video.
+
+## Tools
+
+Open the **Tools** tab, or pick a document from Files, for a pocket toolbox:
+
+| | Tools |
+| --- | --- |
+| 📄 PDF | Merge, split, organize pages, rotate, delete or extract pages, compress, password protect or unlock, watermark, page numbers, edit and annotate, sign, redact, crop, make searchable (OCR), flatten, grayscale, edit properties, PDF ⇄ images, extract images |
+| 📝 Documents | Convert between PDF, Word (DOCX), OpenDocument (ODT), RTF, text, Markdown, HTML and EPUB; PowerPoint to PDF or images. Keep the original layout, or choose page size, margins, font, spacing and page numbers. |
+| 📊 Data | Excel, OpenDocument, CSV, TSV, JSON and XML conversions; spreadsheets to PDF; tables out of Word and PDF; split and merge spreadsheets |
+| 🖼️ Images | Batch convert and compress, resize, crop, rotate, remove or replace the background, blur faces, image to text, captions and watermarks, meme maker, borders, circle crop, filters, upscale, split, collage, images to GIF |
+| 🎬 Video & 🎵 audio | Trim, video to GIF, mute, rotate, speed, loop, merge clips, add music, save frames, volume and fades, join audio |
+| 🧰 Utilities | QR codes, create and open ZIP files, web page to PDF or image |
 
 ## Light or dark
 

@@ -103,6 +103,58 @@ final class HomeViewModel {
         return media
     }
 
+    enum ImportedItem {
+        case media(MediaFile)
+        case document(ToolInputFile)
+    }
+
+    /// Documents (PDF, Office, data…) go to the tools hub; media keeps the full converter flow.
+    func importDocumentIfNeeded(_ url: URL) -> ToolInputFile?? {
+        guard let format = FileFormat(url: url) ?? FileIntake.sniffFormat(url), !FileIntake.opensInMediaConverter(format) else {
+            return .none
+        }
+        do {
+            let file = try FileIntake.importFile(at: url)
+            Haptics.success()
+            return .some(file)
+        } catch {
+            errorMessage = error.localizedDescription
+            DiagnosticsLog.shared.record(error: error, context: "Import document")
+            Haptics.error()
+            return .some(nil)
+        }
+    }
+
+    /// Downloads any supported file; documents return directly, media is validated as usual.
+    func importAnyFromRemoteLink(_ linkString: String) async -> ImportedItem? {
+        let trimmed = linkString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let path = URL(string: trimmed)?.pathExtension.lowercased() ?? ""
+        guard let format = FileFormat(fileExtension: path), !FileIntake.opensInMediaConverter(format) else {
+            return await importFromRemoteLink(linkString).map(ImportedItem.media)
+        }
+        isImporting = true
+        errorMessage = nil
+        remoteDownloadProgress = RemoteDownloadProgress(bytesReceived: 0, totalBytes: nil)
+        defer {
+            isImporting = false
+            remoteDownloadProgress = nil
+        }
+        do {
+            let url = try await importService.importFromRemoteURL(linkString) { [weak self] progress in
+                await MainActor.run { self?.remoteDownloadProgress = progress }
+            }
+            let name = URL(string: trimmed)?.lastPathComponent ?? url.lastPathComponent
+            let file = try ToolInputFile(url: url, displayName: name)
+            Haptics.success()
+            return .document(file)
+        } catch {
+            errorMessage = error.localizedDescription
+            DiagnosticsLog.shared.record(error: error, context: "Import from link")
+            Haptics.error()
+            return nil
+        }
+    }
+
     func importFromRemoteLink(_ linkString: String) async -> MediaFile? {
         remoteDownloadProgress = RemoteDownloadProgress(bytesReceived: 0, totalBytes: nil)
         let parsedURL = URL(string: linkString.trimmingCharacters(in: .whitespacesAndNewlines))

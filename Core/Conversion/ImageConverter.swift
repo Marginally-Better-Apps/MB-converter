@@ -350,6 +350,11 @@ final class ImageConverter: Converter {
         try checkCancellation()
     }
 
+    /// Shared WebP encoder for the tools layer. `quality` is 0…1.
+    static func webPData(from image: CGImage, quality: Double) throws -> Data {
+        try ImageConverter().encodeWebPImage(image, quality: quality) { _ in }
+    }
+
     private func encodeWebPImage(
         _ image: CGImage, quality: Double, progress: @escaping (Double) -> Void
     ) throws -> Data {

@@ -183,7 +183,11 @@ final class VideoConverter: Converter {
         let hevcTag = config.outputFormat.ffmpegHEVCContainerTagArg
         let audioArguments: String
         if hasAudio {
-            let audioCodec = config.outputFormat == .webm ? "libopus" : "aac"
+            let audioCodec = switch config.outputFormat {
+            case .webm: "libopus"
+            case .ogv: "libvorbis"
+            default: "aac"
+            }
             guard FFmpegRuntimeInfo.hasEncoder(audioCodec) else {
                 throw ConversionError.codecUnavailable(
                     reason: "\(config.outputFormat.displayName) output requires the \(audioCodec) audio encoder in the bundled FFmpeg runtime."
@@ -198,8 +202,8 @@ final class VideoConverter: Converter {
         let inputPath = FFmpegCommandRunner.quoted(input.url.path)
         let outputPath = FFmpegCommandRunner.quoted(outputURL.path)
         let logPath = FFmpegCommandRunner.quoted(passLog.path)
-        let fastStart = config.outputFormat == .webm ? "" : " -movflags +faststart"
-        let outputMuxer = config.outputFormat.ffmpegOutputMuxerArg
+        let fastStart = [.webm, .ogv].contains(config.outputFormat) ? "" : " -movflags +faststart"
+        let outputMuxer = config.outputFormat.ffmpegOutputMuxerArg + config.outputFormat.ffmpegEncoderTuningArgs
         let pass1Discard = TempStorage.url(extension: config.outputFormat.fileExtension)
         let pass1DiscardPath = FFmpegCommandRunner.quoted(pass1Discard.path)
 
@@ -298,7 +302,7 @@ final class VideoConverter: Converter {
         let inputPath = FFmpegCommandRunner.quoted(input.url.path)
         let outputPath = FFmpegCommandRunner.quoted(outputURL.path)
         let outputMuxer = config.outputFormat.ffmpegOutputMuxerArg
-        let fastStart = config.outputFormat == .webm ? "" : " -movflags +faststart"
+        let fastStart = [.webm, .ogv].contains(config.outputFormat) ? "" : " -movflags +faststart"
         let hevcTag = config.outputFormat.ffmpegHEVCContainerTagArg
         let meta = FFmpegMetadataOptions.outputFlags(config.metadata)
         let command = "-y -i \(inputPath) -map 0:v:0 -map 0:a:0? -c copy\(hevcTag)\(outputMuxer)\(fastStart)\(meta) \(outputPath)"

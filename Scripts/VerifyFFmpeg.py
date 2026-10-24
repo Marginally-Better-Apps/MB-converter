@@ -8,7 +8,7 @@ from BuildFFmpeg import digest, tree_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACT = ROOT / "Native/FFmpeg/Artifacts/MBFFmpegBridge.xcframework"
-REQUIRED = ["libmp3lame", "libopus", "libvorbis", "libvpx", "libdav1d", "libzimg"]
+REQUIRED = ["libmp3lame", "libopus", "libvorbis", "libvpx", "libdav1d", "libzimg", "libwebp", "libsvtav1", "libtheora"]
 
 
 def output(*args):

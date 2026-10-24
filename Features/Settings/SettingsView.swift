@@ -5,6 +5,7 @@ import UIKit
 struct SettingsView: View {
     @AppStorage("appColorMode") private var appColorModeRawValue = AppColorMode.system.rawValue
     @AppStorage(ConversionHistoryUserDefaults.isEnabledKey) private var conversionHistoryEnabled = false
+    @AppStorage(PageSizePreference.key) private var defaultPageSize = PageSize.regionalDefault.rawValue
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.openURL) private var openURL
@@ -40,6 +41,18 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.segmented)
                     }
+                }
+
+                Section {
+                    Picker(selection: $defaultPageSize) {
+                        ForEach(PageSize.allCases) { Text($0.label).tag($0.rawValue) }
+                    } label: {
+                        settingsLabel("Default Page Size", systemImage: "doc.richtext")
+                    }
+                } header: {
+                    Text("Documents")
+                } footer: {
+                    Text("Used when tools create or restyle PDFs and documents.")
                 }
 
                 Section {
