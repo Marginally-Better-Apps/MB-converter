@@ -29,7 +29,11 @@ enum PDFStamper {
                 let bounds = CGRect(origin: .zero, size: size)
                 context.beginPage(withBounds: bounds, pageInfo: [:])
                 let cg = context.cgContext
-                if rasterize(index) || grayscale {
+                let flattens = rasterize(index)
+                if flattens || grayscale {
+                    // Grayscale keeps the original page underneath the gray image, so its text stays
+                    // selectable in true reading order. Redacted pages must not keep anything underneath.
+                    if !flattens { PDFRasterizer.draw(page, in: cg, size: size) }
                     // Compose page + overlays in a bitmap so nothing underneath survives (redaction, grayscale).
                     if let image = composedImage(page: page, index: index, size: size, dpi: rasterDPI, grayscale: grayscale, underlay: underlay, overlay: overlay) {
                         cg.saveGState()
@@ -38,8 +42,8 @@ enum PDFStamper {
                         cg.draw(image, in: bounds)
                         cg.restoreGState()
                     }
-                    // Keep the page selectable and searchable, minus anything under a redaction.
-                    drawTextLayer(of: page, size: size, context: cg, excluding: hiddenText(index))
+                    // Flattened pages get their text back as an invisible layer, minus anything redacted.
+                    if flattens { drawTextLayer(of: page, size: size, context: cg, excluding: hiddenText(index)) }
                     continue
                 }
                 if let underlay {
@@ -340,13 +344,29 @@ enum PDFStamper {
     }
 
     /// Finds every occurrence of the given terms and returns redaction boxes for them.
+    /// Matches across line breaks and treats straight and curly quotes alike, so a phrase the
+    /// user types is caught wherever the PDF wraps or typesets it.
     static func redactionItems(for terms: [String], in document: PDFDocument, caseSensitive: Bool = false) -> [PDFOverlayItem] {
+        let patterns = terms.compactMap(\.nilIfBlank).compactMap { term -> NSRegularExpression? in
+            let words = term.split(whereSeparator: \.isWhitespace).map { word in
+                word.map { character -> String in
+                    switch character {
+                    case "'", "’", "‘": "['’‘]"
+                    case "\"", "“", "”": "[\"“”]"
+                    default: NSRegularExpression.escapedPattern(for: String(character))
+                    }
+                }.joined()
+            }
+            guard !words.isEmpty else { return nil }
+            return try? NSRegularExpression(pattern: words.joined(separator: "\\s+"), options: caseSensitive ? [] : [.caseInsensitive])
+        }
         var items: [PDFOverlayItem] = []
-        for term in terms.compactMap(\.nilIfBlank) {
-            let options: NSString.CompareOptions = caseSensitive ? [] : [.caseInsensitive]
-            for selection in document.findString(term, withOptions: options) {
-                for page in selection.pages {
-                    let index = document.index(for: page)
+        for index in 0 ..< document.pageCount {
+            guard let page = document.page(at: index), let text = page.string, !text.isEmpty else { continue }
+            let range = NSRange(location: 0, length: (text as NSString).length)
+            for pattern in patterns {
+                for match in pattern.matches(in: text, range: range) {
+                    guard let selection = page.selection(for: match.range) else { continue }
                     for line in selection.selectionsByLine() {
                         let bounds = line.bounds(for: page)
                         guard bounds.width > 0, bounds.height > 0 else { continue }
@@ -385,8 +405,11 @@ enum PDFStamper {
                         kept += character
                         continue
                     }
+                    // A character is redacted when its center lies under a box; mere edge contact
+                    // (boxes are padded a point) must not swallow the neighbouring line.
                     let box = selection.bounds(for: page)
-                    let isHidden = box.isEmpty || hidden.contains { $0.intersects(normalizedFrame(of: box, on: page)) }
+                    let frame = normalizedFrame(of: box, on: page)
+                    let isHidden = box.isEmpty || hidden.contains { $0.contains(CGPoint(x: frame.midX, y: frame.midY)) }
                     kept += isHidden ? " " : character
                 }
                 text = kept.trimmingCharacters(in: .newlines)
