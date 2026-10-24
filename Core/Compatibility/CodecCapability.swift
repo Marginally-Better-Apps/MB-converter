@@ -135,3 +135,36 @@ enum CodecCapability {
         return trimmed.isEmpty ? "an unknown codec" : trimmed.uppercased()
     }
 }
+
+// Two-pass rules depend on the bundled runtime, so they live here rather than in the
+// runtime-independent model types.
+extension OutputFormat {
+    /// VP9 supports a statistics pass. VideoToolbox H.264/HEVC do not produce pass
+    /// statistics, so H.264 target-size encodes switch to x264 (GPL build) for two passes.
+    var supportsTwoPassVideoEncoding: Bool {
+        switch self {
+        case .webm: true
+        case .mp4_h264, .mov: FFmpegRuntimeInfo.hasEncoder(Self.twoPassH264Encoder)
+        default: false
+        }
+    }
+
+    static let twoPassH264Encoder = "libx264"
+
+    /// The encoder for a two-pass target-size encode, plus its tuning arguments.
+    /// x264's veryfast preset keeps phone encodes quick; 8-bit 4:2:0 plays everywhere.
+    var twoPassVideoEncoder: (name: String, arguments: String)? {
+        switch self {
+        case .mp4_h264, .mov: (Self.twoPassH264Encoder, " -pix_fmt yuv420p -mb-codec-opt:v preset=veryfast")
+        default: nil
+        }
+    }
+}
+
+extension ConversionConfig {
+    /// Use this effective mode for execution and progress, including configurations
+    /// created before the bundled encoder capabilities changed.
+    var usesTwoPassVideoEncoding: Bool {
+        outputFormat.supportsTwoPassVideoEncoding && !usesSinglePassVideoTargetEncode
+    }
+}
