@@ -321,6 +321,7 @@ struct HomeView: View {
                         } label: {
                             RecentConversionCard(entry: entry)
                         }
+                        .accessibilityIdentifier("recent.card")
                         .buttonStyle(PressableButtonStyle())
                         .disabled(isImporting)
                         .accessibilityHint("Opens the converted file")

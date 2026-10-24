@@ -326,6 +326,7 @@ struct ToolView: View {
                 Button(action: perform) {
                     PrimaryActionLabel(title: viewModel.blockingReason ?? tool.actionTitle, systemImage: viewModel.blockingReason == nil ? actionSymbol : "plus")
                 }
+                .accessibilityIdentifier("tool.run")
                 .glassButtonStyle(prominent: true)
                 .buttonBorderShape(.capsule)
                 .controlSize(.large)

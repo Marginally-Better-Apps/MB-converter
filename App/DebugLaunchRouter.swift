@@ -1,11 +1,15 @@
 #if DEBUG
 import Foundation
+import UIKit
 
 /// Debug-only deep links for screenshots and manual QA:
 ///   -MBRoute tab:convert|tools|history | category:pdf | tool:pdf.merge | hub | result:pdf.compress
 ///   -MBInputs /path/one.pdf,/path/two.pdf   (host paths are readable from the simulator)
 ///   -MBEditor 1                              (auto-open the tool's editor)
 ///   -MBThen tab:history                      (after a result: switch tabs, e.g. to check History)
+///   -MBResetState 1                          (start with empty saved history; UI tests)
+///   -MBSavedHistory 1|0                      (turn saved history on or off before launch)
+///   -MBNoAnimations 1                        (faster, steadier UI tests)
 enum DebugLaunchRouter {
     static var arguments: [String: String] {
         let args = ProcessInfo.processInfo.arguments
@@ -17,6 +21,17 @@ enum DebugLaunchRouter {
     }
 
     static var opensEditor: Bool { arguments["MBEditor"] == "1" }
+
+    /// Runs before any store is created, so tests start from a known state.
+    static func prepareState() {
+        let args = arguments
+        if args["MBResetState"] == "1" {
+            let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            try? FileManager.default.removeItem(at: support.appendingPathComponent("MBConverter/ConversionHistory", isDirectory: true))
+        }
+        if let saved = args["MBSavedHistory"] { ConversionHistoryUserDefaults.isEnabled = saved == "1" }
+        if args["MBNoAnimations"] == "1" { UIView.setAnimationsEnabled(false) }
+    }
 
     static func inputs() -> [ToolInputFile] {
         (arguments["MBInputs"] ?? "").split(separator: ",").compactMap { path in

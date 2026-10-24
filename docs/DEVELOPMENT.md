@@ -140,7 +140,26 @@ Each `ToolDefinition` declares accepted formats, declarative options, an optiona
 - Multi-input video work (merge, soundtrack) uses AVFoundation because the FFmpeg adapter only runs single-input commands. Containers AVFoundation can't open are converted with the app's own pipeline first.
 - `-MBRoute` launch arguments (Debug builds only) open any screen directly, e.g. `-MBRoute tool:pdf.merge -MBInputs /path/a.pdf,/path/b.pdf -MBEditor 1`.
 
-Tests (`Tests/*Tests.swift`, Swift Testing) cover every reader/writer with round trips and real Office/LibreOffice fixtures, spreadsheet formats, PDF and image operations, media operations, and run **every catalog tool** end to end. `.github/workflows/tests.yml` builds the pinned FFmpeg for the simulator (cached) and runs the suite on pull requests.
+Testing has four layers, all run by `xcodebuild test` and by `.github/workflows/tests.yml` on pull requests:
+
+| Layer | Where | What it proves |
+| --- | --- | --- |
+| Unit and format tests | `Tests/*Tests.swift` (Swift Testing) | Every reader/writer round-trips; PDF, image, media and spreadsheet engines behave; tricky PDFs built object-by-object (`RawPDF`: CMYK JPEG + soft mask, Decode arrays, Indexed color, forms, clipping) decode as a viewer shows them. |
+| Every tool, validated | `ToolCatalogTests.swift` + `OutputValidator.swift` | Each catalog tool runs with defaults and its output is opened and checked: PDFs render and keep the source text, images aren't blank, documents parse back, media has duration and real frames. |
+| Real-world corpus | `CorpusTests.swift` + `Tests/Fixtures/Corpus/` | Public-domain government PDFs (forms, CMYK JPEG 2000 photos, multi-column layouts) through every PDF tool and conversion. Outputs are compared perceptually against the source PDF's own render, and the exact-copy HTML is rendered in WebKit and compared to the page. |
+| End-to-end UI | `UITests/ConverterUITests.swift` (XCUITest) | Taps through the real app: run a tool, preview the result (must show visible content), Finish, find it in History and on Home's Recent shelf, saved history across relaunch, a video conversion. |
+
+UI tests hand files to the app with debug-only launch arguments (`-MBRoute`, `-MBInputs`, `-MBResetState`, `-MBSavedHistory`, `-MBNoAnimations`; see `App/DebugLaunchRouter.swift`) instead of driving the system file picker. Failures attach screenshots and the UI hierarchy to the result bundle.
+
+To check real files of your own without committing them:
+
+```sh
+TEST_RUNNER_MB_AUDIT_INPUTS=~/Desktop/files TEST_RUNNER_MB_AUDIT_OUTPUT=/tmp/audit \
+  xcodebuild test -project Converter.xcodeproj -scheme Converter \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:ConverterTests/LocalAuditTests
+```
+
+Every applicable tool runs on every file; outputs and a `report.txt` (with any validation problems) land in the output folder.
 
 ## Storage and diagnostics
 

@@ -183,6 +183,7 @@ struct ConversionHistoryListView: View {
         .buttonStyle(.plain)
         .contentShape(Rectangle())
         .accessibilityHint("Opens the result")
+        .accessibilityIdentifier("history.row")
     }
 
     @ViewBuilder

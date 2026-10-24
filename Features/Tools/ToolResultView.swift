@@ -48,6 +48,7 @@ struct ToolResultView: View {
                     path.removeAll()
                 }
                 .fontWeight(.semibold)
+                .accessibilityIdentifier("result.finish")
             }
         }
         .sheet(item: $preview) { item in
@@ -170,6 +171,7 @@ struct ToolResultView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PressableStyle())
+                .accessibilityIdentifier("result.file")
                 .contextMenu {
                     Button { preview = IdentifiableURLs(urls: urls, index: index) } label: { Label("Preview", systemImage: "eye") }
                     Button { share = IdentifiableURLs(urls: [file.url]) } label: { Label("Share", systemImage: "square.and.arrow.up") }

@@ -112,6 +112,7 @@ struct ResultView: View {
                 }
                 .disabled(isFinishing || viewModel.isCopyingToPasteboard)
                 .accessibilityLabel("Done")
+                .accessibilityIdentifier("media.done")
             }
         }
         .simultaneousGesture(

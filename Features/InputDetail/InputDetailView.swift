@@ -647,6 +647,7 @@ struct InputDetailView: View {
         } label: {
             PrimaryActionLabel(title: "Convert", systemImage: "arrow.triangle.2.circlepath")
         }
+        .accessibilityIdentifier("media.convert")
         .glassButtonStyle(prominent: true)
         .buttonBorderShape(.capsule)
         .controlSize(.large)

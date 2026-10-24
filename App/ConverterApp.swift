@@ -7,6 +7,9 @@ struct ConverterApp: App {
 
 
     init() {
+        #if DEBUG
+        DebugLaunchRouter.prepareState()
+        #endif
         ConversionNotifications.shared.install()
         DiagnosticsLog.shared.beginSession()
         FFmpegRuntimeInfo.logSummary()
