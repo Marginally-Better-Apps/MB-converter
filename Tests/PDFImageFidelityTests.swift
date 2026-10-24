@@ -188,12 +188,35 @@ struct PixelProbe {
         var pdf = RawPDF()
         let jpeg = try ImageToolkit.encode(TestSupport.makeImage(width: 40, height: 40), as: .jpeg)
         let image = pdf.add(stream: "/Type /XObject /Subtype /Image /Width 40 /Height 40 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode", jpeg)
-        let form = pdf.add(stream: "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Matrix [1 0 0 1 300 50] /Resources << /XObject << /Pic \(image) 0 R >> >>", Data("q 80 0 0 80 10 10 cm /Pic Do Q".utf8))
-        let document = try #require(PDFDocument(data: pdf.document(pages: [(content: "q 2 0 0 2 0 0 cm /Fm Do Q", xObjects: ["Fm": form])])))
+        let form = pdf.add(stream: "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Matrix [1 0 0 1 100 50] /Resources << /XObject << /Pic \(image) 0 R >> >>", Data("q 80 0 0 80 10 10 cm /Pic Do Q".utf8))
+        let document = try #require(PDFDocument(data: pdf.document(pages: [(content: "q 1.5 0 0 1.5 0 0 cm /Fm Do Q", xObjects: ["Fm": form])])))
         let placed = PDFPageImages.images(in: document)
         let rect = try #require(placed.first?.rect)
-        // Page CTM ×2, form Matrix translates by (300, 50), image cm at (10, 10) sized 80.
-        #expect(abs(rect.minX - 620) < 0.5 && abs(rect.minY - 120) < 0.5 && abs(rect.width - 160) < 0.5)
+        // Page CTM ×1.5, form Matrix translates by (100, 50), image cm at (10, 10) sized 80.
+        #expect(abs(rect.minX - 165) < 0.5 && abs(rect.minY - 90) < 0.5 && abs(rect.width - 120) < 0.5)
+    }
+
+    @Test func clippingHidesOrCropsPictures() throws {
+        var pdf = RawPDF()
+        let jpeg = try ImageToolkit.encode(TestSupport.makeImage(width: 100, height: 100, color: .systemRed, square: .systemBlue), as: .jpeg)
+        let hidden = pdf.add(stream: "/Type /XObject /Subtype /Image /Width 100 /Height 100 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode", jpeg)
+        let cropped = pdf.add(stream: "/Type /XObject /Subtype /Image /Width 100 /Height 100 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode", jpeg)
+        let content = """
+        q 500 500 10 10 re W n 200 0 0 200 50 50 cm /H Do Q
+        q 300 300 100 200 re W n 200 0 0 200 300 300 cm /C Do Q
+        """
+        let document = try #require(PDFDocument(data: pdf.document(pages: [(content: content, xObjects: ["H": hidden, "C": cropped])])))
+        let placed = PDFPageImages.images(in: document)
+        #expect(placed.count == 1, "A picture clipped completely away is not content")
+        let image = try #require(placed.first)
+        let visible = try #require(image.visibleRect)
+        #expect(abs(visible.minX - 300) < 0.5 && abs(visible.width - 100) < 0.5 && abs(visible.height - 200) < 0.5)
+        #expect(abs(image.visibleFraction - 0.5) < 0.01)
+        // Documents get only the visible left half.
+        let block = PDFTextReader.visibleImageBlock(image)
+        let pixels = try PixelProbe(block.data)
+        #expect(pixels.width == 50 && pixels.height == 100, "Got \(pixels.width)×\(pixels.height)")
+        #expect(PDFImageExtractor.extract(document).count == 1)
     }
 
     @Test func smallIconsAndStencilMasksAreSkipped() throws {
@@ -327,3 +350,20 @@ struct PixelProbe {
         #expect(provider([try ToolInputFile(url: URL(fileURLWithPath: "/tmp/a.docx"))]).isEmpty)
     }
 }
+
+@Suite struct RedactionMatchingTests {
+    @Test func catchesPhrasesWrappedAcrossLinesAndCurlyQuotes() throws {
+        let narrow = "The applicant’s account at East Carroll Parish office was closed."
+        let document = TestSupport.makePDF(pages: 1, size: CGSize(width: 260, height: 400), body: narrow)
+        // The narrow page wraps the body, so at least one phrase is split across lines.
+        let items = PDFStamper.redactionItems(for: ["applicant's account", "East Carroll Parish office"], in: document)
+        let output = try #require(PDFDocument(data: PDFStamper.apply(items, to: document)))
+        let text = (output.string ?? "").lowercased()
+        #expect(!text.contains("applicant"), "Straight quote in the term must match the curly quote in the PDF: \(text)")
+        #expect(!text.contains("carroll"), "Wrapped phrase must be found: \(text)")
+        #expect(text.contains("closed"))
+    }
+}
+
+
+
