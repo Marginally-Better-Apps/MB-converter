@@ -73,7 +73,7 @@ This checks compilation and app packaging. It does not validate signing, exercis
 
 | Dependency | Pinned version | Role |
 | --- | --- | --- |
-| [MBFFmpeg](../Native/FFmpeg/README.md) | FFmpeg 9.0.1 and codec source hashes in `Native/FFmpeg/sources.json` | Custom LGPL2.1 media conversion and probing; original MIT adapter |
+| [MBFFmpeg](../Native/FFmpeg/README.md) | FFmpeg 9.0.1 and codec source hashes in `Native/FFmpeg/sources.json` | Custom GPL-2.0-or-later (x264) media conversion and probing; original MIT adapter |
 | [MBWebP](../Native/WebP/README.md) | libwebp 1.6.0, vendored hashes in `Native/WebP/provenance.json` | Optimized, threaded still WebP encoding |
 
 Both Swift packages are local. Keep the FFmpeg source manifest and WebP provenance manifest in Git; review dependency upgrades and commit source pins, vendored sources, and notices together.
@@ -266,7 +266,7 @@ The continued-processing registration smoke test runs only on a physical iOS 26+
 
 ## License
 
-The application and original adapter source are under the [MIT License](../LICENSE). FFmpeg, LAME, libwebp and other bundled libraries have their own licenses. Retain their notices and distribute the matching source/rebuild materials before release. The app's MIT license does not relicense its dependencies.
+The application and original adapter source are under the [GNU General Public License v3.0 or later](../LICENSE) (relicensed from MIT on 2026-10-24 to bundle x264). The FFmpeg runtime is GPL-2.0-or-later because it links x264; ImageMagick, ZIPFoundation and the other bundled libraries keep their own (compatible) licenses. Retain their notices and publish the complete corresponding source — the app, `Native/` recipes and the pinned dependency sources — with every distributed build. See [Releasing](RELEASING.md) for what GPL means for App Store distribution.
 
 
 ## Background conversion

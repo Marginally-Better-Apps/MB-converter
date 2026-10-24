@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **License change: MB Converter is now GPL-3.0-or-later** (previously MIT) so it can bundle x264.
+- Compressing H.264 video to a target size now uses two-pass x264 encoding and lands close to the requested size; VideoToolbox could only make a single-pass guess.
+
 ## 1.1 — 2026-09-28
 
 - Export MP3, FLAC, Ogg/Vorbis, Opus, and WebM (VP9/Opus), and import AV1 video with the custom FFmpeg runtime.

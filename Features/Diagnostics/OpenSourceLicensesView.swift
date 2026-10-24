@@ -29,7 +29,8 @@ struct OpenSourceLicensesView: View {
     var body: some View {
         List {
             Section {
-                Text("This app uses FFmpeg under the GNU Lesser General Public License version 2.1 or later, together with LAME, Opus, Vorbis, Ogg, Theora, libvpx, SVT-AV1, libwebp, dav1d and zimg. Their licenses apply separately from the app's MIT license.")
+                Text("MB Converter is free software under the GNU General Public License version 3 or later. You can get its complete source code, and the source and build recipes for every bundled library, from the project page below.")
+                Text("Video and audio use FFmpeg and x264 under the GNU General Public License version 2 or later, together with LAME, Opus, Vorbis, Ogg, Theora, libvpx, SVT-AV1, libwebp, dav1d and zimg under their own licenses.")
                 Text("Image formats use ImageMagick (ImageMagick License) with libpng, libjpeg-turbo, libtiff, libwebp, OpenJPEG, Little CMS, libjxl, Highway and Brotli, each under its own permissive license.")
                 Text("This software is based in part on the work of the Independent JPEG Group.")
                 Text("Office, OpenDocument and EPUB packages are read and written with ZIPFoundation (MIT License, © Thomas Zoechling).")
