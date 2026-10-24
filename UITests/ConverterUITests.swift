@@ -121,7 +121,8 @@ class ConverterUITestCase: XCTestCase {
         let header = app.navigationBars[title].firstMatch
         wait(for: header, 15, "Quick Look didn't open \(fileName)")
         // Quick Look renders asynchronously. Opening isn't enough: the preview must show content.
-        let shown = waitForVisibleContent(timeout: 20)
+        // Its web renderer can take most of a minute to start on a loaded CI runner.
+        let shown = waitForVisibleContent(timeout: 60)
         attach(name, app.screenshot())
         XCTAssertTrue(shown, "\(fileName) opened in Quick Look but the preview stayed blank")
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
