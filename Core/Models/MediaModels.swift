@@ -107,9 +107,26 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
     /// All converter outputs are regular files; copy puts raw bytes on the pasteboard with a matching UTI.
     var supportsClipboardCopy: Bool { true }
 
-    /// VP9 supports a statistics pass. VideoToolbox H.264/HEVC do not produce
-    /// the pass statistics required by FFmpeg's two-pass encoding interface.
-    var supportsTwoPassVideoEncoding: Bool { self == .webm }
+    /// VP9 supports a statistics pass. VideoToolbox H.264/HEVC do not produce pass
+    /// statistics, so H.264 target-size encodes switch to x264 (GPL build) for two passes.
+    var supportsTwoPassVideoEncoding: Bool {
+        switch self {
+        case .webm: true
+        case .mp4_h264, .mov: FFmpegRuntimeInfo.hasEncoder(Self.twoPassH264Encoder)
+        default: false
+        }
+    }
+
+    static let twoPassH264Encoder = "libx264"
+
+    /// The encoder for a two-pass target-size encode, plus its tuning arguments.
+    /// x264's veryfast preset keeps phone encodes quick; 8-bit 4:2:0 plays everywhere.
+    var twoPassVideoEncoder: (name: String, arguments: String)? {
+        switch self {
+        case .mp4_h264, .mov: (Self.twoPassH264Encoder, " -pix_fmt yuv420p -mb-codec-opt:v preset=veryfast")
+        default: nil
+        }
+    }
 }
 
 extension OutputFormat {
