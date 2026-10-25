@@ -100,6 +100,10 @@ jobs:
           echo "Using simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Seed the simulator with real files (Files app + Photos)
+        run: Scripts/SeedSimulator.sh "${{ steps.sim.outputs.udid }}"
 
       - name: Run tests
         # The suite takes a few minutes; anything near this limit is a hang, not slowness.

@@ -147,7 +147,20 @@ Testing has four layers, all run by `xcodebuild test` and by `.github/workflows/
 | Unit and format tests | `Tests/*Tests.swift` (Swift Testing) | Every reader/writer round-trips; PDF, image, media and spreadsheet engines behave; tricky PDFs built object-by-object (`RawPDF`: CMYK JPEG + soft mask, Decode arrays, Indexed color, forms, clipping) decode as a viewer shows them. |
 | Every tool, validated | `ToolCatalogTests.swift` + `OutputValidator.swift` | Each catalog tool runs with defaults and its output is opened and checked: PDFs render and keep the source text, images aren't blank, documents parse back, media has duration and real frames. |
 | Real-world corpus | `CorpusTests.swift` + `Tests/Fixtures/Corpus/` | Public-domain government PDFs (forms, CMYK JPEG 2000 photos, multi-column layouts) through every PDF tool and conversion. Outputs are compared perceptually against the source PDF's own render, and the exact-copy HTML is rendered in WebKit and compared to the page. |
-| End-to-end UI | `UITests/ConverterUITests.swift` (XCUITest) | Taps through the real app: run a tool, preview the result (must show visible content), Finish, find it in History and on Home's Recent shelf, saved history across relaunch, a video conversion. |
+| End-to-end UI | `UITests/ConverterUITests.swift` (XCUITest) | Taps through the real app: imports real files through the **actual Files and Photos pickers**, runs tools, previews results (must show visible content), Finish, History and Home's Recent shelf, saved history across relaunch, photo and video conversions, and the in-app Self-Test screen. |
+| In-app Self-Test | `Core/SelfTest/` + Settings → Diagnostics → Self-Test | Every tool plus focused checks (PDF fidelity, VideoToolbox/x264/VP9/AV1/audio encoders, Vision, History) on bundled real samples, with each output validated. Runs on a phone for hardware the simulator lacks; `SelfTestSuite` runs the same catalog in CI. |
+
+**Before UI tests**, seed the simulator once (CI does this automatically):
+
+```sh
+Scripts/SeedSimulator.sh <simulator-udid>   # PDFs/Office files into Files → On My iPhone, a photo and a video into Photos
+```
+
+**Self-Test is development-only.** The `SELF_TEST` build setting (on in Debug, off in Release) compiles the screen in and bundles `App/SelfTestSamples`. Production builds — App Store archives and plain Release — contain neither. Gala preview builds are dev builds:
+
+```sh
+Scripts/BuildGalaIPA.sh [build-number] [--publish <gala-app-name>]   # Release optimizations + SELF_TEST=YES
+```
 
 UI tests hand files to the app with debug-only launch arguments (`-MBRoute`, `-MBInputs`, `-MBResetState`, `-MBSavedHistory`, `-MBNoAnimations`; see `App/DebugLaunchRouter.swift`) instead of driving the system file picker. Failures attach screenshots and the UI hierarchy to the result bundle.
 

@@ -32,7 +32,7 @@ struct LocalAuditTests {
                 for option in tool.options {
                     if case .dynamicChoice(let provider) = option.kind { options[option.key] = .string(provider([input]).first?.value ?? "") }
                 }
-                for (key, value) in ToolRunTests.overrides[tool.id.rawValue] ?? [:] { options[key] = value }
+                for (key, value) in SelfTestPlan.overrides[tool.id.rawValue] ?? [:] { options[key] = value }
                 let editor: ToolEditorState = switch tool.editor {
                 case .pdfMarkup: .overlays([PDFOverlayItem(pageIndex: 0, frame: CGRect(x: 0.1, y: 0.1, width: 0.5, height: 0.05), kind: .text("Approved", fontSize: 14, colorHex: 0, bold: true))])
                 case .imageCrop: .crop(CGRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5))
@@ -45,7 +45,7 @@ struct LocalAuditTests {
                     let output = try await tool.run(context)
                     var problems: [String] = []
                     var expectations = OutputValidator.Expectations()
-                    expectations.text = output.files.count == 1 ? ToolRunTests.textMarkers(for: [input]) : []
+                    expectations.text = output.files.count == 1 ? SelfTestPlan.textMarkers(for: [input]) : []
                     for item in output.files {
                         try? FileManager.default.copyItem(at: item.url, to: folder.appendingPathComponent(item.name))
                         problems += await OutputValidator.problems(in: item.url, expecting: expectations)

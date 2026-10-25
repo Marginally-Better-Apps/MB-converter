@@ -3,135 +3,14 @@ import Foundation
 import Testing
 @testable import Converter
 
-/// Synthesizes clips with AVAssetWriter so tests need no binary fixtures.
+/// Clip synthesis lives in the app (`SelfTestFixtures`) so the in-app self-test uses the same inputs.
 enum MediaFixtures {
     static func video(seconds: Double = 2, withAudio: Bool = true, width: Int = 320, height: Int = 240) async throws -> URL {
-        let url = TestSupport.tempURL("mov")
-        let writer = try AVAssetWriter(url: url, fileType: .mov)
-        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height
-        ])
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height
-        ])
-        writer.add(videoInput)
-        var audioInput: AVAssetWriterInput?
-        if withAudio {
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 96_000
-            ])
-            input.expectsMediaDataInRealTime = false
-            // Store audio as one block ahead of the video instead of interleaving: AVAssetWriter's
-            // interleaving made slow (CI) simulators hold video back near the end of the clip forever.
-            input.mediaDataLocation = .beforeMainMediaDataNotInterleaved
-            writer.add(input)
-            audioInput = input
-        }
-        guard writer.startWriting() else { throw writer.error ?? ConversionError.engineFailed("writer") }
-        writer.startSession(atSourceTime: .zero)
-
-        let fps = 15
-        let frameCount = Int(seconds * Double(fps))
-        if let audioInput {
-            var sine = SineGenerator(frequency: 440, totalSamples: Int(seconds * 44_100))
-            try await sine.append(to: audioInput, upTo: sine.totalSamples)
-            audioInput.markAsFinished()
-        }
-        for frame in 0 ..< frameCount {
-            // Fail loudly instead of hanging if the encoder never accepts another frame.
-            var waited = 0
-            while !videoInput.isReadyForMoreMediaData {
-                try await Task.sleep(for: .milliseconds(1))
-                waited += 1
-                if waited > 5_000 { throw ConversionError.engineFailed("Video writer stalled at frame \(frame)") }
-            }
-            var buffer: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &buffer)
-            let pixelBuffer = buffer!
-            CVPixelBufferLockBaseAddress(pixelBuffer, [])
-            // A gradient with a moving bright square, so every frame has real picture content.
-            let base = CVPixelBufferGetBaseAddress(pixelBuffer)!.assumingMemoryBound(to: UInt8.self)
-            let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
-            let squareX = (frame * 8) % max(1, width - 40)
-            for y in 0 ..< height {
-                let row = base + y * stride
-                for x in 0 ..< width {
-                    let inSquare = x >= squareX && x < squareX + 40 && y >= height / 3 && y < height / 3 + 40
-                    row[x * 4] = inSquare ? 255 : UInt8(x * 255 / max(1, width))      // B
-                    row[x * 4 + 1] = inSquare ? 255 : UInt8(y * 255 / max(1, height)) // G
-                    row[x * 4 + 2] = inSquare ? 255 : UInt8((frame * 9) % 255)       // R
-                    row[x * 4 + 3] = 255
-                }
-            }
-            CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-            adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: Int64(frame), timescale: CMTimeScale(fps)))
-        }
-        videoInput.markAsFinished()
-        await writer.finishWriting()
-        guard writer.status == .completed else { throw writer.error ?? ConversionError.engineFailed("writer") }
-        return url
+        try await SelfTestFixtures.video(seconds: seconds, withAudio: withAudio, width: width, height: height)
     }
 
     static func audio(seconds: Double = 2, frequency: Double = 440) async throws -> URL {
-        let url = TestSupport.tempURL("m4a")
-        let writer = try AVAssetWriter(url: url, fileType: .m4a)
-        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-            AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 96_000
-        ])
-        writer.add(input)
-        guard writer.startWriting() else { throw writer.error ?? ConversionError.engineFailed("writer") }
-        writer.startSession(atSourceTime: .zero)
-        var sine = SineGenerator(frequency: frequency, totalSamples: Int(seconds * 44_100))
-        try await sine.append(to: input, upTo: sine.totalSamples)
-        input.markAsFinished()
-        await writer.finishWriting()
-        guard writer.status == .completed else { throw writer.error ?? ConversionError.engineFailed("writer") }
-        return url
-    }
-}
-
-/// Streams a mono 16-bit sine wave into an AAC writer input in chunks.
-struct SineGenerator {
-    let frequency: Double
-    let totalSamples: Int
-    private(set) var written = 0
-    private let sampleRate = 44_100
-    private var format: CMAudioFormatDescription?
-
-    init(frequency: Double, totalSamples: Int) {
-        self.frequency = frequency
-        self.totalSamples = totalSamples
-        var description = AudioStreamBasicDescription(
-            mSampleRate: 44_100, mFormatID: kAudioFormatLinearPCM,
-            mFormatFlags: kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked,
-            mBytesPerPacket: 2, mFramesPerPacket: 1, mBytesPerFrame: 2, mChannelsPerFrame: 1, mBitsPerChannel: 16, mReserved: 0
-        )
-        CMAudioFormatDescriptionCreate(allocator: nil, asbd: &description, layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &format)
-    }
-
-    mutating func append(to input: AVAssetWriterInput, upTo limit: Int) async throws {
-        while written < min(limit, totalSamples) {
-            let count = min(4_096, min(limit, totalSamples) - written)
-            var samples = [Int16](repeating: 0, count: count)
-            for index in 0 ..< count {
-                samples[index] = Int16(sin(2 * .pi * frequency * Double(written + index) / Double(sampleRate)) * 8_000)
-            }
-            var block: CMBlockBuffer?
-            let byteCount = count * 2
-            CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: nil, blockLength: byteCount, blockAllocator: nil, customBlockSource: nil, offsetToData: 0, dataLength: byteCount, flags: 0, blockBufferOut: &block)
-            samples.withUnsafeBytes { _ = CMBlockBufferReplaceDataBytes(with: $0.baseAddress!, blockBuffer: block!, offsetIntoDestination: 0, dataLength: byteCount) }
-            var sample: CMSampleBuffer?
-            CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: nil, dataBuffer: block!, formatDescription: format!, sampleCount: count, presentationTimeStamp: CMTime(value: Int64(written), timescale: CMTimeScale(sampleRate)), packetDescriptions: nil, sampleBufferOut: &sample)
-            var waited = 0
-            while !input.isReadyForMoreMediaData {
-                try await Task.sleep(for: .milliseconds(1))
-                waited += 1
-                if waited > 5_000 { throw ConversionError.engineFailed("Audio writer stalled") }
-            }
-            input.append(sample!)
-            written += count
-        }
+        try await SelfTestFixtures.audio(seconds: seconds, frequency: frequency)
     }
 }
 

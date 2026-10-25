@@ -11,7 +11,14 @@ class ConverterUITestCase: XCTestCase {
     }
 
     override func tearDown() {
-        // XCTest attaches a screenshot and the UI hierarchy on failure by itself.
+        // Leave evidence for every failure: what was on screen and what XCUITest could see.
+        if let app, (testRun?.totalFailureCount ?? 0) > 0 {
+            attach("Failure screen", app.screenshot())
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = "Failure UI hierarchy"
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+        }
         app?.terminate()
     }
 
@@ -271,3 +278,131 @@ extension XCUIElement {
         return exists && isEnabled
     }
 }
+
+/// Real imports through the iOS pickers, with files a person would have. Requires the simulator to be
+/// seeded with `Scripts/SeedSimulator.sh` (CI does this before testing).
+final class RealPickerUITests: ConverterUITestCase {
+    /// In the Files picker: Browse → On My iPhone → MB Converter Samples, then tap each file and Open.
+    func pickInFiles(_ names: [String]) {
+        let browse = app.buttons["Browse"].firstMatch
+        if browse.waitForExistence(timeout: 10) { browse.tap() }
+        func item(_ name: String) -> XCUIElement {
+            app.cells.containing(.staticText, identifier: (name as NSString).deletingPathExtension).firstMatch
+        }
+        // The picker remembers its last folder; only navigate when the files aren't already showing.
+        if !item(names[0]).waitForExistence(timeout: 2) {
+            let onMyPhone = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'On My iPhone'")).firstMatch
+            if onMyPhone.waitForExistence(timeout: 5), !app.navigationBars["On My iPhone"].exists { onMyPhone.tap() }
+            // The folder name wraps onto two lines, so match on part of its label.
+            let folder = app.cells.containing(NSPredicate(format: "label CONTAINS 'MB Converter'")).firstMatch
+            guard folder.waitForExistence(timeout: 10) else {
+                XCTFail("The Files picker has no “MB Converter Samples” folder — run Scripts/SeedSimulator.sh first")
+                return
+            }
+            folder.tap()
+        }
+        let select = app.buttons["Select"].firstMatch
+        if names.count > 1, select.waitForExistence(timeout: 3) { select.tap() }
+        for name in names {
+            wait(for: item(name), 10, "\(name) isn't in the picker").tap()
+        }
+        // Pickers that allow several files need an explicit Open, even for one.
+        let open = app.buttons["Open"].firstMatch
+        if open.waitForExistence(timeout: 2), open.isEnabled { open.tap() }
+    }
+
+    /// In the Photos picker (a separate system process XCUITest can't inspect), tap the newest item:
+    /// the top-left cell of the grid.
+    func pickInPhotos() {
+        Thread.sleep(forTimeInterval: 3) // presentation animation
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.16, dy: 0.42)).tap()
+        let add = app.buttons["Add"].firstMatch
+        if add.waitForExistence(timeout: 2) { add.tap() }
+    }
+
+    func testImportPDFFromFilesThenCompress() {
+        launch()
+        wait(for: app.buttons["Import from Files"], 15, "No Files button on Home").tap()
+        pickInFiles(["irs-w9-form.pdf"])
+        let compress = app.buttons.containing(NSPredicate(format: "label CONTAINS 'Compress PDF'")).firstMatch
+        wait(for: compress, 20, "The imported PDF's tools didn't appear").tap()
+        runTool()
+        XCTAssertTrue(resultFiles.firstMatch.label.contains("irs-w9-form"), resultFiles.firstMatch.label)
+        previewFirstResult("Compressed W-9 from Files")
+        app.buttons["result.finish"].tap()
+        tapTab("History")
+        wait(for: historyRows.firstMatch, 10, "Not in History")
+    }
+
+    func testMergeTwoPDFsPickedInFiles() {
+        launch()
+        tapTab("Tools")
+        wait(for: app.buttons.containing(NSPredicate(format: "label CONTAINS 'Merge PDF'")).firstMatch, 10, "No Merge PDF").tap()
+        wait(for: app.buttons["Files"].firstMatch, 10, "No Files button in the tool").tap()
+        pickInFiles(["irs-w9-form.pdf", "fda-nutrition-label.pdf"])
+        runTool()
+        XCTAssertEqual(resultFiles.count, 1)
+        previewFirstResult("Merged PDFs picked in Files")
+    }
+
+    func testConvertWordDocumentPickedInFilesToPDF() {
+        launch(["-MBRoute", "tool:convert.docx.pdf"])
+        wait(for: app.buttons["Files"].firstMatch, 15, "No Files button in the tool").tap()
+        pickInFiles(["sample.docx"])
+        runTool()
+        previewFirstResult("Word → PDF from Files")
+    }
+
+    func testConvertPhotoFromPhotosLibrary() {
+        launch()
+        wait(for: app.buttons["Import an image from Photos"], 15, "No Photos tile").tap()
+        pickInPhotos()
+        let convert = wait(for: app.buttons["media.convert"], 30, "The photo didn't open")
+        // Photos arrive with machine names; people should see a readable one.
+        let uuidTitle = app.staticTexts.matching(NSPredicate(format: "label MATCHES '^[0-9A-F]{8}-.*'")).firstMatch
+        XCTAssertFalse(uuidTitle.exists, "The photo is shown under a generated ID: \(uuidTitle.label)")
+        // JPEG → JPEG at full size has nothing to do; pick PNG.
+        app.buttons["Output format"].tap()
+        wait(for: app.buttons["PNG"].firstMatch, 10, "Format menu didn't open").tap()
+        attach("Photo settings", app.screenshot())
+        XCTAssertTrue(convert.waitForEnabled(10))
+        convert.tap()
+        waitAnsweringSystemPrompts(for: app.buttons["media.done"], 120, "Photo conversion didn't finish")
+        attach("Photo result", app.screenshot())
+        app.buttons["media.done"].tap()
+        tapTab("History")
+        wait(for: historyRows.firstMatch, 10, "The photo conversion isn't in History")
+    }
+
+    func testConvertVideoFromPhotosLibrary() {
+        launch()
+        wait(for: app.buttons["Import a video from Photos"], 15, "No Videos tile").tap()
+        pickInPhotos()
+        let convert = wait(for: app.buttons["media.convert"], 40, "The video didn't open")
+        app.buttons["Output format"].tap()
+        wait(for: app.buttons["MOV"].firstMatch, 10, "Format menu didn't open").tap()
+        XCTAssertTrue(convert.waitForEnabled(10))
+        convert.tap()
+        waitAnsweringSystemPrompts(for: app.buttons["media.done"], 180, "Video conversion didn't finish")
+        attach("Video from Photos result", app.screenshot())
+    }
+}
+
+/// Taps Settings → Diagnostics → Self-Test → Run and requires every check to pass (or, on the
+/// simulator, skip only for missing hardware). The same button a developer uses on a phone.
+final class SelfTestUITests: ConverterUITestCase {
+    func testSelfTestScreenRunsEveryCheckClean() {
+        launch()
+        let settings = app.buttons["Open settings"].firstMatch
+        wait(for: settings, 15, "No Settings button").tap()
+        let entry = app.buttons["settings.selftest"].firstMatch
+        if !entry.waitForExistence(timeout: 5) { app.swipeUp() }
+        wait(for: entry, 10, "No Self-Test row in Settings (is this a SELF_TEST build?)").tap()
+        wait(for: app.buttons["selftest.run"], 10, "Self-Test screen didn't open").tap()
+        let finished = app.otherElements["selftest.finished"].firstMatch.exists ? app.otherElements["selftest.finished"].firstMatch : app.descendants(matching: .any)["selftest.finished"].firstMatch
+        waitAnsweringSystemPrompts(for: finished, 1_200, "The self-test didn't finish")
+        attach("Self-test results", app.screenshot())
+        XCTAssertTrue(finished.label.contains(", 0 failed"), "Self-test summary: \(finished.label)")
+    }
+}
+

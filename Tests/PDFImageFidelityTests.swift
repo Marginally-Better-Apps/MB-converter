@@ -6,118 +6,11 @@ import Testing
 import UniformTypeIdentifiers
 @testable import Converter
 
-/// Builds PDFs object-by-object so tests can reproduce what print workflows (InDesign,
-/// Illustrator, Acrobat) actually emit — CMYK JPEGs with soft masks, Decode arrays,
-/// Indexed images, form XObjects — which UIKit's PDF renderer never produces.
-struct RawPDF {
-    private var objects: [Data] = []
-
-    @discardableResult
-    mutating func add(_ object: String) -> Int {
-        objects.append(Data(object.utf8))
-        return objects.count
-    }
-
-    @discardableResult
-    mutating func add(stream dictionary: String, _ data: Data) -> Int {
-        var body = Data("<< \(dictionary) /Length \(data.count) >>\nstream\n".utf8)
-        body.append(data)
-        body.append(Data("\nendstream".utf8))
-        objects.append(body)
-        return objects.count
-    }
-
-    /// Finishes a document with one page per (content, XObject map) pair.
-    mutating func document(pages: [(content: String, xObjects: [String: Int])], size: CGSize = CGSize(width: 612, height: 792)) -> Data {
-        let fontID = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-        let pagesID = objects.count + 1 + pages.count * 2
-        var pageIDs: [Int] = []
-        for page in pages {
-            let contentID = add(stream: "", Data(page.content.utf8))
-            let xObjects = page.xObjects.map { "/\($0.key) \($0.value) 0 R" }.joined(separator: " ")
-            pageIDs.append(add("<< /Type /Page /Parent \(pagesID) 0 R /MediaBox [0 0 \(Int(size.width)) \(Int(size.height))] /Resources << /Font << /F1 \(fontID) 0 R >> /XObject << \(xObjects) >> >> /Contents \(contentID) 0 R >>"))
-        }
-        let actualPages = add("<< /Type /Pages /Kids [\(pageIDs.map { "\($0) 0 R" }.joined(separator: " "))] /Count \(pageIDs.count) >>")
-        precondition(actualPages == pagesID)
-        let root = add("<< /Type /Catalog /Pages \(pagesID) 0 R >>")
-        var output = Data("%PDF-1.6\n".utf8)
-        var offsets: [Int] = []
-        for (index, body) in objects.enumerated() {
-            offsets.append(output.count)
-            output.append(Data("\(index + 1) 0 obj\n".utf8))
-            output.append(body)
-            output.append(Data("\nendobj\n".utf8))
-        }
-        let xref = output.count
-        var table = "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n"
-        for offset in offsets { table += String(format: "%010d 00000 n \n", offset) }
-        table += "trailer\n<< /Size \(objects.count + 1) /Root \(root) 0 R >>\nstartxref\n\(xref)\n%%EOF\n"
-        output.append(Data(table.utf8))
-        return output
-    }
-
-    /// A CMYK JPEG like Photoshop writes (Adobe APP14, inverted samples — PDFs pair these with
-    /// `/Decode [1 0 1 0 1 0 1 0]`): left half pure green (C+Y), right half white.
-    static func cmykJPEG(width: Int, height: Int) throws -> Data {
-        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                             space: CGColorSpaceCreateDeviceCMYK(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
-        context.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceCMYK(), components: [0, 0, 0, 0, 1])!)
-        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        context.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceCMYK(), components: [1, 0, 1, 0, 1])!)
-        context.fill(CGRect(x: 0, y: 0, width: width / 2, height: height))
-        let image = try #require(context.makeImage())
-        let data = NSMutableData()
-        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil))
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.95] as CFDictionary)
-        #expect(CGImageDestinationFinalize(destination))
-        return data as Data
-    }
-}
-
-/// Reads RGBA pixels (top-left origin) from encoded image data.
-struct PixelProbe {
-    let width: Int
-    let height: Int
-    private let bytes: [UInt8]
-
-    init(_ data: Data) throws {
-        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
-        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
-        width = image.width
-        height = image.height
-        var buffer = [UInt8](repeating: 0, count: width * height * 4)
-        let context = try #require(CGContext(data: &buffer, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        bytes = buffer
-    }
-
-    /// (r, g, b, a) at a fractional position, x/y in 0…1 from the top-left.
-    func at(_ x: Double, _ y: Double) -> (r: Int, g: Int, b: Int, a: Int) {
-        let px = min(width - 1, Int(x * Double(width)))
-        let py = min(height - 1, Int(y * Double(height)))
-        let index = (py * width + px) * 4
-        let alpha = Int(bytes[index + 3])
-        func unpremultiply(_ value: UInt8) -> Int { alpha == 0 ? 0 : min(255, Int(value) * 255 / alpha) }
-        return (unpremultiply(bytes[index]), unpremultiply(bytes[index + 1]), unpremultiply(bytes[index + 2]), alpha)
-    }
-}
+// RawPDF and PixelProbe live in the app (Core/SelfTest/SelfTestFixtures.swift).
 
 @Suite struct PDFImageFidelityTests {
-    /// The "matching game" case: DCT CMYK image + FlateDecode-free gray SMask with a transparent corner.
-    static func cmykMaskedPDF() throws -> Data {
-        var pdf = RawPDF()
-        let size = 64
-        var mask = Data(repeating: 255, count: size * size)
-        for row in 0 ..< size / 2 { for column in size / 2 ..< size { mask[row * size + column] = 0 } } // top-right transparent
-        let maskID = pdf.add(stream: "/Type /XObject /Subtype /Image /Width \(size) /Height \(size) /ColorSpace /DeviceGray /BitsPerComponent 8", mask)
-        let jpeg = try RawPDF.cmykJPEG(width: size, height: size)
-        let imageID = pdf.add(stream: "/Type /XObject /Subtype /Image /Width \(size) /Height \(size) /ColorSpace /DeviceCMYK /BitsPerComponent 8 /Decode [1 0 1 0 1 0 1 0] /Filter /DCTDecode /SMask \(maskID) 0 R", jpeg)
-        return pdf.document(pages: [(content: "q 200 0 0 200 100 400 cm /Im0 Do Q", xObjects: ["Im0": imageID])])
-    }
-
     @Test func cmykJPEGWithSoftMaskComesOutAsSeen() throws {
-        let document = try #require(PDFDocument(data: try Self.cmykMaskedPDF()))
+        let document = try #require(PDFDocument(data: try SelfTestFixtures.cmykMaskedPDF()))
         let extracted = PDFImageExtractor.extract(document)
         #expect(extracted.count == 1)
         let image = try #require(extracted.first)
@@ -149,7 +42,7 @@ struct PixelProbe {
     }
 
     @Test func reportsWhereImagesArePainted() throws {
-        let document = try #require(PDFDocument(data: try Self.cmykMaskedPDF()))
+        let document = try #require(PDFDocument(data: try SelfTestFixtures.cmykMaskedPDF()))
         let placed = PDFPageImages.images(in: document)
         let rect = try #require(placed.first?.rect)
         #expect(abs(rect.minX - 100) < 0.5 && abs(rect.minY - 400) < 0.5 && abs(rect.width - 200) < 0.5 && abs(rect.height - 200) < 0.5)

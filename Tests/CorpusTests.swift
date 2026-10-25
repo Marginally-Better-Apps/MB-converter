@@ -95,28 +95,6 @@ enum Corpus {
     }
 }
 
-/// Perceptual comparison: mean per-channel difference (0…255) after compositing on white and
-/// scaling both images to the same small size. Tolerates anti-aliasing and resampling.
-enum Look {
-    static func difference(_ a: CGImage, _ b: CGImage, side: Int = 96) -> Double {
-        let pa = pixels(a, side: side), pb = pixels(b, side: side)
-        var total = 0.0
-        for index in pa.indices where index % 4 != 3 { total += abs(Double(pa[index]) - Double(pb[index])) }
-        return total / Double(side * side * 3)
-    }
-
-    static func pixels(_ image: CGImage, side: Int) -> [UInt8] {
-        var buffer = [UInt8](repeating: 255, count: side * side * 4)
-        let context = CGContext(data: &buffer, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        context.setFillColor(UIColor.white.cgColor)
-        context.fill(CGRect(x: 0, y: 0, width: side, height: side))
-        context.interpolationQuality = .high
-        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-        return buffer
-    }
-}
-
 // MARK: - Reading and rendering
 
 @Suite(.timeLimit(.minutes(3)))
@@ -345,7 +323,7 @@ struct CorpusPageToolTests {
         #expect(gray.pageCount == document.pages)
         #expect(Corpus.contains(gray.string ?? "", document.phrase), "Grayscale must keep text")
         let grayImage = try Corpus.render(try #require(gray.page(at: 0)))
-        let pixels = Look.pixels(grayImage, side: 64)
+        let pixels = ImageStats.pixels(grayImage, side: 64)
         var maxChroma = 0
         for index in stride(from: 0, to: pixels.count, by: 4) {
             let r = Int(pixels[index]), g = Int(pixels[index + 1]), b = Int(pixels[index + 2])
@@ -405,56 +383,5 @@ struct CorpusPageToolTests {
         #expect(!PDFToolkit.hasTextLayer(try Self.pdf(scanned)))
         let output = try await Corpus.run("pdf.ocr", [try ToolInputFile(url: scanned.files[0].url)])
         #expect(Corpus.contains(Corpus.text(output.files[0].url), "Reporting Cash Payments"))
-    }
-}
-
-// MARK: - WebKit rendering
-
-/// Renders an HTML file in WebKit and captures the first `.page` section.
-@MainActor
-enum WebSnapshot {
-    static func firstPage(of url: URL, width: CGFloat = 840) async throws -> CGImage {
-        let view = WKWebView(frame: CGRect(x: 0, y: 0, width: width, height: 1200))
-        let delegate = LoadDelegate()
-        view.navigationDelegate = delegate
-        view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        try await delegate.finished()
-        // Let the fit-to-width script run after load.
-        try await Task.sleep(for: .milliseconds(300))
-        let frame = try await view.evaluateJavaScript(
-            "(() => { const r = document.querySelector('.page').getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()"
-        ) as? [Double] ?? []
-        guard frame.count == 4 else { throw DocumentError.unreadable("No page in the HTML") }
-        view.frame.size.height = max(1200, frame[1] + frame[3] + 20)
-        let configuration = WKSnapshotConfiguration()
-        configuration.rect = CGRect(x: frame[0], y: frame[1], width: frame[2], height: frame[3])
-        let image = try await view.takeSnapshot(configuration: configuration)
-        return try #require(image.cgImage)
-    }
-
-    private final class LoadDelegate: NSObject, WKNavigationDelegate {
-        private var continuation: CheckedContinuation<Void, Error>?
-        private var done = false
-
-        func finished() async throws {
-            if done { return }
-            try await withCheckedThrowingContinuation { self.continuation = $0 }
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            done = true
-            continuation?.resume()
-            continuation = nil
-        }
-
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            done = true
-            continuation?.resume(throwing: error)
-            continuation = nil
-        }
-
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            self.webView(webView, didFail: navigation, withError: error)
-        }
     }
 }
