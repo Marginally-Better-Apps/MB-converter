@@ -124,3 +124,28 @@ extension ToolInputFactory {
         #expect(QuickLookStandIn.item(for: png).previewItemURL == png, "Formats Quick Look handles are shown as-is")
     }
 }
+
+/// Imported files keep names people recognize: on the settings screen, results and History.
+@Suite struct ImportNamingTests {
+    @Test func importsKeepTheirOriginalName() throws {
+        let source = TestSupport.tempURL("pdf")
+        try Data("x".utf8).write(to: source)
+        let named = source.deletingLastPathComponent().appendingPathComponent("Quarterly Report.pdf")
+        try? FileManager.default.removeItem(at: named)
+        try FileManager.default.moveItem(at: source, to: named)
+        let copy = try ImportStorage.copyFile(at: named, fallbackExtension: "pdf")
+        #expect(copy.lastPathComponent == "Quarterly Report.pdf")
+        // Two imports of the same name never collide.
+        let second = try ImportStorage.copyFile(at: named, fallbackExtension: "pdf")
+        #expect(second != copy && second.lastPathComponent == "Quarterly Report.pdf")
+    }
+
+    @Test func machineGeneratedNamesBecomeReadable() {
+        let date = Date(timeIntervalSince1970: 1_793_000_000)
+        let name = ImportStorage.displayBaseName("0FE7FDEB-94A1-4C2B-9D3E-7A6B0BD95629.jpeg", kind: "Photo", now: date)
+        #expect(name.hasPrefix("Photo ") && name.contains(" at "), "Got \(name)")
+        #expect(!name.contains(":") && !name.contains("/"), "File-name-safe: \(name)")
+        #expect(ImportStorage.displayBaseName("IMG_1234.HEIC", kind: "Photo") == "IMG_1234")
+        #expect(ImportStorage.displayBaseName(nil, kind: "Pasted", now: date).hasPrefix("Pasted "))
+    }
+}

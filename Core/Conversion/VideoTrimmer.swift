@@ -59,7 +59,7 @@ enum VideoTrimmer {
         else if types.contains(.mp4) { fileType = .mp4 }
         else { throw ConversionError.invalidInput("This video can't be trimmed on this device.") }
 
-        let outputURL = ImportStorage.url(originalName: nil, fallbackExtension: fileType == .mov ? "mov" : "mp4")
+        let outputURL = ImportStorage.url(originalName: sourceURL.lastPathComponent, fallbackExtension: fileType == .mov ? "mov" : "mp4", kind: "Video")
         session.outputURL = outputURL
         session.outputFileType = fileType
         session.timeRange = range.timeRange

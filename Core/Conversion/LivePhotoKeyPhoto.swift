@@ -49,7 +49,8 @@ enum LivePhotoKeyPhoto {
 
         let type: UTType = (CGImageDestinationCopyTypeIdentifiers() as? [String] ?? [])
             .contains(UTType.heic.identifier) ? .heic : .jpeg
-        let outputURL = ImportStorage.url(originalName: nil, fallbackExtension: type.preferredFilenameExtension ?? "jpg")
+        let outputURL = ImportStorage.url(originalName: stillURL.deletingPathExtension().lastPathComponent + "." + (type.preferredFilenameExtension ?? "jpg"),
+                                          fallbackExtension: type.preferredFilenameExtension ?? "jpg", kind: "Photo")
         do {
             try await Task.detached(priority: .userInitiated) {
                 guard let destination = CGImageDestinationCreateWithURL(
