@@ -277,6 +277,52 @@ enum Ghostscript {
     }
 }
 
+/// Repairs a damaged PDF two ways and keeps the better one: Ghostscript's rebuild, or a clean
+/// re-save of what Apple's PDF engine recovers (it sometimes recovers objects Ghostscript's repair
+/// mode drops, such as a figure whose xref entry was lost).
+enum PDFRepair {
+    struct Result: Sendable {
+        let problems: [String]
+        let pageCount: Int
+    }
+
+    static func repair(_ input: URL, to output: URL, password: String? = nil, cancel: Ghostscript.CancelFlag? = nil) throws -> Result {
+        var apple = PDFDocument(url: input)
+        if let document = apple, document.isLocked, !(password.map { document.unlock(withPassword: $0) } ?? false) { apple = nil }
+        if (apple?.pageCount ?? 0) == 0 { apple = nil }
+
+        let scratch = output.deletingLastPathComponent().appendingPathComponent(".repair-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        var report: Ghostscript.RepairReport?
+        var failure: Error?
+        do {
+            report = try Ghostscript.repair(input, to: scratch, password: password, cancel: cancel)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            failure = error
+        }
+        let rebuilt = report == nil ? nil : PDFDocument(url: scratch)
+        if let rebuilt, rebuilt.pageCount > 0 {
+            // Keep Ghostscript's rebuild unless Apple recovered more pages or a fuller page.
+            if let apple, apple.pageCount > rebuilt.pageCount || (apple.pageCount == rebuilt.pageCount && !PDFFidelity.looksTheSame(apple, rebuilt)) {
+                DiagnosticsLog.shared.record(message: "Ghostscript repair missed content; using Apple's recovery", context: "PDF repair")
+            } else {
+                try? FileManager.default.removeItem(at: output)
+                try FileManager.default.moveItem(at: scratch, to: output)
+                return Result(problems: report?.problems ?? [], pageCount: rebuilt.pageCount)
+            }
+        }
+        guard let apple else { throw failure ?? Ghostscript.Failure(code: -1, log: "**** The file couldn't be read.") }
+        try? FileManager.default.removeItem(at: output)
+        guard apple.write(to: output), let saved = PDFDocument(url: output), saved.pageCount > 0 else {
+            throw DocumentError.writeFailed("The repaired PDF couldn't be saved.")
+        }
+        let problems = report?.problems ?? []
+        return Result(problems: problems.isEmpty ? ["Structural errors were repaired"] : problems, pageCount: saved.pageCount)
+    }
+}
+
 /// Structural checks for archival PDFs.
 enum PDFArchival {
     /// Names of fonts used on any page without an embedded font program (PDF/A forbids these).

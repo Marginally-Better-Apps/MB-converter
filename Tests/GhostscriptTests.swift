@@ -165,6 +165,11 @@ struct GhostscriptTests {
         #expect(pdf.pageCount == 4)
         #expect(Corpus.contains(pdf.page(at: 3)?.string ?? "", "References Cited"))
         #expect(output.summary?.hasPrefix("Fixed") == true, "summary: \(output.summary ?? "nil")")
+        // Every page must look like the undamaged report, figures included.
+        let original = try #require(PDFDocument(url: try SelfTestFixtures.sample("usgs-streamstats.pdf")))
+        for index in 0 ..< 4 {
+            try CorpusPageToolTests.expectSameLook(pdf, index, as: original, index, tolerance: 6, "repaired page \(index + 1)")
+        }
         // The rebuilt file has a sound cross-reference table: CoreGraphics opens it without repair.
         let data = try Data(contentsOf: output.files[0].url)
         let tail = String(decoding: data.suffix(64), as: UTF8.self)

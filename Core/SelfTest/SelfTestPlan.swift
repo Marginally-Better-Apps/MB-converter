@@ -234,6 +234,10 @@ enum SelfTestPlan {
             var problems: [String] = []
             if pdf.pageCount != 4 { problems.append("recovered \(pdf.pageCount) of 4 pages") }
             if !(pdf.page(at: 0)?.string ?? "").contains("StreamStats") { problems.append("page 1 lost its text") }
+            if let original = PDFDocument(url: try SelfTestFixtures.sample("usgs-streamstats.pdf")),
+               let difference = PDFFidelity.worstPageDifference(original, pdf), difference > 6 {
+                problems.append("pages don't look like the undamaged report (difference \(Int(difference)))")
+            }
             return problems
         case "pdf.pdfa":
             guard let url = output.files.first?.url else { return ["no PDF"] }

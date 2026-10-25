@@ -427,8 +427,8 @@ extension ToolCatalog {
             guard Ghostscript.isAvailable else { throw DocumentError.unsupportedFormat("PDF repair") }
             let url = context.outputURL("\(input.baseName)-repaired", "pdf")
             let password = context.password
-            let report = try await Ghostscript.cancellable { flag in try Ghostscript.repair(input.url, to: url, password: password, cancel: flag) }
-            let pages = PDFDocument(url: url)?.pageCount ?? 0
+            let report = try await Ghostscript.cancellable { flag in try PDFRepair.repair(input.url, to: url, password: password, cancel: flag) }
+            let pages = report.pageCount
             let summary = report.problems.isEmpty
                 ? "Rebuilt cleanly · \(ToolHelpers.pageCountSummary(pages))"
                 : "Fixed \(report.problems.count) problem\(report.problems.count == 1 ? "" : "s") · \(ToolHelpers.pageCountSummary(pages))"
