@@ -28,8 +28,13 @@ if [ ! -d Native/ImageMagick/Artifacts/MBImageMagickBridge.xcframework ]; then
     echo "Build the image runtime first: python3 Scripts/BuildImageMagick.py --platform ios" >&2
     exit 1
 fi
+if [ ! -d Native/Ghostscript/Artifacts/MBGhostscriptBridge.xcframework ]; then
+    echo "Build the PDF/PostScript runtime first: python3 Scripts/BuildGhostscript.py --platform ios" >&2
+    exit 1
+fi
 python3 Scripts/VerifyFFmpeg.py
 python3 Scripts/VerifyImageMagick.py
+python3 Scripts/VerifyGhostscript.py
 python3 Scripts/VerifyWebP.py
 xcodebuild \
     -project Converter.xcodeproj \
@@ -95,6 +100,9 @@ with zipfile.ZipFile(sys.argv[1]) as ipa:
     magick = 'Payload/Converter.app/Frameworks/MBImageMagickBridge.framework/'
     assert ipa.getinfo(magick + 'MBImageMagickBridge').file_size > 0
     assert ipa.getinfo(magick + 'Licenses/ImageMagick/LICENSE').file_size > 0
+    ghostscript = 'Payload/Converter.app/Frameworks/MBGhostscriptBridge.framework/'
+    assert ipa.getinfo(ghostscript + 'MBGhostscriptBridge').file_size > 0
+    assert ipa.getinfo(ghostscript + 'Licenses/Ghostscript/COPYING (GNU AGPL 3.0)').file_size > 0
     assert not any('/_CodeSignature/' in name or name.endswith('embedded.mobileprovision') for name in names)
     print(f"Validated unsigned IPA: {info['CFBundleShortVersionString']} ({info['CFBundleVersion']})")
 PY

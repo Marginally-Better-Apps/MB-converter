@@ -256,6 +256,57 @@ enum SelfTestCatalog {
             if back.allImages.count < 2 { problems.append("kept \(back.allImages.count) pictures") }
             if !back.plainText.contains("StreamStats") { problems.append("lost the text “StreamStats”") }
             return .init(problems: problems, outputs: [url], note: "\(back.allImages.count) pictures")
+        },
+        SelfTestCase(id: "pdf.ghostscript-eps", title: "EPS artwork becomes a cropped vector PDF and sharp PNG", group: .pdfFidelity) {
+            let eps = SelfTestFixtures.tempURL("eps")
+            try Data(SelfTestFixtures.epsArtwork.utf8).write(to: eps)
+            let context = ToolContext(inputs: [], options: ToolOptionValues())
+            let input = try ToolInputFile(url: eps)
+            let pdfURL = try SelfTestFixtures.require(try await ConversionEngine.convert(input, to: .pdf, settings: .init(), context: context).first)
+            let pngURL = try SelfTestFixtures.require(try await ConversionEngine.convert(input, to: .png, settings: .init(), context: context).first)
+            var problems: [String] = []
+            let page = try SelfTestFixtures.require(PDFDocument(url: pdfURL)?.page(at: 0))
+            let size = page.bounds(for: .mediaBox).size
+            if abs(size.width - 200) > 1.5 || abs(size.height - 120) > 1.5 { problems.append("page is \(size), not the 200×120 pt artwork") }
+            if !(page.string ?? "").contains("Hello EPS") { problems.append("the text didn't stay text") }
+            let pixels = try PixelProbe(try Data(contentsOf: pngURL))
+            let card = pixels.at(0.9, 0.9)
+            if !(card.b > 150 && card.r < 80) { problems.append("artwork color came out \(card)") }
+            return .init(problems: problems, outputs: [pdfURL, pngURL], note: "Ghostscript \(Ghostscript.version) · PNG \(pixels.width)×\(pixels.height)")
+        },
+        SelfTestCase(id: "pdf.ghostscript-compress", title: "Compressing the USGS report keeps vectors, text and links", group: .pdfFidelity) {
+            let source = try SelfTestFixtures.sample("usgs-streamstats.pdf")
+            let output = SelfTestFixtures.tempURL("pdf")
+            let result = try await Ghostscript.cancellable { flag in try PDFCompressor.compress(source, level: .balanced, to: output, cancel: flag) }
+            let original = try SelfTestFixtures.require(PDFDocument(url: source))
+            let compressed = try SelfTestFixtures.require(PDFDocument(url: output))
+            var problems: [String] = []
+            if result.compressedBytes > result.originalBytes * 6 / 10 { problems.append("only shrank to \(result.compressedBytes.formattedBytes)") }
+            if !(compressed.string ?? "").contains("References Cited") { problems.append("lost text") }
+            let links = (0 ..< compressed.pageCount).flatMap { compressed.page(at: $0)?.annotations ?? [] }.filter { $0.type == "Link" }.count
+            if links != 9 { problems.append("kept \(links) of 9 links") }
+            let before = try SelfTestFixtures.require(PDFRasterizer.image(page: try SelfTestFixtures.require(original.page(at: 0)), dpi: 50))
+            let after = try SelfTestFixtures.require(PDFRasterizer.image(page: try SelfTestFixtures.require(compressed.page(at: 0)), dpi: 50))
+            let difference = Look.difference(before, after)
+            if difference > 10 { problems.append("page 1 looks different (\(Int(difference)))") }
+            return .init(problems: problems, outputs: [output], note: ToolHelpers.savings(before: result.originalBytes, after: result.compressedBytes))
+        },
+        SelfTestCase(id: "pdf.ghostscript-sandbox", title: "PostScript can't read files or run commands", group: .pdfFidelity) {
+            let secret = SelfTestFixtures.tempURL("txt")
+            try Data("secret".utf8).write(to: secret)
+            let marker = SelfTestFixtures.tempURL("txt")
+            let hostile = SelfTestFixtures.tempURL("ps")
+            try Data("""
+            %!PS
+            (%pipe%touch \(marker.path)) (w) file closefile
+            /f (\(secret.path)) (r) file def 72 700 moveto /Helvetica findfont 12 scalefont setfont f 99 string readstring pop show showpage
+            """.utf8).write(to: hostile)
+            let output = SelfTestFixtures.tempURL("pdf")
+            var problems: [String] = []
+            if (try? Ghostscript.postScriptToPDF(hostile, to: output, crop: false)) != nil { problems.append("the hostile file converted") }
+            if FileManager.default.fileExists(atPath: marker.path) { problems.append("a command ran") }
+            if (PDFDocument(url: output)?.string ?? "").contains("secret") { problems.append("a private file was read") }
+            return .init(problems: problems)
         }
     ]
 

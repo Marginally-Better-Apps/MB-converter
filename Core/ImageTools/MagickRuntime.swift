@@ -65,7 +65,8 @@ enum Magick {
         #endif
     }
 
-    /// PostScript-family readers need Ghostscript (AGPL), which isn't bundled.
+    /// ImageMagick would read these through an external Ghostscript program, which iOS can't run;
+    /// the app reads them with the bundled Ghostscript library instead (see `Ghostscript`).
     private static let ghostscriptCoders: Set<String> = ["eps", "epsf", "epsi", "epi", "ept", "ps", "ps2", "ps3", "pdf", "pdfa", "ai", "xps"]
 
     static func canRead(_ ext: String) -> Bool {

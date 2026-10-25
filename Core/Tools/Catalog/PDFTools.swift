@@ -162,7 +162,7 @@ extension ToolCatalog {
             symbol: "arrow.down.right.and.arrow.up.left", category: .pdf, input: .many([.pdf], noun: "PDFs"),
             options: [
                 .choice("level", "Compression", PDFCompressor.Level.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: PDFCompressor.Level.balanced.rawValue, segmented: true,
-                        footnote: "Light keeps everything vector. Balanced and Strong re-render pages and keep text searchable. You always get the smallest result.")
+                        footnote: "Text, vectors and links stay sharp; images are resampled. Fillable forms keep their fields. You always get the smallest result.")
             ],
             keywords: ["reduce", "smaller", "optimize", "size", "shrink"], isFeatured: true, actionTitle: "Compress"
         ) { context in
@@ -174,7 +174,7 @@ extension ToolCatalog {
             for (index, input) in context.inputs.enumerated() {
                 let url = context.outputURL("\(input.baseName)-compressed", "pdf")
                 let password = context.password
-                let result = try await background { try PDFCompressor.compress(input.url, password: password, level: level, to: url) }
+                let result = try await Ghostscript.cancellable { flag in try PDFCompressor.compress(input.url, password: password, level: level, to: url, cancel: flag) }
                 before += result.originalBytes
                 after += result.compressedBytes
                 keptAll = keptAll && result.keptOriginal
@@ -396,8 +396,61 @@ extension ToolCatalog {
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
+            let url = context.outputURL("\(input.baseName)-grayscale", "pdf")
+            let password = context.password
+            if Ghostscript.isAvailable {
+                do {
+                    // Converts the colors themselves, so text stays text and vectors stay sharp.
+                    try await Ghostscript.cancellable { flag in try Ghostscript.grayscale(input.url, to: url, password: password, cancel: flag) }
+                    if let rewrite = PDFDocument(url: url), PDFFidelity.looksTheSame(document, rewrite, grayscale: true) {
+                        return ToolOutput(files: [url])
+                    }
+                    DiagnosticsLog.shared.record(message: "Ghostscript grayscale renders differently; re-rendering pages", context: "Ghostscript grayscale")
+                    try? FileManager.default.removeItem(at: url)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    DiagnosticsLog.shared.record(error: error, context: "Ghostscript grayscale")
+                }
+            }
             let data = try await background { PDFStamper.render(document, rasterDPI: 150, grayscale: true) }
-            return ToolOutput(files: [try ToolHelpers.write(data, "\(input.baseName)-grayscale", "pdf", context)])
+            try data.write(to: url)
+            return ToolOutput(files: [url])
+        },
+
+        ToolDefinition(
+            id: "pdf.repair", title: "Repair PDF", summary: "Rebuild damaged PDFs that won't open elsewhere",
+            symbol: "bandage", category: .pdf, input: .one([.pdf], noun: "PDF"),
+            keywords: ["fix", "corrupt", "broken", "damaged", "recover", "rebuild"], actionTitle: "Repair"
+        ) { context in
+            let input = try context.first
+            guard Ghostscript.isAvailable else { throw DocumentError.unsupportedFormat("PDF repair") }
+            let url = context.outputURL("\(input.baseName)-repaired", "pdf")
+            let password = context.password
+            let report = try await Ghostscript.cancellable { flag in try Ghostscript.repair(input.url, to: url, password: password, cancel: flag) }
+            let pages = PDFDocument(url: url)?.pageCount ?? 0
+            let summary = report.problems.isEmpty
+                ? "Rebuilt cleanly · \(ToolHelpers.pageCountSummary(pages))"
+                : "Fixed \(report.problems.count) problem\(report.problems.count == 1 ? "" : "s") · \(ToolHelpers.pageCountSummary(pages))"
+            return ToolOutput(files: [url], summary: summary, text: report.problems.isEmpty ? nil : report.problems.joined(separator: "\n"))
+        },
+
+        ToolDefinition(
+            id: "pdf.pdfa", title: "Convert to PDF/A", summary: "Archive-ready PDFs for records and court filings",
+            symbol: "archivebox", category: .pdf, input: .one([.pdf], noun: "PDF"),
+            options: [
+                .choice("part", "Standard", [ToolChoice("2", "PDF/A-2b"), ToolChoice("1", "PDF/A-1b"), ToolChoice("3", "PDF/A-3b")], segmented: true,
+                        footnote: "PDF/A-2b suits most archives. Choose 1b only if a portal asks for it: it can't hold transparency, so pages that use it become images. Fonts are embedded and colors set to sRGB; passwords and form fields are removed.")
+            ],
+            keywords: ["pdfa", "pdf/a", "archive", "archival", "iso 19005", "long term", "court", "records"], actionTitle: "Convert"
+        ) { context in
+            let input = try context.first
+            guard Ghostscript.isAvailable else { throw DocumentError.unsupportedFormat("PDF/A") }
+            let part = min(max(context.options.int("part"), 1), 3)
+            let url = context.outputURL("\(input.baseName)-PDFA", "pdf")
+            let password = context.password
+            try await Ghostscript.cancellable { flag in try Ghostscript.pdfA(input.url, to: url, part: part, password: password, cancel: flag) }
+            return ToolOutput(files: [url], summary: "PDF/A-\(part)b · fonts embedded")
         },
 
         ToolDefinition(

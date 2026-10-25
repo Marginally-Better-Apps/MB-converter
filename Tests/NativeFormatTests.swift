@@ -51,7 +51,8 @@ struct ImageMagickFormatTests {
         let image = try ImageToolkit.load(psd)
         #expect(image.width == 90)
         #expect(ConversionTargets.targets(for: .psd).contains(.png))
-        #expect(ConversionTargets.targets(for: .eps).isEmpty)
+        // EPS is read by Ghostscript, so it converts like other artwork.
+        #expect(ConversionTargets.targets(for: .eps).prefix(2) == [.pdf, .png])
     }
 
     @Test func avifFallsBackToSVTAV1() throws {

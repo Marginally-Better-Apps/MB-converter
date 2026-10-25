@@ -41,6 +41,7 @@ python3 -m venv build/ffmpeg/tools
 build/ffmpeg/tools/bin/python -m pip install meson==1.7.2 ninja==1.11.1.3
 python3 Scripts/BuildFFmpeg.py --platform ios --platform ios-simulator
 python3 Scripts/BuildImageMagick.py --platform ios --platform ios-simulator
+python3 Scripts/BuildGhostscript.py --platform ios --platform ios-simulator
 python3 Scripts/VerifyFFmpeg.py
 ```
 
@@ -279,7 +280,7 @@ The continued-processing registration smoke test runs only on a physical iOS 26+
 
 ## License
 
-The application and original adapter source are under the [GNU General Public License v3.0 or later](../LICENSE) (relicensed from MIT on 2026-10-24 to bundle x264). The FFmpeg runtime is GPL-2.0-or-later because it links x264; ImageMagick, ZIPFoundation and the other bundled libraries keep their own (compatible) licenses. Retain their notices and publish the complete corresponding source — the app, `Native/` recipes and the pinned dependency sources — with every distributed build. See [Releasing](RELEASING.md) for what GPL means for App Store distribution.
+The application and original adapter source are under the [GNU General Public License v3.0 or later](../LICENSE) (relicensed from MIT on 2026-10-24 to bundle x264). The FFmpeg runtime is GPL-2.0-or-later because it links x264, and the [Ghostscript runtime](../Native/Ghostscript/README.md) is AGPL-3.0-or-later; ImageMagick, ZIPFoundation and the other bundled libraries keep their own (compatible) licenses. Retain their notices and publish the complete corresponding source — the app, `Native/` recipes and the pinned dependency sources — with every distributed build. See [Releasing](RELEASING.md) for what GPL means for App Store distribution.
 
 
 ## Background conversion

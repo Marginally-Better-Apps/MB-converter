@@ -76,4 +76,4 @@ Something not working? [Open an issue](https://github.com/Marginally-Better-Apps
 
 ## License
 
-MB Converter is free software under the [GNU General Public License v3.0 or later](LICENSE). It bundles FFmpeg with x264 (GPL-2.0-or-later), ImageMagick and other libraries under their own compatible licenses; the in-app **Open Source Licenses** screen lists them all.
+MB Converter is free software under the [GNU General Public License v3.0 or later](LICENSE). It bundles FFmpeg with x264 (GPL-2.0-or-later), Ghostscript (AGPL-3.0-or-later), ImageMagick and other libraries under their own compatible licenses; the in-app **Open Source Licenses** screen lists them all.

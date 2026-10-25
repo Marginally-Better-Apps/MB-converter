@@ -53,6 +53,15 @@ jobs:
             build/imagemagick/downloads
           key: magick-${{ hashFiles('Native/ImageMagick/sources.json', 'Native/MBImageMagickBridge/**', 'Scripts/BuildImageMagick.py') }}
 
+      - name: Restore Ghostscript runtime cache
+        id: ghostscript-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            Native/Ghostscript/Artifacts
+            build/ghostscript/downloads
+          key: ghostscript-${{ hashFiles('Native/Ghostscript/sources.json', 'Native/Ghostscript/patches/**', 'Native/MBGhostscriptBridge/**', 'Scripts/BuildGhostscript.py') }}
+
       - name: Install native build tools
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true' || steps.magick-cache.outputs.cache-hit != 'true'
         run: |
@@ -88,10 +97,24 @@ jobs:
             build/imagemagick/downloads
           key: ${{ steps.magick-cache.outputs.cache-primary-key }}
 
+      - name: Build pinned Ghostscript runtime (device + simulator slices)
+        if: steps.ghostscript-cache.outputs.cache-hit != 'true'
+        run: python3 Scripts/BuildGhostscript.py --platform ios --platform ios-simulator
+
+      - name: Save Ghostscript runtime cache
+        if: steps.ghostscript-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            Native/Ghostscript/Artifacts
+            build/ghostscript/downloads
+          key: ${{ steps.ghostscript-cache.outputs.cache-primary-key }}
+
       - name: Verify native runtimes
         run: |
           python3 Scripts/VerifyFFmpeg.py
           python3 Scripts/VerifyImageMagick.py
+          python3 Scripts/VerifyGhostscript.py
 
       - name: Pick a simulator
         id: sim
@@ -144,3 +167,18 @@ jobs:
         run: python3 Scripts/BuildImageMagick.py --platform macos --libraries-only
       - name: Round-trip formats, resource limits and failure handling
         run: python3 Native/MBImageMagickBridge/tests/run_tests.py
+
+  ghostscript-bridge:
+    name: Ghostscript bridge (macOS host)
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build pinned macOS Ghostscript framework
+        run: python3 Scripts/BuildGhostscript.py --platform macos
+      - name: Conversion, sandboxing, failure handling and cancellation
+        run: python3 Native/MBGhostscriptBridge/tests/run_tests.py

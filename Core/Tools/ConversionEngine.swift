@@ -34,6 +34,12 @@ enum ConversionEngine {
         let base = input.baseName
 
         switch (source.family, target.family) {
+        case (.pdf, _) where target == .eps || target == .ps:
+            return try await exportPostScript(input, as: target, settings: settings, context: context)
+
+        case (.image, _) where source.isPostScript:
+            return try await convertPostScript(input, to: target, settings: settings, context: context)
+
         case (.pdf, .image):
             let document = try PDFToolkit.open(input.url, password: settings.password ?? context.password)
             if target == .tiff {
@@ -174,6 +180,70 @@ enum ConversionEngine {
         }
         try await SpreadsheetConverter.write(workbook, as: target, options: options, sheetIndex: settings.sheetIndex, to: url)
         return [url]
+    }
+
+    /// PDF → PostScript (one file) or EPS (one file per page).
+    private static func exportPostScript(_ input: ToolInputFile, as target: FileFormat, settings: Settings, context: ToolContext) async throws -> [URL] {
+        let password = settings.password ?? context.password
+        let directory = context.outputDirectory
+        let files = try await Ghostscript.cancellable { flag in
+            try Ghostscript.export(input.url, as: target == .eps ? .eps : .ps, into: directory, password: password, cancel: flag)
+        }
+        return try name(files, base: input.baseName, ext: target.fileExtension, context: context)
+    }
+
+    /// Gives scratch outputs their final names: "base.ext", or "base-page-N.ext" for several.
+    private static func name(_ files: [URL], base: String, ext: String, context: ToolContext) throws -> [URL] {
+        try files.enumerated().map { index, file in
+            let url = context.outputURL(files.count == 1 ? base : "\(base)-page-\(index + 1)", ext)
+            try FileManager.default.moveItem(at: file, to: url)
+            return url
+        }
+    }
+
+    /// EPS, PostScript or Illustrator → PDF, images, or the other PostScript flavor.
+    private static func convertPostScript(_ input: ToolInputFile, to target: FileFormat, settings: Settings, context: ToolContext) async throws -> [URL] {
+        let base = input.baseName
+        // EPS and AI are artwork: crop to the drawing and keep its transparency.
+        let artwork = input.format != .ps
+        switch target {
+        case .pdf:
+            let url = context.outputURL(base, "pdf")
+            try await Ghostscript.cancellable { flag in try Ghostscript.postScriptToPDF(input.url, to: url, crop: artwork, cancel: flag) }
+            return [url]
+        case .eps, .ps:
+            let pdf = context.outputDirectory.appendingPathComponent(".\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: pdf) }
+            try await Ghostscript.cancellable { flag in try Ghostscript.postScriptToPDF(input.url, to: pdf, crop: artwork, cancel: flag) }
+            let directory = context.outputDirectory
+            let files = try await Ghostscript.cancellable { flag in try Ghostscript.export(pdf, as: target == .eps ? .eps : .ps, into: directory, cancel: flag) }
+            return try name(files, base: base, ext: target.fileExtension, context: context)
+        default:
+            guard let format = ImageToolkit.OutputFormat(fileFormat: target) else {
+                throw DocumentError.unsupportedFormat(target.displayName)
+            }
+            // Artwork renders sharp at 300 dpi; PostScript documents use the chosen page resolution.
+            let dpi = artwork ? 300 : Int(settings.imageDPI)
+            let transparent = artwork && target != .jpeg
+            let directory = context.outputDirectory
+            let pages = try await Ghostscript.cancellable { flag in
+                try Ghostscript.renderPNG(input.url, dpi: dpi, transparent: transparent, crop: artwork, into: directory, cancel: flag)
+            }
+            defer { pages.forEach { try? FileManager.default.removeItem(at: $0) } }
+            let quality = settings.imageQuality
+            var urls: [URL] = []
+            for (index, page) in pages.enumerated() {
+                let url = context.outputURL(pages.count == 1 ? base : "\(base)-page-\(index + 1)", format.fileExtension)
+                if target == .png {
+                    try FileManager.default.copyItem(at: page, to: url)
+                } else {
+                    let image = try await background { try ImageToolkit.load(page) }
+                    try await background { try ImageToolkit.encode(image, as: format, quality: quality) }.write(to: url)
+                }
+                urls.append(url)
+            }
+            return urls
+        }
     }
 
     private static func temporaryPNG(_ image: UIImage) throws -> URL {

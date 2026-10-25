@@ -138,6 +138,40 @@ enum SelfTestFixtures {
         ]
     )
 
+    /// Vector EPS artwork: a blue 200×120 pt card with white "Hello EPS" text and a black diagonal.
+    /// The bounding box sits at (50, 40) so cropping to it is observable.
+    static let epsArtwork = """
+    %!PS-Adobe-3.0 EPSF-3.0
+    %%BoundingBox: 50 40 250 160
+    %%EndComments
+    0.1 0.3 0.8 setrgbcolor 50 40 200 120 rectfill
+    /Helvetica-Bold findfont 28 scalefont setfont
+    1 1 1 setrgbcolor 64 85 moveto (Hello EPS) show
+    0 0 0 setrgbcolor 4 setlinewidth 50 40 moveto 250 160 lineto stroke
+    showpage
+    %%EOF
+    """
+
+    /// A two-page US Letter PostScript document with searchable text on each page.
+    static func postScriptDocument(pages: Int = 2) -> String {
+        var text = "%!PS-Adobe-3.0\n%%Pages: \(pages)\n%%EndComments\n/Helvetica findfont 24 scalefont setfont\n"
+        for page in 1 ... pages {
+            text += "%%Page: \(page) \(page)\n<< /PageSize [612 792] >> setpagedevice\n"
+            text += "0.8 0.1 0.1 setrgbcolor 72 600 200 100 rectfill\n0 0 0 setrgbcolor 72 700 moveto (PostScript page \(page)) show\nshowpage\n"
+        }
+        return text + "%%EOF\n"
+    }
+
+    /// A PDF whose cross-reference pointer is wrong and whose last 20 KB are missing, as from an
+    /// interrupted download.
+    static func damagedPDF() throws -> URL {
+        let data = try Data(contentsOf: try sample("usgs-streamstats.pdf"))
+        let cut = data.prefix(data.count - 20_000)
+        let url = tempURL("pdf")
+        try (cut + Data("\nstartxref\n12345\n%%EOF\n".utf8)).write(to: url)
+        return url
+    }
+
     /// The print-PDF case from the field: a CMYK JPEG (Adobe-inverted, with /Decode) plus a soft mask
     /// whose top-right quarter is transparent, drawn at (100, 400) sized 200×200.
     static func cmykMaskedPDF() throws -> Data {

@@ -48,6 +48,9 @@ jobs:
       - name: Build pinned ImageMagick runtime for iOS
         run: python3 Scripts/BuildImageMagick.py --platform ios
 
+      - name: Build pinned Ghostscript runtime for iOS
+        run: python3 Scripts/BuildGhostscript.py --platform ios
+
       - name: Archive and package IPA
         id: ipa
         env:

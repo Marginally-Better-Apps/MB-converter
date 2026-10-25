@@ -26,6 +26,8 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
     case jpeg, png, heic, webp, tiff, gif, bmp, svg
     // Images handled by ImageMagick (or ImageIO where available)
     case avif, jxl, jp2, psd, tga, ico, pnm, pcx, qoi, dds, sgi, xpm, hdr, eps
+    // Vector artwork and print files (read with Ghostscript)
+    case ps, ai
     // Media (handled by the FFmpeg pipeline)
     case mp4, mov, m4v, mkv, webm, avi, mp3, m4a, wav, aac, flac, ogg, opus
     // Archives
@@ -40,7 +42,7 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
         case .xlsx, .ods, .csv, .tsv, .json, .xml: .spreadsheet
         case .pptx: .presentation
         case .jpeg, .png, .heic, .webp, .tiff, .gif, .bmp, .svg,
-             .avif, .jxl, .jp2, .psd, .tga, .ico, .pnm, .pcx, .qoi, .dds, .sgi, .xpm, .hdr, .eps: .image
+             .avif, .jxl, .jp2, .psd, .tga, .ico, .pnm, .pcx, .qoi, .dds, .sgi, .xpm, .hdr, .eps, .ps, .ai: .image
         case .mp4, .mov, .m4v, .mkv, .webm, .avi: .video
         case .mp3, .m4a, .wav, .aac, .flac, .ogg, .opus: .audio
         case .zip: .archive
@@ -96,6 +98,8 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
         case .xpm: "X Pixmap"
         case .hdr: "Radiance HDR"
         case .eps: "EPS"
+        case .ps: "PostScript"
+        case .ai: "Illustrator"
         case .zip: "ZIP"
         default: rawValue.uppercased()
         }
@@ -116,7 +120,7 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
         case .document: self == .epub ? "book.closed" : "doc.text"
         case .spreadsheet: self == .json || self == .xml ? "curlybraces" : "tablecells"
         case .presentation: "rectangle.on.rectangle.angled"
-        case .image: "photo"
+        case .image: isPostScript ? "scribble.variable" : "photo"
         case .video: "film"
         case .audio: "waveform"
         case .archive: "doc.zipper"
@@ -169,7 +173,7 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
         "psd": .psd, "psb": .psd, "tga": .tga, "icb": .tga, "ico": .ico, "cur": .ico,
         "ppm": .pnm, "pgm": .pnm, "pbm": .pnm, "pnm": .pnm, "pam": .pnm,
         "pcx": .pcx, "qoi": .qoi, "dds": .dds, "sgi": .sgi, "rgb": .sgi, "xpm": .xpm, "hdr": .hdr,
-        "eps": .eps, "epsf": .eps,
+        "eps": .eps, "epsf": .eps, "epsi": .eps, "ps": .ps, "ai": .ai,
         "mp4": .mp4, "mov": .mov, "m4v": .m4v, "mkv": .mkv, "webm": .webm, "avi": .avi,
         "mp3": .mp3, "m4a": .m4a, "wav": .wav, "aac": .aac, "flac": .flac, "ogg": .ogg, "opus": .opus,
         "zip": .zip
@@ -196,6 +200,9 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
     /// Raster images the tools can decode (ImageIO, or ImageMagick for the rest).
     static let stillImages: [FileFormat] = [.jpeg, .png, .heic, .webp, .tiff, .gif, .bmp,
                                             .avif, .jxl, .jp2, .psd, .tga, .ico, .pnm, .pcx, .qoi, .dds, .sgi, .xpm, .hdr]
+
+    /// EPS, PostScript and Illustrator files, which Ghostscript reads.
+    var isPostScript: Bool { self == .eps || self == .ps || self == .ai }
 
     /// ImageMagick coder name used when ImageIO can't handle the format.
     var magickCoder: String? {
@@ -230,15 +237,19 @@ enum ConversionTargets {
     static func targets(for source: FileFormat) -> [FileFormat] {
         switch source.family {
         case .pdf:
-            return [.docx, .jpeg, .png, .txt, .odt, .rtf, .markdown, .html, .epub, .tiff, .csv, .xlsx]
+            let postScript: [FileFormat] = Ghostscript.isAvailable ? [.eps, .ps] : []
+            return [.docx, .jpeg, .png, .txt, .odt, .rtf, .markdown, .html, .epub, .tiff, .csv, .xlsx] + postScript
         case .document:
             return FileFormat.documentWritable.filter { $0 != source }
         case .presentation:
             return [.pdf, .png, .jpeg, .docx, .txt, .markdown, .html]
         case .spreadsheet:
             return FileFormat.spreadsheetWritable.filter { $0 != source }
+        case .image where source.isPostScript:
+            guard Ghostscript.isAvailable else { return [] }
+            let raster = [FileFormat.png, .jpeg, .webp, .heic, .tiff].filter { ImageToolkit.OutputFormat(fileFormat: $0)?.isAvailable ?? false }
+            return [.pdf] + raster + [FileFormat.eps, .ps].filter { $0 != source }
         case .image:
-            if source == .eps { return [] } // EPS can be written, not read (that needs Ghostscript).
             let raster: [FileFormat] = [.png, .jpeg, .webp, .heic, .avif, .jxl, .tiff, .gif, .bmp, .psd, .tga,
                                         .ico, .jp2, .qoi, .pnm, .pcx, .dds, .sgi, .xpm, .hdr, .eps]
             return [.pdf] + raster.filter { $0 != source && (ImageToolkit.OutputFormat(fileFormat: $0)?.isAvailable ?? false) }

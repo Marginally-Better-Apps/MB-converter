@@ -9,7 +9,7 @@ struct OpenSourceLicensesView: View {
     }
 
     private var notices: [Notice] {
-        ["MBFFmpegBridge", "MBImageMagickBridge"].flatMap { framework -> [Notice] in
+        ["MBFFmpegBridge", "MBImageMagickBridge", "MBGhostscriptBridge"].flatMap { framework -> [Notice] in
             guard let root = Bundle.main.privateFrameworksURL?
                 .appendingPathComponent("\(framework).framework/Licenses"),
                   let enumerator = FileManager.default.enumerator(
@@ -32,9 +32,11 @@ struct OpenSourceLicensesView: View {
                 Text("MB Converter is free software under the GNU General Public License version 3 or later. You can get its complete source code, and the source and build recipes for every bundled library, from the project page below.")
                 Text("Video and audio use FFmpeg and x264 under the GNU General Public License version 2 or later, together with LAME, Opus, Vorbis, Ogg, Theora, libvpx, SVT-AV1, libwebp, dav1d and zimg under their own licenses.")
                 Text("Image formats use ImageMagick (ImageMagick License) with libpng, libjpeg-turbo, libtiff, libwebp, OpenJPEG, Little CMS, libjxl, Highway and Brotli, each under its own permissive license.")
+                Text("PDF compression, PDF/A, repair and EPS, PostScript and Illustrator files use Ghostscript (© Artifex Software) under the GNU Affero General Public License version 3, with FreeType, Little CMS, OpenJPEG, jbig2dec, libtiff, libpng, libjpeg and zlib under their own licenses.")
                 Text("This software is based in part on the work of the Independent JPEG Group.")
                 Text("Office, OpenDocument and EPUB packages are read and written with ZIPFoundation (MIT License, © Thomas Zoechling).")
                 linkRow("FFmpeg project", destination: URL(string: "https://ffmpeg.org")!)
+                linkRow("Ghostscript source", destination: URL(string: "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/tag/gs10080")!)
                 linkRow("ZIPFoundation", destination: URL(string: "https://github.com/weichsel/ZIPFoundation")!)
                 linkRow("App source and build instructions", destination: URL(string: "https://github.com/Marginally-Better-Apps/MB-converter")!)
             }

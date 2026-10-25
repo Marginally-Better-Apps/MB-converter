@@ -4,9 +4,9 @@
 
 ## License obligations (GPL)
 
-Since 2026-10-24 the app is GPL-3.0-or-later and its FFmpeg runtime is GPL-2.0-or-later (it links x264). Every distributed build must come with the complete corresponding source: this repository at the release commit plus the pinned sources in `Native/*/sources.json`. The release workflow already attaches a source archive and checksums to each GitHub release; keep doing that for any other channel too.
+Since 2026-10-24 the app is GPL-3.0-or-later and its FFmpeg runtime is GPL-2.0-or-later (it links x264). The Ghostscript runtime (PDF compression, PDF/A, repair, EPS/PostScript) is AGPL-3.0-or-later; the app isn't a network service, so its obligations match the GPL's. Every distributed build must come with the complete corresponding source: this repository at the release commit plus the pinned sources in `Native/*/sources.json`. The release workflow already attaches a source archive and checksums to each GitHub release; keep doing that for any other channel too.
 
-**App Store:** Apple's terms of service add usage restrictions that the FSF considers incompatible with the GPL. In practice this means a copyright holder of GPL code in the app — including the x264 and FFmpeg authors — can ask Apple to remove it (VLC was pulled in 2011 for this reason). Sideloaded/AltStore distribution of the unsigned IPA has no such conflict. Decide per release whether App Store distribution is worth that risk; building without x264 (revert to `--disable-gpl` and drop it from `sources.json`) restores the previous LGPL runtime.
+**App Store:** Apple's terms of service add usage restrictions that the FSF considers incompatible with the GPL. In practice this means a copyright holder of GPL code in the app — including the x264, FFmpeg and Ghostscript authors — can ask Apple to remove it (VLC was pulled in 2011 for this reason). Sideloaded/AltStore distribution of the unsigned IPA has no such conflict. Decide per release whether App Store distribution is worth that risk; building without x264 (revert to `--disable-gpl` and drop it from `sources.json`) restores the previous LGPL runtime.
 
 ## Automatic GitHub releases with an IPA
 
@@ -111,7 +111,7 @@ Inspect the archive to confirm:
 
 - Version, build number, identifier, app icon, device families, and deployment target are correct.
 - `PrivacyInfo.xcprivacy` is present in `Products/Applications/Converter.app`.
-- The app embeds the single device-arm64 `MBFFmpegBridge.framework` with its build manifest and licenses, plus `WebP-NOTICE.txt`. The framework source hashes must match the release source bundle.
+- The app embeds the device-arm64 `MBFFmpegBridge.framework`, `MBImageMagickBridge.framework` and `MBGhostscriptBridge.framework`, each with its build manifest and licenses, plus `WebP-NOTICE.txt`. The framework source hashes must match the release source bundle.
 - Organizer validation and the processed App Store Connect build have no unresolved errors.
 
 ## Remaining submission work

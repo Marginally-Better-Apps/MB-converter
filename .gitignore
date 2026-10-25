@@ -63,3 +63,4 @@ fastlane/test_output/
 
 # Shared Xcode schemes, package lockfiles, app assets, and release docs belong in Git.
 /Native/ImageMagick/Artifacts/
+/Native/Ghostscript/Artifacts/

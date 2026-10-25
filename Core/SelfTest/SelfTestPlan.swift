@@ -72,6 +72,8 @@ enum SelfTestPlan {
             return [try ToolInputFile(url: try await input(.gif))]
         case "pdf.extractimages":
             return [try ToolInputFile(url: try SelfTestFixtures.sample("usgs-streamstats.pdf"))]
+        case "pdf.repair":
+            return [try ToolInputFile(url: try SelfTestFixtures.damagedPDF())]
         case "pdf.flatten":
             return [try ToolInputFile(url: try SelfTestFixtures.sample("irs-w4-form.pdf"))]
         case "video.addaudio":
@@ -111,7 +113,14 @@ enum SelfTestPlan {
             let url = SelfTestFixtures.tempURL("epub")
             try EPUBWriter.write(SelfTestFixtures.sampleDocument, to: url)
             return url
-        case .avif, .jxl, .jp2, .psd, .tga, .ico, .pnm, .pcx, .qoi, .dds, .sgi, .xpm, .hdr, .eps:
+        case .eps: return try write(SelfTestFixtures.epsArtwork, "eps")
+        case .ps: return try write(SelfTestFixtures.postScriptDocument(), "ps")
+        case .ai:
+            // Illustrator saves PDF-compatible files; this is the same structure.
+            let url = SelfTestFixtures.tempURL("ai")
+            try PDFToolkit.write(SelfTestFixtures.makePDF(pages: 1, body: "Illustrator artboard"), to: url)
+            return url
+        case .avif, .jxl, .jp2, .psd, .tga, .ico, .pnm, .pcx, .qoi, .dds, .sgi, .xpm, .hdr:
             let output = try SelfTestFixtures.require(ImageToolkit.OutputFormat(fileFormat: format))
             let url = SelfTestFixtures.tempURL(output.fileExtension)
             try ImageToolkit.encode(SelfTestFixtures.makeImage(width: 320, height: 240), as: output).write(to: url)
@@ -219,6 +228,38 @@ enum SelfTestPlan {
             return pdf.pageCount == 2 ? [] : ["kept \(pdf.pageCount) pages; expected the blank one removed (2)"]
         case "pdf.extractimages":
             return output.files.count >= 2 ? [] : ["found \(output.files.count) pictures in the USGS report; expected its photo and map"]
+        case "pdf.repair":
+            // The damaged USGS report: every page must come back, with its text.
+            guard let url = output.files.first?.url, let pdf = PDFDocument(url: url) else { return ["no PDF"] }
+            var problems: [String] = []
+            if pdf.pageCount != 4 { problems.append("recovered \(pdf.pageCount) of 4 pages") }
+            if !(pdf.page(at: 0)?.string ?? "").contains("StreamStats") { problems.append("page 1 lost its text") }
+            return problems
+        case "pdf.pdfa":
+            guard let url = output.files.first?.url else { return ["no PDF"] }
+            let data = try Data(contentsOf: url)
+            var problems: [String] = []
+            if data.range(of: Data("pdfaid:part".utf8)) == nil { problems.append("no PDF/A identification in the XMP metadata") }
+            guard let document = CGPDFDocument(url as CFURL), let catalog = document.catalog else { return problems + ["unreadable PDF"] }
+            var intents: CGPDFArrayRef?
+            if !CGPDFDictionaryGetArray(catalog, "OutputIntents", &intents) { problems.append("no output intent (color profile)") }
+            let unembedded = PDFArchival.unembeddedFonts(in: document)
+            if !unembedded.isEmpty { problems.append("fonts not embedded: \(unembedded.joined(separator: ", "))") }
+            return problems
+        case "pdf.grayscale":
+            guard let url = output.files.first?.url, let page = PDFDocument(url: url)?.page(at: 0) else { return ["no PDF"] }
+            // The input has a colored picture; no pixel may keep its color.
+            let rendered = page.thumbnail(of: CGSize(width: 200, height: 260), for: .mediaBox)
+            guard let cgImage = rendered.cgImage else { return ["page didn't render"] }
+            let pixels = ImageStats.pixels(cgImage, side: 64)
+            var chroma = 0
+            for index in stride(from: 0, to: pixels.count, by: 4) {
+                chroma = max(chroma, Int(max(pixels[index], pixels[index + 1], pixels[index + 2])) - Int(min(pixels[index], pixels[index + 1], pixels[index + 2])))
+            }
+            return chroma < 12 ? [] : ["page still has color (chroma \(chroma))"]
+        case "pdf.compress":
+            guard let file = output.files.first else { return ["no PDF"] }
+            return file.byteCount <= inputs[0].byteCount ? [] : ["compressed file grew from \(inputs[0].byteCount) to \(file.byteCount) bytes"]
         case "pdf.flatten":
             guard let url = output.files.first?.url, let pdf = PDFDocument(url: url) else { return ["no PDF"] }
             let widgets = (0 ..< pdf.pageCount).flatMap { pdf.page(at: $0)?.annotations ?? [] }.filter { $0.type == "Widget" }

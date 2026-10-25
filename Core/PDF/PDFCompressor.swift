@@ -19,9 +19,18 @@ enum PDFCompressor {
 
         var detail: String {
             switch self {
-            case .light: "Recompresses images. Text and vectors untouched."
-            case .balanced: "Re-renders pages at 150 dpi. Text stays searchable."
-            case .strong: "Re-renders pages at 96 dpi for the smallest file."
+            case .light: "Optimizes images at print quality. Text and vectors untouched."
+            case .balanced: "Images at 150 dpi. Text, vectors and links kept."
+            case .strong: "Images at 72 dpi, or pages re-rendered — whichever is smallest."
+            }
+        }
+
+        /// Ghostscript image resolution for this level.
+        var ghostscript: Ghostscript.Quality {
+            switch self {
+            case .light: .printer
+            case .balanced: .ebook
+            case .strong: .screen
             }
         }
 
@@ -41,19 +50,43 @@ enum PDFCompressor {
         let keptOriginal: Bool
     }
 
-    static func compress(_ url: URL, password: String? = nil, level: Level, to output: URL) throws -> Result {
+    static func compress(_ url: URL, password: String? = nil, level: Level, to output: URL, cancel: Ghostscript.CancelFlag? = nil) throws -> Result {
         let document = try PDFToolkit.open(url, password: password)
         let originalBytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
 
+        // Vector-preserving candidates first: Ghostscript resamples images and keeps text, vectors
+        // and links, but drops fillable form fields, so forms only get PDFKit's image pass.
         var candidates: [Data] = []
-        let lightURL = FileManager.default.temporaryDirectory.appendingPathComponent("compress-\(UUID().uuidString).pdf")
-        defer { try? FileManager.default.removeItem(at: lightURL) }
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("compress-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        if Ghostscript.isAvailable, !Ghostscript.hasFormFields(document) {
+            let gsURL = scratch.appendingPathComponent("ghostscript.pdf")
+            do {
+                try Ghostscript.compress(url, to: gsURL, quality: level.ghostscript, password: password, cancel: cancel)
+                // Only if it still looks the same in Apple's renderer, which is what people view it with.
+                if let rewrite = PDFDocument(url: gsURL), PDFFidelity.looksTheSame(document, rewrite),
+                   let data = try? Data(contentsOf: gsURL) {
+                    candidates.append(data)
+                } else {
+                    DiagnosticsLog.shared.record(message: "Ghostscript result renders differently; not used", context: "Ghostscript PDF compression")
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                DiagnosticsLog.shared.record(error: error, context: "Ghostscript PDF compression")
+            }
+        }
+        let lightURL = scratch.appendingPathComponent("pdfkit.pdf")
         let copy = PDFToolkit.document(from: document, pageIndices: Array(0 ..< document.pageCount))
         if copy.write(to: lightURL, withOptions: [.saveImagesAsJPEGOption: true, .optimizeImagesForScreenOption: true]),
            let data = try? Data(contentsOf: lightURL) {
             candidates.append(data)
         }
-        if let raster = level.raster {
+        // Re-rendering pages costs sharpness, so Balanced only does it when keeping vectors saved
+        // little; Strong always tries it.
+        let bestVector = candidates.filter { !$0.isEmpty }.map(\.count).min() ?? Int.max
+        if let raster = level.raster, level == .strong || Int64(bestVector) > originalBytes * 9 / 10 {
             candidates.append(rasterized(document, dpi: raster.dpi, quality: raster.quality))
         }
         let best = candidates.filter { !$0.isEmpty }.min { $0.count < $1.count }
