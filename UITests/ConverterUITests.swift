@@ -66,6 +66,20 @@ class ConverterUITestCase: XCTestCase {
         return element
     }
 
+    /// Opens the media format menu and picks a format, retrying if a tap lands while the screen settles.
+    func chooseOutputFormat(_ name: String) {
+        let menu = wait(for: app.buttons["Output format"], 20, "No output format menu")
+        for _ in 0 ..< 3 {
+            menu.tap()
+            let choice = app.buttons[name].firstMatch
+            if choice.waitForExistence(timeout: 4) {
+                choice.tap()
+                return
+            }
+        }
+        XCTFail("The format menu didn't offer \(name)")
+    }
+
     func tapTab(_ name: String) {
         let tab = app.tabBars.buttons[name].exists ? app.tabBars.buttons[name] : app.buttons[name].firstMatch
         wait(for: tab, 10, "No \(name) tab").tap()
@@ -126,7 +140,8 @@ class ConverterUITestCase: XCTestCase {
         row.tap()
         // Quick Look's navigation bar is identified by the file name without its extension.
         let header = app.navigationBars[title].firstMatch
-        wait(for: header, 15, "Quick Look didn't open \(fileName)")
+        if !header.waitForExistence(timeout: 20), row.exists, row.isHittable { row.tap() }
+        wait(for: header, 30, "Quick Look didn't open \(fileName)")
         // Quick Look renders asynchronously. Opening isn't enough: the preview must show content.
         // Its web renderer can take most of a minute to start on a loaded CI runner.
         let shown = waitForVisibleContent(timeout: 60)
@@ -193,6 +208,8 @@ final class ToolFlowUITests: ConverterUITestCase {
         field.tap()
         field.typeText("Reporting Cash Payments")
         if app.buttons["Done"].exists { app.buttons["Done"].firstMatch.tap() }
+        // The action button is under the keyboard until it has slid away.
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "The keyboard didn't close")
         runTool()
         previewFirstResult("Redacted PDF")
     }
@@ -240,8 +257,7 @@ final class MediaFlowUITests: ConverterUITestCase {
         launch(["-MBRoute", "media", "-MBInputs", fixture("test-pattern.mp4")])
         let convert = wait(for: app.buttons["media.convert"], 30, "Video settings screen didn't open")
         // MP4 → MP4 with no changes has nothing to do (Convert stays disabled), so pick another format.
-        app.buttons["Output format"].tap()
-        wait(for: app.buttons["MOV"].firstMatch, 10, "Format menu didn't open").tap()
+        chooseOutputFormat("MOV")
         XCTAssertTrue(convert.waitForEnabled(10), "Convert stays disabled after choosing MOV")
         attach("Video settings", app.screenshot())
         convert.tap()
@@ -289,17 +305,26 @@ final class RealPickerUITests: ConverterUITestCase {
         func item(_ name: String) -> XCUIElement {
             app.cells.containing(.staticText, identifier: (name as NSString).deletingPathExtension).firstMatch
         }
-        // The picker remembers its last folder; only navigate when the files aren't already showing.
-        if !item(names[0]).waitForExistence(timeout: 2) {
-            let onMyPhone = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'On My iPhone'")).firstMatch
-            if onMyPhone.waitForExistence(timeout: 5), !app.navigationBars["On My iPhone"].exists { onMyPhone.tap() }
-            // The folder name wraps onto two lines, so match on part of its label.
-            let folder = app.cells.containing(NSPredicate(format: "label CONTAINS 'MB Converter'")).firstMatch
-            guard folder.waitForExistence(timeout: 10) else {
-                XCTFail("The Files picker has no “MB Converter Samples” folder — run Scripts/SeedSimulator.sh first")
-                return
-            }
-            folder.tap()
+        // The picker remembers its last folder; navigate until the sample files are showing.
+        func element(labelContaining text: String) -> XCUIElement {
+            app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
+                .allElementsBoundByIndex.first { $0.isHittable } ?? app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+        }
+        var attempts = 0
+        // Folder contents can take a few seconds to appear on a busy simulator.
+        while !item(names[0]).waitForExistence(timeout: 6), attempts < 4 {
+            attempts += 1
+            // Match the folder cell by its full name: "MB Converter" alone also matches the app's own title.
+            let folderCell = app.cells.matching(NSPredicate(format: "label CONTAINS 'MB Converter Samples'")).firstMatch
+            let folder = folderCell.exists ? folderCell : element(labelContaining: "MB Converter Samples")
+            if folder.exists, folder.isHittable { folder.tap(); continue }
+            let onMyPhone = element(labelContaining: "On My iPhone")
+            if onMyPhone.exists, onMyPhone.isHittable, !app.navigationBars["On My iPhone"].exists { onMyPhone.tap(); continue }
+            if browse.exists { browse.tap() }
+        }
+        guard item(names[0]).exists else {
+            XCTFail("The Files picker has no “MB Converter Samples” folder — run Scripts/SeedSimulator.sh first")
+            return
         }
         let select = app.buttons["Select"].firstMatch
         if names.count > 1, select.waitForExistence(timeout: 3) { select.tap() }
@@ -313,11 +338,17 @@ final class RealPickerUITests: ConverterUITestCase {
 
     /// In the Photos picker (a separate system process XCUITest can't inspect), tap the newest item:
     /// the top-left cell of the grid.
-    func pickInPhotos() {
-        Thread.sleep(forTimeInterval: 3) // presentation animation
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.16, dy: 0.42)).tap()
-        let add = app.buttons["Add"].firstMatch
-        if add.waitForExistence(timeout: 2) { add.tap() }
+    func pickInPhotos(opening trigger: XCUIElement, until opened: XCUIElement) {
+        for attempt in 0 ..< 2 {
+            // Wait until the picker sheet actually covers the app before tapping into it.
+            let deadline = Date().addingTimeInterval(20)
+            while trigger.isHittable, Date() < deadline { Thread.sleep(forTimeInterval: 0.3) }
+            Thread.sleep(forTimeInterval: 1.5) // grid layout settles
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.16, dy: 0.42)).tap()
+            let add = app.buttons["Add"].firstMatch
+            if add.waitForExistence(timeout: 2) { add.tap() }
+            if opened.waitForExistence(timeout: 20) || attempt == 1 { return }
+        }
     }
 
     func testImportPDFFromFilesThenCompress() {
@@ -355,15 +386,15 @@ final class RealPickerUITests: ConverterUITestCase {
 
     func testConvertPhotoFromPhotosLibrary() {
         launch()
-        wait(for: app.buttons["Import an image from Photos"], 15, "No Photos tile").tap()
-        pickInPhotos()
+        let tile = wait(for: app.buttons["Import an image from Photos"], 15, "No Photos tile")
+        tile.tap()
+        pickInPhotos(opening: tile, until: app.buttons["media.convert"])
         let convert = wait(for: app.buttons["media.convert"], 30, "The photo didn't open")
         // Photos arrive with machine names; people should see a readable one.
         let uuidTitle = app.staticTexts.matching(NSPredicate(format: "label MATCHES '^[0-9A-F]{8}-.*'")).firstMatch
         XCTAssertFalse(uuidTitle.exists, "The photo is shown under a generated ID: \(uuidTitle.label)")
         // JPEG → JPEG at full size has nothing to do; pick PNG.
-        app.buttons["Output format"].tap()
-        wait(for: app.buttons["PNG"].firstMatch, 10, "Format menu didn't open").tap()
+        chooseOutputFormat("PNG")
         attach("Photo settings", app.screenshot())
         XCTAssertTrue(convert.waitForEnabled(10))
         convert.tap()
@@ -376,11 +407,11 @@ final class RealPickerUITests: ConverterUITestCase {
 
     func testConvertVideoFromPhotosLibrary() {
         launch()
-        wait(for: app.buttons["Import a video from Photos"], 15, "No Videos tile").tap()
-        pickInPhotos()
+        let tile = wait(for: app.buttons["Import a video from Photos"], 15, "No Videos tile")
+        tile.tap()
+        pickInPhotos(opening: tile, until: app.buttons["media.convert"])
         let convert = wait(for: app.buttons["media.convert"], 40, "The video didn't open")
-        app.buttons["Output format"].tap()
-        wait(for: app.buttons["MOV"].firstMatch, 10, "Format menu didn't open").tap()
+        chooseOutputFormat("MOV")
         XCTAssertTrue(convert.waitForEnabled(10))
         convert.tap()
         waitAnsweringSystemPrompts(for: app.buttons["media.done"], 180, "Video conversion didn't finish")
@@ -396,7 +427,11 @@ final class SelfTestUITests: ConverterUITestCase {
         let settings = app.buttons["Open settings"].firstMatch
         wait(for: settings, 15, "No Settings button").tap()
         let entry = app.buttons["settings.selftest"].firstMatch
-        if !entry.waitForExistence(timeout: 5) { app.swipeUp() }
+        var swipes = 0
+        while !(entry.exists && entry.isHittable), swipes < 6 {
+            app.swipeUp()
+            swipes += 1
+        }
         wait(for: entry, 10, "No Self-Test row in Settings (is this a SELF_TEST build?)").tap()
         wait(for: app.buttons["selftest.run"], 10, "Self-Test screen didn't open").tap()
         let finished = app.otherElements["selftest.finished"].firstMatch.exists ? app.otherElements["selftest.finished"].firstMatch : app.descendants(matching: .any)["selftest.finished"].firstMatch
@@ -406,3 +441,84 @@ final class SelfTestUITests: ConverterUITestCase {
     }
 }
 
+
+/// Live previews react to edits on screen: what you see while dragging is what you'll export.
+final class LivePreviewUITests: ConverterUITestCase {
+    /// Max channel spread (0…255) inside an element's frame: color vs. gray.
+    func chroma(of element: XCUIElement) -> Int {
+        let screenshot = app.screenshot().image
+        guard let cgImage = screenshot.cgImage else { return 0 }
+        let scale = CGFloat(cgImage.width) / app.frame.width
+        let frame = element.frame
+        guard let region = cgImage.cropping(to: CGRect(x: frame.minX * scale, y: frame.minY * scale, width: frame.width * scale, height: frame.height * scale)) else { return 0 }
+        let side = 48
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        guard let context = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
+        context.draw(region, in: CGRect(x: 0, y: 0, width: side, height: side))
+        var best = 0
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            let r = Int(pixels[index]), g = Int(pixels[index + 1]), b = Int(pixels[index + 2])
+            best = max(best, max(r, g, b) - min(r, g, b))
+        }
+        return best
+    }
+
+    func testDraggingSaturationUpdatesThePreview() {
+        launch(["-MBRoute", "tool:image.adjust", "-MBInputs", fixture("astronaut-portrait.jpg")])
+        let preview = wait(for: app.descendants(matching: .any)["tool.preview"].firstMatch, 20, "No live preview on Filters & Adjust")
+        wait(for: app.staticTexts["tool.preview.caption"], 20, "The preview never rendered")
+        XCTAssertGreaterThan(chroma(of: preview), 60, "The portrait preview should start in color")
+        attach("Preview before", app.screenshot())
+
+        // Saturation is the third slider on this screen.
+        let saturation = app.sliders.element(boundBy: 2)
+        wait(for: saturation, 10, "No Saturation slider")
+        // Scroll the options (below the pinned preview) until the slider clears the floating action bar.
+        let actionBar = app.buttons["tool.run"]
+        var swipes = 0
+        while swipes < 6, !(saturation.isHittable && saturation.frame.maxY < actionBar.frame.minY - 8) {
+            let options = app.scrollViews.firstMatch
+            options.swipeUp(velocity: .slow)
+            swipes += 1
+        }
+        saturation.adjust(toNormalizedSliderPosition: 0)
+        let deadline = Date().addingTimeInterval(10)
+        while chroma(of: preview) > 14, Date() < deadline { Thread.sleep(forTimeInterval: 0.3) }
+        attach("Preview after saturation 0", app.screenshot())
+        XCTAssertLessThanOrEqual(chroma(of: preview), 14, "Dragging saturation to zero didn't turn the preview gray")
+    }
+
+    func testTrimHandlesScrubTheVideo() {
+        launch(["-MBRoute", "tool:video.trim", "-MBInputs", fixture("test-pattern.mp4"), "-MBEditor", "1"])
+        let video = wait(for: app.descendants(matching: .any)["Video preview"].firstMatch, 20, "The trim editor didn't open")
+        Thread.sleep(forTimeInterval: 1)
+        let before = app.screenshot().image
+        let start = app.descendants(matching: .any)["Start"].firstMatch
+        wait(for: start, 10, "No start handle")
+        let from = start.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.2, thenDragTo: from.withOffset(CGVector(dx: 160, dy: 0)))
+        Thread.sleep(forTimeInterval: 1)
+        attach("Trim after dragging start", app.screenshot())
+        XCTAssertGreaterThan(Self.difference(before, app.screenshot().image, in: video.frame, screenWidth: app.frame.width), 4,
+                             "Dragging the start handle didn't move the video to that moment")
+    }
+
+    static func difference(_ a: UIImage, _ b: UIImage, in frame: CGRect, screenWidth: CGFloat) -> Double {
+        func pixels(_ image: UIImage) -> [UInt8] {
+            guard let cgImage = image.cgImage else { return [] }
+            let scale = CGFloat(cgImage.width) / screenWidth
+            guard let region = cgImage.cropping(to: CGRect(x: frame.minX * scale, y: frame.minY * scale, width: frame.width * scale, height: frame.height * scale)) else { return [] }
+            var buffer = [UInt8](repeating: 0, count: 32 * 32 * 4)
+            let context = CGContext(data: &buffer, width: 32, height: 32, bitsPerComponent: 8, bytesPerRow: 128,
+                                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.draw(region, in: CGRect(x: 0, y: 0, width: 32, height: 32))
+            return buffer
+        }
+        let pa = pixels(a), pb = pixels(b)
+        guard pa.count == pb.count, !pa.isEmpty else { return 0 }
+        var total = 0.0
+        for index in pa.indices where index % 4 != 3 { total += abs(Double(pa[index]) - Double(pb[index])) }
+        return total / Double(32 * 32 * 3)
+    }
+}

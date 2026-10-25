@@ -337,6 +337,25 @@ enum SelfTestCatalog {
             if !ConversionHistoryStore.shared.items.contains(where: { $0.id == run.id }) { problems.append("the entry isn't listed") }
             return .init(problems: problems)
         },
+        SelfTestCase(id: "app.live-previews", title: "Live previews render for every previewable tool", group: .app) {
+            var problems: [String] = []
+            var rendered = 0
+            for tool in ToolCatalog.all where tool.previewKind != nil {
+                let inputs = try await SelfTestPlan.inputs(for: tool)
+                let model = ToolPreviewModel()
+                model.schedule(tool: tool, inputs: inputs, options: SelfTestPlan.options(for: tool, inputs: inputs), editor: SelfTestPlan.editorState(for: tool))
+                let deadline = Date().addingTimeInterval(30)
+                try await Task.sleep(for: .milliseconds(50))
+                while model.isUpdating, Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
+                if model.result != nil {
+                    rendered += 1
+                } else if !SelfTestPlan.isSimulatorLimitation(tool) {
+                    problems.append("\(tool.title): \(model.message ?? "no preview")")
+                }
+                model.tearDown()
+            }
+            return .init(problems: problems, note: "\(rendered) previews")
+        },
         SelfTestCase(id: "app.preview-standins", title: "Results Quick Look can't show get a readable preview", group: .app) {
             let odt = SelfTestFixtures.tempURL("odt")
             try ODTWriter.write(SelfTestFixtures.sampleDocument, options: .default, to: odt)

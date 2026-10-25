@@ -2,6 +2,7 @@
 import CoreGraphics
 import Foundation
 import PDFKit
+import UIKit
 
 /// How each catalog tool is exercised: which input files, which option values a person would
 /// type, and what its output must look like. Used by the in-app self-test and `ConverterTests`.
@@ -66,6 +67,9 @@ enum SelfTestPlan {
             let url = SelfTestFixtures.tempURL("pdf")
             try PDFToolkit.write(SelfTestFixtures.makePDF(pages: 2, body: "Quarterly numbers.", blankPage: true), to: url)
             return [try ToolInputFile(url: url)]
+        case "image.animated":
+            // `formats` is a set; pick the animated input explicitly rather than whichever comes first.
+            return [try ToolInputFile(url: try await input(.gif))]
         case "pdf.extractimages":
             return [try ToolInputFile(url: try SelfTestFixtures.sample("usgs-streamstats.pdf"))]
         case "pdf.flatten":
@@ -116,7 +120,9 @@ enum SelfTestPlan {
             return try SelfTestFixtures.writeImage(SelfTestFixtures.makeImage(width: 320, height: 240), format: ImageToolkit.OutputFormat(fileFormat: format) ?? .png)
         case .gif:
             let url = SelfTestFixtures.tempURL("gif")
-            try ImageToolkit.animatedGIF([SelfTestFixtures.makeImage(width: 64, height: 64)], frameDelay: 0.1).write(to: url)
+            // A real animation: four differently colored frames.
+            let frames = [UIColor.systemBlue, .systemOrange, .systemGreen, .systemPink].map { SelfTestFixtures.makeImage(width: 96, height: 96, color: $0) }
+            try ImageToolkit.animatedGIF(frames, frameDelay: 0.1).write(to: url)
             return url
         case .mp4, .mov, .m4v, .mkv, .webm, .avi:
             return try await SelfTestFixtures.video(seconds: 1.5)
