@@ -74,10 +74,15 @@ struct ToolView: View {
                 // With a live preview pinned above, the description only takes room from the options.
                 if !showsPreview { header }
                 if tool.input.acceptsFiles { filesSection }
-                if let editor = tool.editor, !viewModel.inputs.isEmpty { editorSection(editor) }
+                // Text editors come after the options: there's nothing to move until text is typed.
+                let editorFirst = tool.editor != .captionLayout
+                if editorFirst, let editor = tool.editor, !viewModel.inputs.isEmpty { editorSection(editor) }
                 if viewModel.needsPassword { passwordSection }
-                ForEach(Array(viewModel.optionSections.enumerated()), id: \.offset) { _, section in
+                ForEach(Array(viewModel.optionSections.enumerated()), id: \.offset) { index, section in
                     optionSection(section.title, section.options)
+                    if !editorFirst, index == 0, let editor = tool.editor, !viewModel.inputs.isEmpty {
+                        editorSection(editor)
+                    }
                 }
                 PrivacyNote().padding(.top, Theme.Spacing.s)
             }
@@ -434,6 +439,12 @@ struct ToolView: View {
             MediaRangeEditorView(url: file.url, initialRange: viewModel.editorState.range) { start, end in
                 viewModel.editorState = .range(start: start, end: end)
             }
+        case .captionLayout:
+            let positions = viewModel.editorState.captionPositions
+            CaptionLayoutEditorView(url: file.url, items: CaptionItems.items(for: tool.id, options: viewModel.values, positions: positions),
+                                    initialPositions: positions) { moved in
+                viewModel.editorState = moved.isEmpty ? .none : .captions(moved)
+            }
         }
     }
 
@@ -443,6 +454,7 @@ struct ToolView: View {
         case .pdfMarkup: "Edit"
         case .imageCrop: "Crop"
         case .mediaRange: "Range"
+        case .captionLayout: "Text position"
         }
     }
 
@@ -452,6 +464,7 @@ struct ToolView: View {
         case .pdfMarkup(let signature): signature ? "Place signature" : "Open editor"
         case .imageCrop: "Choose crop"
         case .mediaRange: "Choose start and end"
+        case .captionLayout: "Move text"
         }
     }
 
@@ -461,6 +474,7 @@ struct ToolView: View {
         case .pdfMarkup(let signature): signature ? "signature" : "pencil.tip.crop.circle"
         case .imageCrop: "crop"
         case .mediaRange: "timeline.selection"
+        case .captionLayout: "arrow.up.and.down.and.arrow.left.and.right"
         }
     }
 }

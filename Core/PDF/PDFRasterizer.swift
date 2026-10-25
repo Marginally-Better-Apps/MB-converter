@@ -21,7 +21,8 @@ enum PDFRasterizer {
         if display.width > 0, display.height > 0, display != size {
             context.scaleBy(x: size.width / display.width, y: size.height / display.height)
         }
-        context.concatenate(page.transform(for: box))
+        // draw(with:to:) applies the box's origin and /Rotate itself; adding transform(for:) on top
+        // shifted pages whose crop box doesn't start at 0,0 (cropped PDFs).
         page.draw(with: box, to: context)
         context.restoreGState()
     }
@@ -41,7 +42,6 @@ enum PDFRasterizer {
         context.interpolationQuality = .high
         // Bitmap contexts are bottom-left origin, which matches PDF space.
         context.scaleBy(x: CGFloat(pixelWidth) / size.width, y: CGFloat(pixelHeight) / size.height)
-        context.concatenate(page.transform(for: .cropBox))
         page.draw(with: .cropBox, to: context)
         return context.makeImage()
     }

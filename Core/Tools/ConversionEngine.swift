@@ -77,7 +77,7 @@ enum ConversionEngine {
         case (.image, _) where target == .pdf:
             let url = context.outputURL(base, "pdf")
             if source == .svg {
-                let image = try await WebPDFRenderer.snapshotFile(input.url, width: 1_024)
+                let image = UIImage(cgImage: try await WebPDFRenderer.renderSVG(input.url))
                 let png = try Self.temporaryPNG(image)
                 try ImagesToPDF.makePDF(from: [png]).write(to: url)
             } else if ImageToolkit.OutputFormat(fileFormat: source).map({ !$0.usesImageIO && $0 != .webp }) ?? false {
@@ -96,10 +96,7 @@ enum ConversionEngine {
             }
             let cgImage: CGImage
             if source == .svg {
-                guard let rendered = try await WebPDFRenderer.snapshotFile(input.url, width: 1_024).cgImage else {
-                    throw DocumentError.writeFailed("The SVG couldn't be rendered.")
-                }
-                cgImage = rendered
+                cgImage = try await WebPDFRenderer.renderSVG(input.url)
             } else {
                 let url = input.url
                 cgImage = try await background { try ImageToolkit.load(url) }

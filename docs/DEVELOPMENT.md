@@ -185,6 +185,28 @@ Settings → Error Log displays diagnostics and supports copying or exporting a 
 
 ## Validation
 
+### Visual audit of every tool
+
+Passing checks don't prove an output looks right, so the audit puts every tool's real output and
+screen in front of a person:
+
+```sh
+rm -rf /tmp/mbaudit
+# 1. Every tool on the Self-Test's real inputs: outputs, inputs and a report per tool.
+TEST_RUNNER_MB_AUDIT_DIR=/tmp/mbaudit xcodebuild test -project Converter.xcodeproj -scheme Converter \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:ConverterTests/AuditTests
+# 2. Optional: a screenshot of every tool screen, opened with those inputs (~20 min).
+TEST_RUNNER_MB_AUDIT_DIR=/tmp/mbaudit xcodebuild test … -only-testing:ConverterUITests/ToolTourUITests
+# 3. Contact sheets: sheet-<category>.png (outputs) and screens-<category>.png (screens).
+Scripts/AuditSheets.sh /tmp/mbaudit
+```
+
+`AuditThumb` previews any output (pages by their crop box, video frames, documents through
+AppKit, audio duration, archive listings); `no-preview.txt` lists anything it couldn't draw, and
+each tool's `report.txt` has the Self-Test summary and problems. `memes/` holds caption renders at
+several fonts, sizes and positions.
+
+
 Run `python3 Scripts/TestMediaPreview.py` after building the macOS FFmpeg framework
 to exercise real unsupported-format posters/playback, stream copy, cache reuse and
 invalidation, and cancellation. `MediaPreviewPlaybackTests` in ConverterTests checks

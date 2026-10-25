@@ -50,6 +50,21 @@ struct ToolPreviewPanel: View {
             case .audio:
                 if let url = result.mediaURL { WaveformPlayerView(url: url, waveform: result.waveform) }
             }
+        } else if let message = model.message, let original = model.original, [.image, .pdf].contains(kind) {
+            // The tool needs more input (e.g. caption text): keep showing the file, with the hint on it.
+            ZStack(alignment: .bottom) {
+                Image(decorative: original, scale: 1)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(Theme.Spacing.s)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Label(message, systemImage: "info.circle")
+                    .font(.footnote.weight(.medium))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 14)
+            }
         } else if let message = model.message {
             Label(message, systemImage: "info.circle")
                 .font(.subheadline)

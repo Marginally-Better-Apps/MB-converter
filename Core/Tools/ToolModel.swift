@@ -262,6 +262,8 @@ enum ToolEditorKind: Hashable, Sendable {
     case imageCrop
     /// Choose a start/end range on a video or audio timeline.
     case mediaRange
+    /// Drag captions (meme text, watermarks) to where they belong on an image.
+    case captionLayout
 }
 
 enum ToolEditorState: Hashable, Sendable {
@@ -270,11 +272,14 @@ enum ToolEditorState: Hashable, Sendable {
     case overlays([PDFOverlayItem])
     case crop(CGRect)
     case range(start: Double, end: Double)
+    /// Caption centers as fractions of the image (top-left origin), by caption key.
+    case captions([String: CGPoint])
 
     var pageEdits: [PDFToolkit.PageEdit]? { if case .pages(let edits) = self { edits } else { nil } }
     var overlays: [PDFOverlayItem] { if case .overlays(let items) = self { items } else { [] } }
     var cropRect: CGRect? { if case .crop(let rect) = self { rect } else { nil } }
     var range: (start: Double, end: Double)? { if case .range(let start, let end) = self { (start, end) } else { nil } }
+    var captionPositions: [String: CGPoint] { if case .captions(let positions) = self { positions } else { [:] } }
 }
 
 final class ToolProgress: @unchecked Sendable {

@@ -474,15 +474,23 @@ final class LivePreviewUITests: ConverterUITestCase {
         // Saturation is the third slider on this screen.
         let saturation = app.sliders.element(boundBy: 2)
         wait(for: saturation, 10, "No Saturation slider")
-        // Scroll the options (below the pinned preview) until the slider clears the floating action bar.
+        // Scroll the options until the slider sits fully between the pinned preview and the floating
+        // action bar; a swipe can overshoot it under the preview, so scroll back when it does.
         let actionBar = app.buttons["tool.run"]
         var swipes = 0
-        while swipes < 6, !(saturation.isHittable && saturation.frame.maxY < actionBar.frame.minY - 8) {
-            let options = app.scrollViews.firstMatch
-            options.swipeUp(velocity: .slow)
+        while swipes < 8 {
+            let frame = saturation.frame
+            if frame.minY < preview.frame.maxY + 8 {
+                app.scrollViews.firstMatch.swipeDown(velocity: .slow)
+            } else if frame.maxY > actionBar.frame.minY - 8 || !saturation.isHittable {
+                app.scrollViews.firstMatch.swipeUp(velocity: .slow)
+            } else {
+                break
+            }
             swipes += 1
         }
         saturation.adjust(toNormalizedSliderPosition: 0)
+        XCTAssertLessThan(saturation.normalizedSliderPosition, 0.05, "The drag didn't reach the Saturation slider")
         let deadline = Date().addingTimeInterval(10)
         while chroma(of: preview) > 14, Date() < deadline { Thread.sleep(forTimeInterval: 0.3) }
         attach("Preview after saturation 0", app.screenshot())
@@ -520,5 +528,95 @@ final class LivePreviewUITests: ConverterUITestCase {
         var total = 0.0
         for index in pa.indices where index % 4 != 3 { total += abs(Double(pa[index]) - Double(pb[index])) }
         return total / Double(32 * 32 * 3)
+    }
+}
+
+/// The Meme Maker end to end: type captions, drag one in the Move Text editor, make the meme.
+/// Screens are attached to the result (and saved to $MB_AUDIT_DIR/ui when set, for audits).
+final class MemeEditorUITests: ConverterUITestCase {
+    func saveScreen(_ name: String) {
+        let screenshot = app.screenshot()
+        attach(name, screenshot)
+        if let directory = ProcessInfo.processInfo.environment["MB_AUDIT_DIR"] {
+            let folder = URL(fileURLWithPath: directory).appendingPathComponent("ui", isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? screenshot.pngRepresentation.write(to: folder.appendingPathComponent("\(name).png"))
+        }
+    }
+
+    /// Taps a field until it has the keyboard (the layout can still be settling), then types.
+    func type(_ text: String, into field: XCUIElement) {
+        wait(for: field, 15, "No field \(field)")
+        for _ in 0 ..< 4 where !app.keyboards.firstMatch.exists || !(field.value(forKey: "hasKeyboardFocus") as? Bool ?? false) {
+            field.tap()
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: 2)
+        }
+        field.typeText(text + "\n")
+    }
+
+    func testDragMemeTextThenMakeMeme() {
+        launch(["-MBRoute", "tool:image.meme", "-MBInputs", fixture("astronaut-portrait.jpg")])
+        wait(for: app.descendants(matching: .any)["tool.preview"].firstMatch, 20, "The preview panel never appeared")
+        type("Alex", into: app.textFields["TOP TEXT"])
+        type("Letter league", into: app.textFields["BOTTOM TEXT"])
+        wait(for: app.staticTexts["tool.preview.caption"], 20, "The live preview never rendered")
+        saveScreen("meme-1-tool")
+
+        let move = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Move text'")).firstMatch
+        var swipes = 0
+        while swipes < 6, !(move.exists && move.isHittable && move.frame.maxY < app.buttons["tool.run"].frame.minY - 8) {
+            app.scrollViews.firstMatch.swipeUp(velocity: .slow)
+            swipes += 1
+        }
+        wait(for: move, 5, "No Move text button").tap()
+
+        let caption = wait(for: app.descendants(matching: .any)["caption.top"].firstMatch, 15, "The editor shows no top caption")
+        wait(for: app.descendants(matching: .any)["caption.bottom"].firstMatch, 5, "The editor shows no bottom caption")
+        saveScreen("meme-2-editor")
+        let before = caption.frame
+        let start = caption.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.15, thenDragTo: start.withOffset(CGVector(dx: -70, dy: 200)))
+        let after = caption.frame
+        XCTAssertGreaterThan(after.midY - before.midY, 120, "The caption didn't follow the drag (\(before) → \(after))")
+        saveScreen("meme-3-dragged")
+        app.buttons["captions.done"].tap()
+
+        wait(for: app.staticTexts["Text moved"], 10, "The tool screen doesn't show the moved text")
+        Thread.sleep(forTimeInterval: 1.5) // Let the live preview re-render with the new position.
+        saveScreen("meme-4-preview")
+        runTool()
+        saveScreen("meme-5-result")
+    }
+}
+
+/// Opt-in visual audit of every tool screen. Run the AuditTests dump first (it saves each tool's
+/// inputs), then: TEST_RUNNER_MB_AUDIT_DIR=/tmp/mbaudit xcodebuild test -only-testing:ConverterUITests/ToolTourUITests
+/// Screenshots land in $MB_AUDIT_DIR/ui-tour; Scripts/AuditSheets.sh makes contact sheets of them.
+final class ToolTourUITests: ConverterUITestCase {
+    func testScreenOfEveryTool() throws {
+        guard let directory = ProcessInfo.processInfo.environment["MB_AUDIT_DIR"] else {
+            throw XCTSkip("Set TEST_RUNNER_MB_AUDIT_DIR to run the tool tour")
+        }
+        continueAfterFailure = true
+        let root = URL(fileURLWithPath: directory)
+        let output = root.appendingPathComponent("ui-tour", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let tools = try FileManager.default.contentsOfDirectory(atPath: root.path)
+            .filter { FileManager.default.fileExists(atPath: root.appendingPathComponent("\($0)/inputs.txt").path) }
+            .sorted()
+        XCTAssertGreaterThan(tools.count, 50, "Run the AuditTests dump first")
+        for tool in tools {
+            let inputs = (try? String(contentsOf: root.appendingPathComponent("\(tool)/inputs.txt"), encoding: .utf8)) ?? ""
+            let files = inputs.split(separator: "\n").joined(separator: ",")
+            launch(["-MBRoute", "tool:\(tool)"] + (files.isEmpty ? [] : ["-MBInputs", files]))
+            if !app.buttons["tool.run"].waitForExistence(timeout: 20) {
+                XCTFail("\(tool): the tool screen never appeared")
+            }
+            // Let the live preview render.
+            _ = app.staticTexts["tool.preview.caption"].waitForExistence(timeout: 8)
+            Thread.sleep(forTimeInterval: 1)
+            try app.screenshot().pngRepresentation.write(to: output.appendingPathComponent("\(tool).png"))
+            app.terminate()
+        }
     }
 }

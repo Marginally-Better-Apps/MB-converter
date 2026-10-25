@@ -414,7 +414,9 @@ enum MediaToolkit {
         let frames = duration.map { " -frames:v \(max(1, Int(($0 * Double(fps)).rounded())))" } ?? ""
         switch format {
         case .gif:
-            let graph = "\(scale),split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle"
+            // A palette from every pixel (not just moving ones) plus error-diffusion dithering keeps
+            // gradients and skies smooth; the diff palette with Bayer dither posterized them into blocks.
+            let graph = "\(scale),split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle"
             return "-y \(seek)-i \(q(input))\(frames) -vf \(FFmpegCommandRunner.quoted(graph)) -an -c:v gif -f gif \(q(output))"
         case .webp:
             return "-y \(seek)-i \(q(input))\(frames) -vf \(FFmpegCommandRunner.quoted(scale)) -an -c:v libwebp_anim " +

@@ -39,6 +39,9 @@ enum SelfTestPlan {
             .crop(CGRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5))
         case .mediaRange:
             .range(start: 0.2, end: 1.0)
+        case .captionLayout:
+            // Moved off the default spot, so the check below sees the text land where it was dragged.
+            .captions(["top": CGPoint(x: 0.3, y: 0.55), "text": CGPoint(x: 0.3, y: 0.55)])
         default:
             .none
         }
@@ -126,7 +129,9 @@ enum SelfTestPlan {
             try ImageToolkit.encode(SelfTestFixtures.makeImage(width: 320, height: 240), as: output).write(to: url)
             return url
         case .png, .jpeg, .heic, .webp, .tiff, .bmp:
-            return try SelfTestFixtures.writeImage(SelfTestFixtures.makeImage(width: 320, height: 240), format: ImageToolkit.OutputFormat(fileFormat: format) ?? .png)
+            // A real photo, so adjustments, compression and filters have detail to act on.
+            let photo = try ImageToolkit.load(try SelfTestFixtures.sample("astronaut-portrait.jpg"), maxPixelSize: 640)
+            return try SelfTestFixtures.writeImage(photo, format: ImageToolkit.OutputFormat(fileFormat: format) ?? .png)
         case .gif:
             let url = SelfTestFixtures.tempURL("gif")
             // A real animation: four differently colored frames.
@@ -222,6 +227,16 @@ enum SelfTestPlan {
             var problems: [String] = []
             if faceChange < 6 { problems.append("the face wasn't blurred (mean change \(Int(faceChange)))") }
             if backdropChange > 4 { problems.append("areas outside the face changed (mean change \(Int(backdropChange)))") }
+            return problems
+        case "image.meme", "image.text":
+            // The caption was dragged to (0.3, 0.55): pixels must change there and stay put at the top.
+            guard let url = output.files.first?.url else { return ["no output"] }
+            let before = try image(inputs[0].url), after = try image(url)
+            let moved = PixelDifference.mean(before, after, region: CGRect(x: 0.2, y: 0.5, width: 0.2, height: 0.1))
+            let corner = PixelDifference.mean(before, after, region: CGRect(x: 0.02, y: 0.02, width: 0.1, height: 0.1))
+            var problems: [String] = []
+            if moved < 8 { problems.append("no text where it was placed (change \(Int(moved)))") }
+            if corner > 3 { problems.append("pixels changed away from the text (change \(Int(corner)))") }
             return problems
         case "pdf.removeblank":
             guard let url = output.files.first?.url, let pdf = PDFDocument(url: url) else { return ["no PDF"] }

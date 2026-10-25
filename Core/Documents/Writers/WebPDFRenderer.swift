@@ -67,6 +67,43 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
         return try await renderer.snapshot()
     }
 
+    /// Renders an SVG at its own aspect ratio, `longSide` pixels on its longer side, keeping
+    /// transparency. (Snapshotting the SVG file itself captures a page-sized canvas instead.)
+    static func renderSVG(_ url: URL, longSide: CGFloat = 2_048) async throws -> CGImage {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("svg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.copyItem(at: url, to: folder.appendingPathComponent("image.svg"))
+        let page = folder.appendingPathComponent("index.html")
+        try Data("""
+        <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><style>html,body{margin:0;padding:0;background:transparent}img{display:block}</style></head>
+        <body><img id="art" src="image.svg"></body></html>
+        """.utf8).write(to: page)
+
+        let renderer = WebPDFRenderer(width: 400)
+        renderer.webView.isOpaque = false
+        renderer.webView.backgroundColor = .clear
+        renderer.webView.scrollView.backgroundColor = .clear
+        try await renderer.load { $0.loadFileURL(page, allowingReadAccessTo: folder) }
+        let natural = (try? await renderer.webView.evaluateJavaScript("[document.getElementById('art').naturalWidth, document.getElementById('art').naturalHeight]") as? [Double]) ?? []
+        guard natural.count == 2 else { throw DocumentError.unreadable("The SVG couldn't be read.") }
+        // SVGs without a size render at the browser default of 300 × 150.
+        let intrinsic = natural[0] > 0 && natural[1] > 0 ? CGSize(width: natural[0], height: natural[1]) : CGSize(width: 300, height: 150)
+        let screenScale = renderer.webView.window?.screen.scale ?? UITraitCollection.current.displayScale
+        let scale = longSide / max(intrinsic.width, intrinsic.height) / max(screenScale, 1)
+        let size = CGSize(width: (intrinsic.width * scale).rounded(), height: (intrinsic.height * scale).rounded())
+        _ = try? await renderer.webView.evaluateJavaScript("var a = document.getElementById('art'); a.style.width = '\(size.width)px'; a.style.height = '\(size.height)px'; 0")
+        renderer.webView.frame = CGRect(origin: .zero, size: size)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = CGRect(origin: .zero, size: size)
+        configuration.afterScreenUpdates = true
+        guard let image = try await renderer.webView.takeSnapshot(configuration: configuration).cgImage else {
+            throw DocumentError.writeFailed("The SVG couldn't be rendered.")
+        }
+        return image
+    }
+
     private func load(_ start: (WKWebView) -> Void) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             self.continuation = continuation

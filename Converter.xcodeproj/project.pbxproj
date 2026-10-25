@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B56ADCB27BF6CD9582F5822E /* AuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 739BCD9C323EDB28CBDDFDEA /* AuditTests.swift */; };
+		CD6EF6D5DB57DD0BA6CC23BB /* Features/Tools/Editors/CaptionLayoutEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47795A776E933B1C81677723 /* Features/Tools/Editors/CaptionLayoutEditorView.swift */; };
+		B01504E3B3B4075A30DAFF17 /* Core/ImageTools/CaptionRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9E8EC2616CB2E35B62A05D /* Core/ImageTools/CaptionRenderer.swift */; };
 		9F911C565DC12AE882B2ABE5 /* Core/PDF/PDFFidelity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4006055DFD9638090E06B7 /* Core/PDF/PDFFidelity.swift */; };
 		9E68CA5864800D615DCE7736 /* GhostscriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AEEE2D44C059DEEDEA75A1D /* GhostscriptTests.swift */; };
 		59D43C040465E336746D3914 /* Core/PDF/Ghostscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52272AFC6C136061ADF250F0 /* Core/PDF/Ghostscript.swift */; };
@@ -203,6 +206,9 @@
 
 
 /* Begin PBXFileReference section */
+		739BCD9C323EDB28CBDDFDEA /* AuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditTests.swift; sourceTree = "<group>"; };
+		47795A776E933B1C81677723 /* Features/Tools/Editors/CaptionLayoutEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Tools/Editors/CaptionLayoutEditorView.swift; sourceTree = "<group>"; };
+		7F9E8EC2616CB2E35B62A05D /* Core/ImageTools/CaptionRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ImageTools/CaptionRenderer.swift; sourceTree = "<group>"; };
 		7C4006055DFD9638090E06B7 /* Core/PDF/PDFFidelity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/PDF/PDFFidelity.swift; sourceTree = "<group>"; };
 		5AEEE2D44C059DEEDEA75A1D /* GhostscriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostscriptTests.swift; sourceTree = "<group>"; };
 		52272AFC6C136061ADF250F0 /* Core/PDF/Ghostscript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/PDF/Ghostscript.swift; sourceTree = "<group>"; };
@@ -430,6 +436,8 @@
 				AF8CA5CE531B88C4D0089602 /* Features/Tools/ToolPreviewPanel.swift */,
 				52272AFC6C136061ADF250F0 /* Core/PDF/Ghostscript.swift */,
 				7C4006055DFD9638090E06B7 /* Core/PDF/PDFFidelity.swift */,
+				7F9E8EC2616CB2E35B62A05D /* Core/ImageTools/CaptionRenderer.swift */,
+				47795A776E933B1C81677723 /* Features/Tools/Editors/CaptionLayoutEditorView.swift */,
 				BD52E5E61762F03193CB297B /* Core/ImageTools/MagickRuntime.swift */,
 				C0FFEE1000000000000000A1 /* App/SelfTestSamples */,
 				605E75F0B2AB275FE1CEF447 /* Core/Files/FileFormat.swift */,
@@ -586,6 +594,7 @@
 				1AE41390621C6C3776869A6C /* SelfTestSuite.swift */,
 				906F195D1FC2CEBDE8FADAAF /* ToolPreviewTests.swift */,
 				5AEEE2D44C059DEEDEA75A1D /* GhostscriptTests.swift */,
+				739BCD9C323EDB28CBDDFDEA /* AuditTests.swift */,
 				831A58B22F2D1BFEE8B89C8C /* NativeFormatTests.swift */,
 				C2029C60E2CCED638CB48A12 /* TestSupport.swift */,
 				EE24DAD6F0F67A17DF449F6B /* DocumentFormatTests.swift */,
@@ -829,6 +838,8 @@
 				E101537C30323671E78C99B3 /* Features/Tools/ToolPreviewPanel.swift in Sources */,
 				59D43C040465E336746D3914 /* Core/PDF/Ghostscript.swift in Sources */,
 				9F911C565DC12AE882B2ABE5 /* Core/PDF/PDFFidelity.swift in Sources */,
+				B01504E3B3B4075A30DAFF17 /* Core/ImageTools/CaptionRenderer.swift in Sources */,
+				CD6EF6D5DB57DD0BA6CC23BB /* Features/Tools/Editors/CaptionLayoutEditorView.swift in Sources */,
 				6872A6D0816C7265A0C6E210 /* Core/ImageTools/MagickRuntime.swift in Sources */,
 				5515E3084658006F4A84C792 /* Core/Files/FileFormat.swift in Sources */,
 				00735DEA58DC7CE66AF253FC /* Core/Documents/DocumentConverter.swift in Sources */,
@@ -969,6 +980,7 @@
 				79E4CC53608891EA76B6D028 /* SelfTestSuite.swift in Sources */,
 				8C0AD6B65EB174D9EF508C28 /* ToolPreviewTests.swift in Sources */,
 				9E68CA5864800D615DCE7736 /* GhostscriptTests.swift in Sources */,
+				B56ADCB27BF6CD9582F5822E /* AuditTests.swift in Sources */,
 				57B2E93AD5EA23E986DB3AB2 /* NativeFormatTests.swift in Sources */,
 				8BFA5008DCB4443DC7AA7F2F /* TestSupport.swift in Sources */,
 				17485C67901465130ECEF30F /* DocumentFormatTests.swift in Sources */,

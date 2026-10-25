@@ -73,7 +73,7 @@ final class ToolViewModel {
 
     var editorSummary: String {
         switch editorState {
-        case .none: return "Not edited yet"
+        case .none: return tool.editor == .captionLayout ? "Default positions · drag to place anywhere" : "Not edited yet"
         case .pages(let edits):
             let rotated = edits.filter { $0.rotation % 360 != 0 }.count
             return "\(edits.count) page\(edits.count == 1 ? "" : "s")" + (rotated > 0 ? " · \(rotated) rotated" : "")
@@ -84,6 +84,8 @@ final class ToolViewModel {
             return rect == CGRect(x: 0, y: 0, width: 1, height: 1) ? "Full image" : "\(Int((rect.width * 100).rounded()))% × \(Int((rect.height * 100).rounded()))% of original"
         case .range(let start, let end):
             return "\(MetadataFormatter.durationText(start)) – \(MetadataFormatter.durationText(end)) · \(MetadataFormatter.durationText(end - start))"
+        case .captions(let positions):
+            return positions.count == 1 ? "Text moved" : "\(positions.count) captions moved"
         }
     }
 

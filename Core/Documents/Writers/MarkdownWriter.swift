@@ -111,7 +111,9 @@ enum MarkdownWriter {
             return cells
         }
         if rows.isEmpty { return "" }
-        let header = table.hasHeaderRow ? rows.removeFirst() : Array(repeating: "", count: columns)
+        // Markdown tables need a header row; an empty one renders as a blank strip, so the first
+        // row becomes the header (as pandoc and other converters do).
+        let header = rows.removeFirst()
         var lines = ["| " + header.joined(separator: " | ") + " |"]
         lines.append("|" + Array(repeating: " --- ", count: columns).joined(separator: "|") + "|")
         for row in rows {

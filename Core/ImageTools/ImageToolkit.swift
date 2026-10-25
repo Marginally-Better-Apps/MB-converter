@@ -648,58 +648,32 @@ enum ImageToolkit {
         /// Font size as a fraction of the image's short side.
         var relativeSize: Double = 0.07
         var colorHex: UInt32 = 0xFFFFFF
+        var outlineHex: UInt32 = 0x000000
         var opacity: Double = 1
         var outlined = true
         var rotation: Double = 0
+        var font: CaptionRenderer.Font = .bold
+        /// Center of the text as fractions of the image (top-left origin); overrides `placement`.
+        var position: CGPoint?
     }
 
     /// Draws text (watermark, meme caption) onto an image.
     static func addText(_ image: CGImage, _ caption: Caption) -> CGImage? {
+        addText(image, [caption])
+    }
+
+    /// Draws several captions onto an image in one pass.
+    static func addText(_ image: CGImage, _ captions: [Caption]) -> CGImage? {
         let size = CGSize(width: image.width, height: image.height)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = !hasAlpha(image)
-        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { context in
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
             UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size))
-            let fontSize = max(8, min(size.width, size.height) * caption.relativeSize)
-            let font = UIFont.systemFont(ofSize: fontSize, weight: .heavy)
-            var attributes: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .foregroundColor: UIColor(hex: caption.colorHex).withAlphaComponent(caption.opacity)
-            ]
-            if caption.outlined {
-                attributes[.strokeColor] = UIColor.black.withAlphaComponent(caption.opacity)
-                attributes[.strokeWidth] = -3.0
+            for caption in captions {
+                CaptionRenderer.draw(caption, imageSize: size, in: context.cgContext)
             }
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = .center
-            attributes[.paragraphStyle] = paragraph
-            let text = caption.text as NSString
-            let maxWidth = size.width * 0.92
-            let bounding = text.boundingRect(with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin], attributes: attributes, context: nil)
-            let itemSize = CGSize(width: min(bounding.width, maxWidth), height: bounding.height)
-            let margin = min(size.width, size.height) * 0.04
-            if caption.placement == .tiled {
-                var y: CGFloat = 0
-                while y < size.height {
-                    var x: CGFloat = 0
-                    while x < size.width {
-                        text.draw(with: CGRect(origin: CGPoint(x: x, y: y), size: itemSize), options: [.usesLineFragmentOrigin], attributes: attributes, context: nil)
-                        x += itemSize.width * 1.4
-                    }
-                    y += itemSize.height * 3
-                }
-                return
-            }
-            let center = PDFStamper.anchor(for: caption.placement, size: size, item: itemSize, margin: margin)
-            let cg = context.cgContext
-            cg.saveGState()
-            cg.translateBy(x: center.x, y: center.y)
-            cg.rotate(by: CGFloat(caption.rotation) * .pi / 180)
-            text.draw(with: CGRect(x: -itemSize.width / 2, y: -itemSize.height / 2, width: itemSize.width, height: itemSize.height), options: [.usesLineFragmentOrigin], attributes: attributes, context: nil)
-            cg.restoreGState()
-        }
-        return rendered.cgImage
+        }.cgImage
     }
 
     static func overlay(_ image: CGImage, logo: CGImage, relativeWidth: Double, opacity: Double, placement: PDFStamper.Placement) -> CGImage? {
