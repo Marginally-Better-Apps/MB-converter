@@ -15,6 +15,10 @@ struct MediaRangeEditorView: View {
     @State private var frames: [UIImage] = []
     @State private var isPlaying = false
     @State private var timeObserver: Any?
+    @State private var aspectRatio: CGFloat = 16 / 9
+    @State private var playhead: Double?
+    @State private var waveform: [Float] = []
+    @State private var seeker = SmoothSeeker()
     private let initialRange: (start: Double, end: Double)?
 
     init(url: URL, initialRange: (start: Double, end: Double)?, onDone: @escaping (Double, Double) -> Void) {
@@ -28,8 +32,10 @@ struct MediaRangeEditorView: View {
             VStack(spacing: Theme.Spacing.xl) {
                 preview
                 VStack(spacing: Theme.Spacing.m) {
-                    RangeTrack(start: $start, end: $end, duration: duration, frames: frames) { time in
-                        player?.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                    RangeTrack(start: $start, end: $end, duration: duration, frames: frames, waveform: waveform, playhead: playhead) { time in
+                        // Show the frame under the handle as you drag, without queuing up stale seeks.
+                        if isPlaying { stop() }
+                        seeker.seek(player, to: time)
                     }
                     .frame(height: 56)
                     HStack {
@@ -74,10 +80,15 @@ struct MediaRangeEditorView: View {
     @ViewBuilder
     private var preview: some View {
         if hasVideo, let player {
-            VideoPlayer(player: player)
-                .aspectRatio(16 / 9, contentMode: .fit)
+            PlayerSurface(player: player)
+                .aspectRatio(aspectRatio, contentMode: .fit)
+                .frame(maxHeight: 420)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous))
+                .contentShape(Rectangle())
+                .onTapGesture { togglePlayback() }
                 .padding(.horizontal, Theme.Spacing.l)
+                .accessibilityLabel("Video preview")
+                .accessibilityHint("Double-tap to play or pause the selection.")
         } else {
             VStack(spacing: Theme.Spacing.s) {
                 Image(systemName: "waveform")
@@ -114,7 +125,15 @@ struct MediaRangeEditorView: View {
         let asset = AVURLAsset(url: playable)
         let seconds = (try? await asset.load(.duration).seconds) ?? 0
         duration = seconds.isFinite && seconds > 0 ? seconds : ((try? await MediaToolkit.probe(url).duration) ?? 0)
-        hasVideo = !((try? await asset.loadTracks(withMediaType: .video)) ?? []).isEmpty
+        let videoTracks = (try? await asset.loadTracks(withMediaType: .video)) ?? []
+        hasVideo = !videoTracks.isEmpty
+        if let track = videoTracks.first,
+           let natural = try? await track.load(.naturalSize),
+           let transform = try? await track.load(.preferredTransform) {
+            // Portrait phone videos are stored landscape with a rotation; show them as recorded.
+            let shown = CGRect(origin: .zero, size: natural).applying(transform)
+            if abs(shown.width) > 0, abs(shown.height) > 0 { aspectRatio = abs(shown.width) / abs(shown.height) }
+        }
         start = min(initialRange?.start ?? 0, duration)
         end = min(initialRange?.end ?? duration, duration)
         player = AVPlayer(url: playable)
@@ -122,6 +141,8 @@ struct MediaRangeEditorView: View {
             let count = 8
             let times = (0 ..< count).map { duration * (Double($0) + 0.5) / Double(count) }
             frames = ((try? await MediaToolkit.frames(playable, times: times, maxSide: 160)) ?? []).map(UIImage.init(cgImage:))
+        } else if !hasVideo {
+            waveform = await Task.detached(priority: .userInitiated) { AudioWaveformThumbnail.samples(from: playable, barCount: 64) ?? [] }.value
         }
     }
 
@@ -134,10 +155,12 @@ struct MediaRangeEditorView: View {
         }
         player.seek(to: CMTime(seconds: start, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         if let observer = timeObserver { player.removeTimeObserver(observer) }
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.05, preferredTimescale: 600), queue: .main) { time in
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.03, preferredTimescale: 600), queue: .main) { time in
+            playhead = time.seconds
             if time.seconds >= end {
                 player.pause()
                 isPlaying = false
+                playhead = nil
             }
         }
         player.play()
@@ -149,6 +172,35 @@ struct MediaRangeEditorView: View {
         if let observer = timeObserver { player?.removeTimeObserver(observer) }
         timeObserver = nil
         isPlaying = false
+        playhead = nil
+    }
+}
+
+/// Keeps scrubbing smooth: at most one precise seek in flight, always heading to the latest
+/// requested time, instead of a backlog of seeks to positions the finger has already left.
+@MainActor
+final class SmoothSeeker {
+    private var target: CMTime?
+    private var isSeeking = false
+
+    func seek(_ player: AVPlayer?, to seconds: Double) {
+        guard let player else { return }
+        target = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        guard !isSeeking else { return }
+        perform(player)
+    }
+
+    private func perform(_ player: AVPlayer) {
+        guard let time = target else { return }
+        target = nil
+        isSeeking = true
+        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.isSeeking = false
+                if self.target != nil { self.perform(player) }
+            }
+        }
     }
 }
 
@@ -158,6 +210,8 @@ private struct RangeTrack: View {
     @Binding var end: Double
     let duration: Double
     let frames: [UIImage]
+    var waveform: [Float] = []
+    var playhead: Double?
     let onScrub: (Double) -> Void
 
     private let handleWidth: CGFloat = 16
@@ -169,7 +223,16 @@ private struct RangeTrack: View {
             let endX = duration > 0 ? CGFloat(end / duration) * width : width
             ZStack(alignment: .leading) {
                 HStack(spacing: 0) {
-                    if frames.isEmpty {
+                    if frames.isEmpty, !waveform.isEmpty {
+                        // Audio: the waveform shows where the loud and quiet parts are.
+                        HStack(alignment: .center, spacing: 1.5) {
+                            ForEach(Array(waveform.enumerated()), id: \.offset) { _, level in
+                                Capsule().fill(Theme.tint.opacity(0.7)).frame(height: max(3, CGFloat(level) * geometry.size.height * 0.85))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Theme.surfaceSunken)
+                    } else if frames.isEmpty {
                         Theme.surfaceSunken
                     } else {
                         ForEach(Array(frames.enumerated()), id: \.offset) { _, frame in
@@ -184,6 +247,16 @@ private struct RangeTrack: View {
                 // Dim the unselected parts.
                 Rectangle().fill(Color.black.opacity(0.5)).frame(width: startX, height: geometry.size.height).offset(x: handleWidth)
                 Rectangle().fill(Color.black.opacity(0.5)).frame(width: max(0, width - endX), height: geometry.size.height).offset(x: handleWidth + endX)
+
+                if let playhead, duration > 0 {
+                    // Where playback is right now.
+                    Capsule()
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.4), radius: 1)
+                        .frame(width: 3, height: geometry.size.height + 8)
+                        .offset(x: handleWidth + CGFloat(playhead / duration) * width - 1.5)
+                        .allowsHitTesting(false)
+                }
 
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(Theme.primary, lineWidth: 3)
