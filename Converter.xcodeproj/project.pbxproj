@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8C0AD6B65EB174D9EF508C28 /* ToolPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906F195D1FC2CEBDE8FADAAF /* ToolPreviewTests.swift */; };
+		E101537C30323671E78C99B3 /* Features/Tools/ToolPreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF8CA5CE531B88C4D0089602 /* Features/Tools/ToolPreviewPanel.swift */; };
+		4C4AC5521587E43E54F5AACE /* Core/Tools/ToolPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4B9D4F7AE1B6AFC322E0E76 /* Core/Tools/ToolPreview.swift */; };
 		79E4CC53608891EA76B6D028 /* SelfTestSuite.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE41390621C6C3776869A6C /* SelfTestSuite.swift */; };
 		B3DD755ED4E140692B92611B /* Features/Diagnostics/SelfTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 242871BDD143667FE3D868AB /* Features/Diagnostics/SelfTestView.swift */; };
 		8C798306EE6BCBC64047F209 /* Core/SelfTest/SelfTestRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A848A8CBB52D140AE93D1AD /* Core/SelfTest/SelfTestRunner.swift */; };
@@ -196,6 +199,9 @@
 
 
 /* Begin PBXFileReference section */
+		906F195D1FC2CEBDE8FADAAF /* ToolPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolPreviewTests.swift; sourceTree = "<group>"; };
+		AF8CA5CE531B88C4D0089602 /* Features/Tools/ToolPreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Tools/ToolPreviewPanel.swift; sourceTree = "<group>"; };
+		B4B9D4F7AE1B6AFC322E0E76 /* Core/Tools/ToolPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Tools/ToolPreview.swift; sourceTree = "<group>"; };
 		1AE41390621C6C3776869A6C /* SelfTestSuite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfTestSuite.swift; sourceTree = "<group>"; };
 		242871BDD143667FE3D868AB /* Features/Diagnostics/SelfTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Diagnostics/SelfTestView.swift; sourceTree = "<group>"; };
 		5A848A8CBB52D140AE93D1AD /* Core/SelfTest/SelfTestRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/SelfTest/SelfTestRunner.swift; sourceTree = "<group>"; };
@@ -412,6 +418,8 @@
 				C4DC58BF6BCF7ED9EB82212A /* Core/SelfTest/SelfTestPlan.swift */,
 				5A848A8CBB52D140AE93D1AD /* Core/SelfTest/SelfTestRunner.swift */,
 				242871BDD143667FE3D868AB /* Features/Diagnostics/SelfTestView.swift */,
+				B4B9D4F7AE1B6AFC322E0E76 /* Core/Tools/ToolPreview.swift */,
+				AF8CA5CE531B88C4D0089602 /* Features/Tools/ToolPreviewPanel.swift */,
 				BD52E5E61762F03193CB297B /* Core/ImageTools/MagickRuntime.swift */,
 				C0FFEE1000000000000000A1 /* App/SelfTestSamples */,
 				605E75F0B2AB275FE1CEF447 /* Core/Files/FileFormat.swift */,
@@ -566,6 +574,7 @@
 				D91BB8D3380492E402DF98C1 /* HistoryTests.swift */,
 				4D240B7118FDCF52D6B9839B /* CorpusTests.swift */,
 				1AE41390621C6C3776869A6C /* SelfTestSuite.swift */,
+				906F195D1FC2CEBDE8FADAAF /* ToolPreviewTests.swift */,
 				831A58B22F2D1BFEE8B89C8C /* NativeFormatTests.swift */,
 				C2029C60E2CCED638CB48A12 /* TestSupport.swift */,
 				EE24DAD6F0F67A17DF449F6B /* DocumentFormatTests.swift */,
@@ -803,6 +812,8 @@
 				447C5B8E996D36381E6394EE /* Core/SelfTest/SelfTestPlan.swift in Sources */,
 				8C798306EE6BCBC64047F209 /* Core/SelfTest/SelfTestRunner.swift in Sources */,
 				B3DD755ED4E140692B92611B /* Features/Diagnostics/SelfTestView.swift in Sources */,
+				4C4AC5521587E43E54F5AACE /* Core/Tools/ToolPreview.swift in Sources */,
+				E101537C30323671E78C99B3 /* Features/Tools/ToolPreviewPanel.swift in Sources */,
 				6872A6D0816C7265A0C6E210 /* Core/ImageTools/MagickRuntime.swift in Sources */,
 				5515E3084658006F4A84C792 /* Core/Files/FileFormat.swift in Sources */,
 				00735DEA58DC7CE66AF253FC /* Core/Documents/DocumentConverter.swift in Sources */,
@@ -941,6 +952,7 @@
 				D8D903E8BD0D42D674FD0042 /* HistoryTests.swift in Sources */,
 				48C99E6F4C6F6B3B9AF1ACC8 /* CorpusTests.swift in Sources */,
 				79E4CC53608891EA76B6D028 /* SelfTestSuite.swift in Sources */,
+				8C0AD6B65EB174D9EF508C28 /* ToolPreviewTests.swift in Sources */,
 				57B2E93AD5EA23E986DB3AB2 /* NativeFormatTests.swift in Sources */,
 				8BFA5008DCB4443DC7AA7F2F /* TestSupport.swift in Sources */,
 				17485C67901465130ECEF30F /* DocumentFormatTests.swift in Sources */,

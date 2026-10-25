@@ -11,6 +11,8 @@ struct ToolView: View {
     @State private var isEditorPresented = false
     @State private var isDropTargeted = false
     @State private var mediaRouter = HomeViewModel()
+    @State private var preview = ToolPreviewModel()
+    @State private var isPreviewExpanded = true
     @FocusState private var focusedField: Bool
 
     init(tool: ToolDefinition, initialInputs: [ToolInputFile] = [], preset: [String: String] = [:], path: Binding<[AppRoute]>) {
@@ -26,11 +28,51 @@ struct ToolView: View {
         tool.input.formats.contains { $0.family == .image || $0.family == .video }
     }
 
+    /// Everything that changes what the tool would produce.
+    private struct PreviewKey: Hashable {
+        let inputs: [UUID]
+        let values: ToolOptionValues
+        let editor: ToolEditorState
+        let password: String
+    }
+
+    private var previewKey: PreviewKey {
+        PreviewKey(inputs: viewModel.inputs.map(\.id), values: viewModel.values, editor: viewModel.editorState, password: viewModel.password)
+    }
+
+    private var showsPreview: Bool {
+        tool.previewKind != nil && !viewModel.inputs.isEmpty && !viewModel.needsPassword
+    }
+
     var body: some View {
-        @Bindable var viewModel = viewModel
+        presentations(screen)
+    }
+
+    private var screen: some View {
+        VStack(spacing: 0) {
+            if showsPreview, let kind = tool.previewKind {
+                ToolPreviewPanel(kind: kind, model: preview, isExpanded: $isPreviewExpanded)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            optionsScroll
+        }
+        .animation(.snappy(duration: 0.25), value: showsPreview)
+        .onChange(of: previewKey, initial: true) { _, _ in
+            guard showsPreview else { preview.reset(); return }
+            preview.schedule(tool: tool, inputs: viewModel.inputs, options: viewModel.values, editor: viewModel.editorState)
+        }
+        .onDisappear { preview.tearDown() }
+        .screenBackground()
+        .navigationTitle(tool.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .floatingBottomBar { actionBar }
+    }
+
+    private var optionsScroll: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
-                header
+                // With a live preview pinned above, the description only takes room from the options.
+                if !showsPreview { header }
                 if tool.input.acceptsFiles { filesSection }
                 if let editor = tool.editor, !viewModel.inputs.isEmpty { editorSection(editor) }
                 if viewModel.needsPassword { passwordSection }
@@ -47,10 +89,11 @@ struct ToolView: View {
             .animation(.snappy(duration: 0.25), value: viewModel.visibleOptions.map(\.key))
         }
         .scrollDismissesKeyboard(.interactively)
-        .screenBackground()
-        .navigationTitle(tool.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .floatingBottomBar { actionBar }
+    }
+
+    private func presentations<Content: View>(_ content: Content) -> some View {
+        @Bindable var viewModel = viewModel
+        return content
         .fileImporter(isPresented: $isFileImporterPresented, allowedContentTypes: tool.input.contentTypes, allowsMultipleSelection: tool.input.allowsMultiple) { result in
             switch result {
             case .success(let urls): viewModel.importURLs(urls)
