@@ -61,7 +61,7 @@ struct FFmpegRuntimeInfo: Sendable {
             return String(option.dropFirst("--enable-".count))
         }
         return FFmpegRuntimeInfo(
-            packageName: "mb-custom-lgpl",
+            packageName: "mb-custom-gpl",
             ffmpegVersion: mbf_version().map { String(cString: $0) } ?? "unknown",
             ffmpegKitVersion: "not used (MBFFmpegBridge)",
             buildDate: "see bundled build manifest",

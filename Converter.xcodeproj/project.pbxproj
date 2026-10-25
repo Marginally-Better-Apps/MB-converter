@@ -7,12 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		79E4CC53608891EA76B6D028 /* SelfTestSuite.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE41390621C6C3776869A6C /* SelfTestSuite.swift */; };
+		B3DD755ED4E140692B92611B /* Features/Diagnostics/SelfTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 242871BDD143667FE3D868AB /* Features/Diagnostics/SelfTestView.swift */; };
+		8C798306EE6BCBC64047F209 /* Core/SelfTest/SelfTestRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A848A8CBB52D140AE93D1AD /* Core/SelfTest/SelfTestRunner.swift */; };
+		447C5B8E996D36381E6394EE /* Core/SelfTest/SelfTestPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4DC58BF6BCF7ED9EB82212A /* Core/SelfTest/SelfTestPlan.swift */; };
+		C7A7A1E6241C732F51DAD731 /* Core/SelfTest/OutputValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1140E6B1724B9E4776C73C5 /* Core/SelfTest/OutputValidator.swift */; };
+		5F2BC5F521A7236E004722DF /* Core/SelfTest/SelfTestFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A6BCC9611AD4AF966B801C3 /* Core/SelfTest/SelfTestFixtures.swift */; };
 		C0FFEE00000000000000000D /* ConverterUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE00000000000000000C /* ConverterUITests.swift */; };
 		C0FFEE00000000000000000E /* Fixtures/Corpus in Resources */ = {isa = PBXBuildFile; fileRef = 7BB065F04C8D8B6F23A7B608 /* Fixtures/Corpus */; };
 		6DEBF9AB0D2C0ED5FCF4FF0E /* Fixtures/Corpus in Resources */ = {isa = PBXBuildFile; fileRef = 7BB065F04C8D8B6F23A7B608 /* Fixtures/Corpus */; };
 		48C99E6F4C6F6B3B9AF1ACC8 /* CorpusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D240B7118FDCF52D6B9839B /* CorpusTests.swift */; };
 		D8D903E8BD0D42D674FD0042 /* HistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D91BB8D3380492E402DF98C1 /* HistoryTests.swift */; };
-		89D92CC6E13C0C9BE9F46905 /* OutputValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA88EB93756CDF20FF8C367F /* OutputValidator.swift */; };
 		CBF91226C6EF8F6A211B81D7 /* Core/PDF/PDFHTMLExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 719C1132276F5905C3DE2E8F /* Core/PDF/PDFHTMLExporter.swift */; };
 		8CCF55AA6B9940966FC09B57 /* LocalAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC544BD2FAEE047C08D8765 /* LocalAuditTests.swift */; };
 		612FC823D5297E7AECB292D8 /* PDFImageFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE3C5C23166A6F88F04126A /* PDFImageFidelityTests.swift */; };
@@ -191,12 +196,18 @@
 
 
 /* Begin PBXFileReference section */
+		1AE41390621C6C3776869A6C /* SelfTestSuite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfTestSuite.swift; sourceTree = "<group>"; };
+		242871BDD143667FE3D868AB /* Features/Diagnostics/SelfTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Diagnostics/SelfTestView.swift; sourceTree = "<group>"; };
+		5A848A8CBB52D140AE93D1AD /* Core/SelfTest/SelfTestRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/SelfTest/SelfTestRunner.swift; sourceTree = "<group>"; };
+		C4DC58BF6BCF7ED9EB82212A /* Core/SelfTest/SelfTestPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/SelfTest/SelfTestPlan.swift; sourceTree = "<group>"; };
+		B1140E6B1724B9E4776C73C5 /* Core/SelfTest/OutputValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/SelfTest/OutputValidator.swift; sourceTree = "<group>"; };
+		4A6BCC9611AD4AF966B801C3 /* Core/SelfTest/SelfTestFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/SelfTest/SelfTestFixtures.swift; sourceTree = "<group>"; };
+		C0FFEE1000000000000000A1 /* App/SelfTestSamples */ = {isa = PBXFileReference; lastKnownFileType = folder; path = App/SelfTestSamples; sourceTree = "<group>"; };
 		C0FFEE000000000000000001 /* ConverterUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConverterUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0FFEE00000000000000000C /* ConverterUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConverterUITests.swift; sourceTree = "<group>"; };
 		7BB065F04C8D8B6F23A7B608 /* Fixtures/Corpus */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "Fixtures/Corpus"; sourceTree = "<group>"; };
 		4D240B7118FDCF52D6B9839B /* CorpusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorpusTests.swift; sourceTree = "<group>"; };
 		D91BB8D3380492E402DF98C1 /* HistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryTests.swift; sourceTree = "<group>"; };
-		AA88EB93756CDF20FF8C367F /* OutputValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputValidator.swift; sourceTree = "<group>"; };
 		719C1132276F5905C3DE2E8F /* Core/PDF/PDFHTMLExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/PDF/PDFHTMLExporter.swift; sourceTree = "<group>"; };
 		DAC544BD2FAEE047C08D8765 /* LocalAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAuditTests.swift; sourceTree = "<group>"; };
 		1AE3C5C23166A6F88F04126A /* PDFImageFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFImageFidelityTests.swift; sourceTree = "<group>"; };
@@ -396,7 +407,13 @@
 			children = (
 				DD29B0159E387F2C016495DC /* Core/PDF/PDFPageImages.swift */,
 				719C1132276F5905C3DE2E8F /* Core/PDF/PDFHTMLExporter.swift */,
+				4A6BCC9611AD4AF966B801C3 /* Core/SelfTest/SelfTestFixtures.swift */,
+				B1140E6B1724B9E4776C73C5 /* Core/SelfTest/OutputValidator.swift */,
+				C4DC58BF6BCF7ED9EB82212A /* Core/SelfTest/SelfTestPlan.swift */,
+				5A848A8CBB52D140AE93D1AD /* Core/SelfTest/SelfTestRunner.swift */,
+				242871BDD143667FE3D868AB /* Features/Diagnostics/SelfTestView.swift */,
 				BD52E5E61762F03193CB297B /* Core/ImageTools/MagickRuntime.swift */,
+				C0FFEE1000000000000000A1 /* App/SelfTestSamples */,
 				605E75F0B2AB275FE1CEF447 /* Core/Files/FileFormat.swift */,
 				D6E1EC2DB84D3AA049670B78 /* Core/Documents/DocumentConverter.swift */,
 				CD2720295544DAD9C86F5BC9 /* Core/Documents/Writers/DOCXWriter.swift */,
@@ -546,9 +563,9 @@
 			children = (
 				1AE3C5C23166A6F88F04126A /* PDFImageFidelityTests.swift */,
 				DAC544BD2FAEE047C08D8765 /* LocalAuditTests.swift */,
-				AA88EB93756CDF20FF8C367F /* OutputValidator.swift */,
 				D91BB8D3380492E402DF98C1 /* HistoryTests.swift */,
 				4D240B7118FDCF52D6B9839B /* CorpusTests.swift */,
+				1AE41390621C6C3776869A6C /* SelfTestSuite.swift */,
 				831A58B22F2D1BFEE8B89C8C /* NativeFormatTests.swift */,
 				C2029C60E2CCED638CB48A12 /* TestSupport.swift */,
 				EE24DAD6F0F67A17DF449F6B /* DocumentFormatTests.swift */,
@@ -602,6 +619,7 @@
 				7EE609159AC086BAB15FF998 /* Sources */,
 				A9E872B0C4F3AB11D258C39F /* Frameworks */,
 				A2892AFC2D88060C0AA91373 /* Resources */,
+				C0FFEE1000000000000000A3 /* Bundle Self-Test Samples */,
 			);
 			buildRules = (
 			);
@@ -723,6 +741,48 @@
 /* End PBXResourcesBuildPhase section */
 
 
+/* Begin PBXShellScriptBuildPhase section */
+		C0FFEE1000000000000000A3 /* Bundle Self-Test Samples */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/App/SelfTestSamples/astronaut-portrait.jpg",
+				"$(SRCROOT)/App/SelfTestSamples/irs-w4-form.pdf",
+				"$(SRCROOT)/App/SelfTestSamples/sample.docx",
+				"$(SRCROOT)/App/SelfTestSamples/sample.ods",
+				"$(SRCROOT)/App/SelfTestSamples/sample.odt",
+				"$(SRCROOT)/App/SelfTestSamples/sample.pptx",
+				"$(SRCROOT)/App/SelfTestSamples/sample.rtf",
+				"$(SRCROOT)/App/SelfTestSamples/sample.xlsx",
+				"$(SRCROOT)/App/SelfTestSamples/test-pattern.mp4",
+				"$(SRCROOT)/App/SelfTestSamples/usgs-streamstats.pdf",
+			);
+			name = "Bundle Self-Test Samples";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SelfTestSamples/astronaut-portrait.jpg",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SelfTestSamples/irs-w4-form.pdf",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SelfTestSamples/sample.docx",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SelfTestSamples/sample.ods",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SelfTestSamples/sample.odt",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SelfTestSamples/sample.pptx",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SelfTestSamples/sample.rtf",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SelfTestSamples/sample.xlsx",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SelfTestSamples/test-pattern.mp4",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SelfTestSamples/usgs-streamstats.pdf",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "# Dev builds (Debug, Gala: SELF_TEST=YES) carry the self-test samples; production builds don't.\nif [ \"${SELF_TEST}\" != \"YES\" ]; then\n  echo \"SELF_TEST=${SELF_TEST}: not bundling self-test samples\"\n  # Xcode pre-creates the folder for the declared outputs; production builds ship without it.\n  rmdir \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/SelfTestSamples\" 2>/dev/null || true\n  exit 0\nfi\nfor (( i = 0; i < SCRIPT_INPUT_FILE_COUNT; i++ )); do\n  input=\"SCRIPT_INPUT_FILE_$i\"\n  output=\"SCRIPT_OUTPUT_FILE_$i\"\n  mkdir -p \"$(dirname \"${!output}\")\"\n  cp \"${!input}\" \"${!output}\"\ndone\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		C0FFEE000000000000000002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -738,6 +798,11 @@
 			files = (
 				7481F7F905A3AFC1CA650056 /* Core/PDF/PDFPageImages.swift in Sources */,
 				CBF91226C6EF8F6A211B81D7 /* Core/PDF/PDFHTMLExporter.swift in Sources */,
+				5F2BC5F521A7236E004722DF /* Core/SelfTest/SelfTestFixtures.swift in Sources */,
+				C7A7A1E6241C732F51DAD731 /* Core/SelfTest/OutputValidator.swift in Sources */,
+				447C5B8E996D36381E6394EE /* Core/SelfTest/SelfTestPlan.swift in Sources */,
+				8C798306EE6BCBC64047F209 /* Core/SelfTest/SelfTestRunner.swift in Sources */,
+				B3DD755ED4E140692B92611B /* Features/Diagnostics/SelfTestView.swift in Sources */,
 				6872A6D0816C7265A0C6E210 /* Core/ImageTools/MagickRuntime.swift in Sources */,
 				5515E3084658006F4A84C792 /* Core/Files/FileFormat.swift in Sources */,
 				00735DEA58DC7CE66AF253FC /* Core/Documents/DocumentConverter.swift in Sources */,
@@ -873,9 +938,9 @@
 			files = (
 				612FC823D5297E7AECB292D8 /* PDFImageFidelityTests.swift in Sources */,
 				8CCF55AA6B9940966FC09B57 /* LocalAuditTests.swift in Sources */,
-				89D92CC6E13C0C9BE9F46905 /* OutputValidator.swift in Sources */,
 				D8D903E8BD0D42D674FD0042 /* HistoryTests.swift in Sources */,
 				48C99E6F4C6F6B3B9AF1ACC8 /* CorpusTests.swift in Sources */,
+				79E4CC53608891EA76B6D028 /* SelfTestSuite.swift in Sources */,
 				57B2E93AD5EA23E986DB3AB2 /* NativeFormatTests.swift in Sources */,
 				8BFA5008DCB4443DC7AA7F2F /* TestSupport.swift in Sources */,
 				17485C67901465130ECEF30F /* DocumentFormatTests.swift in Sources */,
@@ -1098,6 +1163,10 @@
 				DEVELOPMENT_TEAM = KPAFTUKTFY;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				SELF_TEST = NO;
+				SELF_TEST_CONDITION_NO = "";
+				SELF_TEST_CONDITION_YES = SELF_TEST;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(SELF_TEST_CONDITION_$(SELF_TEST))";
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -1177,7 +1246,10 @@
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SELF_TEST = YES;
+				SELF_TEST_CONDITION_NO = "";
+				SELF_TEST_CONDITION_YES = SELF_TEST;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(SELF_TEST_CONDITION_$(SELF_TEST))";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;

@@ -95,6 +95,24 @@ struct SettingsView: View {
                     }
                     .accessibilityHint("Opens recorded errors with conversion context and technical details.")
 
+                    #if SELF_TEST
+                    NavigationLink {
+                        SelfTestView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            IconTile(systemImage: "checklist")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Self-Test")
+                                    .foregroundStyle(Theme.text)
+                                Text("Run every tool on this device · development builds")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Theme.textMuted)
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("settings.selftest")
+                    #endif
+
                     Button("Clear Error Log", role: .destructive) {
                         Haptics.warning()
                         DiagnosticsLog.shared.clearErrors()
