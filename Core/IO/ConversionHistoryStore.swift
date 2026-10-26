@@ -101,14 +101,13 @@ final class ConversionHistoryStore {
     }
 
     var storageSummaryTitle: String {
-        isEnabled ? "Saved history is on" : "Session history only"
+        isEnabled ? "Saved history is on" : "Not saving history"
     }
 
     var storageSummaryDescription: String {
-        if isEnabled {
-            return "Conversions and tool results are copied to this device and stay in History until you delete them."
-        }
-        return "Conversions and tool results are kept for this app session only. They are removed after you quit and reopen the app."
+        isEnabled
+            ? "Your results stay on this device until you delete them."
+            : "Your results are removed when you close the app."
     }
 
     static func cleanSessionHistory() {

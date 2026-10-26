@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// App settings, presented as a sheet from the Convert and History tabs.
+/// App settings, presented as a sheet from every tab.
 struct SettingsView: View {
     @AppStorage("appColorMode") private var appColorModeRawValue = AppColorMode.system.rawValue
     @AppStorage(ConversionHistoryUserDefaults.isEnabledKey) private var conversionHistoryEnabled = ConversionHistoryUserDefaults.defaultIsEnabled
@@ -44,42 +44,32 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Picker(selection: $defaultPageSize) {
-                        ForEach(PageSize.allCases) { Text($0.label).tag($0.rawValue) }
-                    } label: {
-                        settingsLabel("Default Page Size", systemImage: "doc.richtext")
-                    }
-                } header: {
-                    Text("Documents")
-                } footer: {
-                    Text("Used when tools create or restyle PDFs and documents.")
-                }
-
-                Section {
                     Toggle(isOn: conversionHistoryEnabledBinding) {
-                        settingsLabel("Save Conversion History", systemImage: "clock.arrow.circlepath")
+                        settingsLabel("Save History", systemImage: "clock.arrow.circlepath")
                     }
                 } header: {
                     Text("History")
                 } footer: {
-                    Text("When off, History only keeps conversions from this session.")
+                    Text(conversionHistoryEnabled
+                         ? "Keeps what you convert on this device until you delete it."
+                         : "Results are removed when you close the app.")
                 }
 
-                Section {
+                Section("About") {
                     NavigationLink {
                         DiagnosticsLogView()
                     } label: {
                         HStack(spacing: 12) {
-                            IconTile(
-                                systemImage: diagnosticsErrorCount == 0 ? "checkmark" : "exclamationmark.triangle.fill"
-                            )
+                            IconTile(systemImage: "exclamationmark.bubble")
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Error Log")
+                                Text("Report a Problem")
                                     .foregroundStyle(Theme.text)
-                                Text(diagnosticsSummary)
-                                    .font(.subheadline)
-                                    .foregroundStyle(Theme.textMuted)
+                                if diagnosticsErrorCount > 0 {
+                                    Text(diagnosticsSummary)
+                                        .font(.subheadline)
+                                        .foregroundStyle(Theme.textMuted)
+                                }
                             }
 
                             Spacer(minLength: 8)
@@ -90,10 +80,12 @@ struct SettingsView: View {
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 3)
                                     .background(Theme.destructive, in: Capsule())
+                                    .accessibilityLabel("\(diagnosticsErrorCount) problems recorded")
                             }
                         }
                     }
-                    .accessibilityHint("Opens recorded errors with conversion context and technical details.")
+                    .accessibilityIdentifier("settings.reportProblem")
+                    .accessibilityHint("Shows what went wrong so you can copy or share the details.")
 
                     #if SELF_TEST
                     NavigationLink {
@@ -113,19 +105,6 @@ struct SettingsView: View {
                     .accessibilityIdentifier("settings.selftest")
                     #endif
 
-                    Button("Clear Error Log", role: .destructive) {
-                        Haptics.warning()
-                        DiagnosticsLog.shared.clearErrors()
-                        refreshDiagnosticsSummary()
-                    }
-                    .disabled(diagnosticsErrorCount == 0)
-                } header: {
-                    Text("Diagnostics")
-                } footer: {
-                    Text("Errors are saved across launches and can be reviewed, copied, or exported.")
-                }
-
-                Section("About") {
                     NavigationLink {
                         OpenSourceLicensesView()
                     } label: {
@@ -150,7 +129,23 @@ struct SettingsView: View {
                     LabeledContent("Version", value: bundleVersion)
                     LabeledContent("Build", value: bundleBuild)
                 }
+
+                // Rarely needed, so kept out of the way.
+                Section {
+                    DisclosureGroup("Advanced") {
+                        Picker(selection: $defaultPageSize) {
+                            ForEach(PageSize.allCases) { Text($0.label).tag($0.rawValue) }
+                        } label: {
+                            settingsLabel("Default Page Size", systemImage: "doc.richtext")
+                        }
+                    }
+                    .accessibilityIdentifier("settings.advanced")
+                } footer: {
+                    Text("The page size tools use when they create PDFs and documents.")
+                }
             }
+            // Also runs when coming back from Report a Problem, which can clear the log.
+            .onAppear(perform: refreshDiagnosticsSummary)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -163,9 +158,9 @@ struct SettingsView: View {
             }
         }
         .tint(Theme.tint)
-        .alert("Switch to session-only history?", isPresented: $isConfirmDisableSavedHistoryPresented) {
+        .alert("Stop saving history?", isPresented: $isConfirmDisableSavedHistoryPresented) {
             Button("Cancel", role: .cancel) {}
-            Button("Switch", role: .destructive) {
+            Button("Turn Off", role: .destructive) {
                 Haptics.warning()
                 ConversionHistoryStore.shared.clearPersistedHistory()
                 conversionHistoryEnabled = false
@@ -173,8 +168,8 @@ struct SettingsView: View {
             }
         } message: {
             Text(
-                "Turning off saved history removes every saved conversion from this device at once. "
-                + "Afterward, History only keeps items from this session until you quit and reopen the app."
+                "Every saved result is deleted from this device now. "
+                + "After that, new results are removed when you close the app."
             )
         }
         .onAppear {

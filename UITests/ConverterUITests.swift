@@ -292,6 +292,15 @@ final class BrowseUITests: ConverterUITestCase {
         XCTAssertTrue(run.label.localizedCaseInsensitiveContains("add"), "Without files the action asks for them: \(run.label)")
         attach("Merge PDF empty state", app.screenshot())
     }
+
+    func testSettingsFromTheToolsTab() {
+        launch()
+        tapTab("Tools")
+        wait(for: app.buttons["Open settings"].firstMatch, 10, "The Tools tab has no Settings button").tap()
+        wait(for: app.buttons["settings.reportProblem"].firstMatch, 10, "Settings should offer Report a Problem under About")
+        XCTAssertTrue(app.switches.firstMatch.exists, "Save History toggle missing")
+        attach("Settings", app.screenshot())
+    }
 }
 
 extension XCUIElement {

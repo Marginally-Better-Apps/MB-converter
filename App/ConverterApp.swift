@@ -211,6 +211,7 @@ struct ConverterRootView: View {
     private var toolsStack: some View {
         NavigationStack(path: $toolsPath) {
             ToolBrowserView(path: $toolsPath)
+                .settingsToolbarButton()
                 .navigationDestination(for: AppRoute.self) { route in
                     destination(for: route, path: $toolsPath) {
                         showConvertRoot()

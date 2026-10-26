@@ -17,9 +17,9 @@ struct DiagnosticsLogView: View {
         Group {
             if errors.isEmpty {
                 ContentUnavailableView {
-                    Label("No Errors Recorded", systemImage: "checkmark.circle")
+                    Label("No Problems Recorded", systemImage: "checkmark.circle")
                 } description: {
-                    Text("Conversion and app failures will appear here automatically.")
+                    Text("If something goes wrong, the details appear here so you can copy or share them.")
                 }
             } else {
                 List {
@@ -52,8 +52,20 @@ struct DiagnosticsLogView: View {
         }
         // Matches the grouped canvas behind the empty state.
         .background(Theme.background)
-        .navigationTitle("Error Log")
+        .navigationTitle("Report a Problem")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !errors.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Clear", role: .destructive) {
+                        Haptics.warning()
+                        DiagnosticsLog.shared.clearErrors()
+                        refresh()
+                    }
+                    .accessibilityHint("Deletes the recorded problems.")
+                }
+            }
+        }
         .fileExporter(
             isPresented: $isExportPresented,
             document: DiagnosticsLogDocument(text: report),

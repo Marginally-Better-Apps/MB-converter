@@ -212,7 +212,7 @@ struct ConversionHistoryListView: View {
         } description: {
             Text(isSavedHistoryEnabled
                  ? "Files you convert or make with Tools will appear here."
-                 : "Results are only kept until you close the app.")
+                 : "Keep your results to find them here next time.")
         } actions: {
             if !isSavedHistoryEnabled && previewEntries == nil {
                 Button("Keep my results") {
