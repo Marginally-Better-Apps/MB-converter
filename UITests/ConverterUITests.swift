@@ -356,9 +356,22 @@ final class RealPickerUITests: ConverterUITestCase {
         for name in names {
             wait(for: item(name), 10, "\(name) isn't in the picker").tap()
         }
-        // Pickers that allow several files need an explicit Open, even for one.
+        // Pickers that allow several files need an explicit Open, even for one. A busy CI simulator
+        // sometimes drops taps in the system picker, so confirm it closed and retry the tap that
+        // should have closed it (Open; or, for single-file pickers, the file itself).
         let open = app.buttons["Open"].firstMatch
-        if open.waitForExistence(timeout: 2), open.isEnabled { open.tap() }
+        if open.waitForExistence(timeout: 2) {
+            for _ in 0 ..< 3 where open.exists {
+                if open.isEnabled { open.tap() }
+                _ = open.waitForNonExistence(timeout: 5)
+            }
+            XCTAssertFalse(open.exists, "The Files picker didn't close after Open")
+        } else if names.count == 1 {
+            let file = item(names[0])
+            for _ in 0 ..< 2 where !file.waitForNonExistence(timeout: 5) && file.isHittable {
+                file.tap()
+            }
+        }
     }
 
     /// In the Photos picker (a separate system process XCUITest can't inspect), tap the newest item:
