@@ -264,7 +264,12 @@ extension ToolCatalog {
                 .slider("saturation", "Saturation", range: 0 ... 200, default: 100, section: "Adjust", format: { "\(Int($0))%" }),
                 formatOption(), qualityOption
             ],
-            keywords: ["grayscale", "black and white", "greyscale", "sepia", "invert colors", "brightness", "contrast", "saturation"], actionTitle: "Apply"
+            keywords: ["grayscale", "black and white", "greyscale", "sepia", "invert colors", "brightness", "contrast", "saturation"], actionTitle: "Apply",
+            validate: { values, _, _ in
+                let unchanged = values.string("filter") == "none" && values.double("brightness") == 0 && values.double("contrast") == 100
+                    && values.double("saturation") == 100 && values.string("saveAs") == "original"
+                return unchanged ? "Pick a filter or move a slider" : nil
+            }
         ) { context in
             let filter = context.options.string("filter")
             let brightness = context.options.double("brightness") / 100

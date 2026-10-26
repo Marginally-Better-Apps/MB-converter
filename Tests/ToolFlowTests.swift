@@ -43,6 +43,8 @@ struct ToolFlowTests {
         #expect(try reason("util.qr") == "Type a link or text")
         #expect(try reason("audio.adjust") == "Change the volume or add a fade")
         #expect(try reason("audio.adjust", ["volume": .number(3)]) == nil)
+        #expect(try reason("image.adjust") == "Pick a filter or move a slider")
+        #expect(try reason("image.adjust", ["filter": .string("mono")]) == nil)
     }
 
     @Test func viewModelBlocksWithTheToolsReason() throws {

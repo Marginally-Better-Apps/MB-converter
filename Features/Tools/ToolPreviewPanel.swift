@@ -21,6 +21,7 @@ struct ToolPreviewPanel: View {
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous))
                     .overlay(alignment: .topTrailing) { updatingBadge }
                     .overlay(alignment: .topLeading) { originalBadge }
+                    .overlay(alignment: .bottomTrailing) { compareButton }
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("tool.preview")
             }
@@ -125,9 +126,33 @@ struct ToolPreviewPanel: View {
         }
     }
 
+    private var canCompare: Bool {
+        [.image, .pdf].contains(kind) && model.original != nil && (model.result?.images.count ?? 0) == 1
+    }
+
+    /// Before/after, visible (holding the picture works too).
+    @ViewBuilder private var compareButton: some View {
+        if canCompare {
+            Button {
+                Haptics.selection()
+                showsOriginal.toggle()
+            } label: {
+                Label(showsOriginal ? "After" : "Before", systemImage: "square.split.2x1")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.regularMaterial, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(8)
+            .accessibilityLabel(showsOriginal ? "Show the result" : "Show the original")
+            .accessibilityIdentifier("tool.preview.compare")
+        }
+    }
+
     @ViewBuilder private var originalBadge: some View {
         if showsOriginal {
-            Text("Original")
+            Text("Before")
                 .font(.caption2.weight(.semibold))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
@@ -149,22 +174,8 @@ struct ToolPreviewPanel: View {
                     .foregroundStyle(Theme.textMuted)
                     .lineLimit(1)
                     .accessibilityIdentifier("tool.preview.caption")
-                if [.image, .pdf].contains(kind), model.original != nil, (model.result?.images.count ?? 0) == 1 {
-                    Text("· Hold to compare").font(.caption).foregroundStyle(Theme.textFaint)
-                }
-            } else if !isExpanded {
-                Text("Preview hidden").font(.caption).foregroundStyle(Theme.textMuted)
             }
             Spacer(minLength: 0)
-            Button {
-                isExpanded.toggle()
-            } label: {
-                Image(systemName: isExpanded ? "chevron.up" : "eye")
-                    .font(.caption.weight(.semibold))
-                    .frame(width: 28, height: 22)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel(isExpanded ? "Hide preview" : "Show preview")
         }
     }
 }
