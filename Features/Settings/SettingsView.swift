@@ -4,7 +4,7 @@ import UIKit
 /// App settings, presented as a sheet from the Convert and History tabs.
 struct SettingsView: View {
     @AppStorage("appColorMode") private var appColorModeRawValue = AppColorMode.system.rawValue
-    @AppStorage(ConversionHistoryUserDefaults.isEnabledKey) private var conversionHistoryEnabled = false
+    @AppStorage(ConversionHistoryUserDefaults.isEnabledKey) private var conversionHistoryEnabled = ConversionHistoryUserDefaults.defaultIsEnabled
     @AppStorage(PageSizePreference.key) private var defaultPageSize = PageSize.regionalDefault.rawValue
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -273,12 +273,9 @@ struct SettingsView: View {
                     isConfirmDisableSavedHistoryPresented = true
                     return
                 }
-                if !conversionHistoryEnabled, newValue,
-                   !ConversionHistoryStore.shared.persistSessionHistory() {
-                    return
+                if newValue {
+                    ConversionHistoryStore.shared.enableSavedHistory()
                 }
-                conversionHistoryEnabled = newValue
-                ConversionHistoryStore.shared.refreshForCurrentSettings()
             }
         )
     }

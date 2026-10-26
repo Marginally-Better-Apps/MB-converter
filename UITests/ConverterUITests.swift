@@ -250,6 +250,16 @@ final class HistoryUITests: ConverterUITestCase {
         launch(["-MBRoute", "tab:history"], reset: false)
         XCTAssertTrue(app.staticTexts["Nothing Here Yet"].waitForExistence(timeout: 10), "Session-only history should start empty")
     }
+
+    func testKeepMyResultsTurnsOnSavedHistory() {
+        launch(["-MBRoute", "tab:history"])
+        let keep = wait(for: app.buttons["Keep my results"], 10, "Session-only History should offer to keep results")
+        attach("Session-only History", app.screenshot())
+        keep.tap()
+        XCTAssertTrue(keep.waitForNonExistence(timeout: 5), "The offer should go away once results are kept")
+        let summary = app.descendants(matching: .any).containing(NSPredicate(format: "label CONTAINS 'Saved history is on'")).firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 5), "History should say results are saved")
+    }
 }
 
 final class MediaFlowUITests: ConverterUITestCase {

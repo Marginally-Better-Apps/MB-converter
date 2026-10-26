@@ -5,8 +5,10 @@ import Observation
 
 enum ConversionHistoryUserDefaults {
     static let isEnabledKey = "conversionHistoryEnabled"
+    /// Results are kept unless the user turned that off; an explicit choice is always respected.
+    static let defaultIsEnabled = true
     static var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: isEnabledKey) }
+        get { UserDefaults.standard.object(forKey: isEnabledKey) as? Bool ?? defaultIsEnabled }
         set { UserDefaults.standard.set(newValue, forKey: isEnabledKey) }
     }
 }
@@ -116,6 +118,16 @@ final class ConversionHistoryStore {
     func refreshForCurrentSettings() {
         entries = isEnabled ? persistedEntries : sessionEntries
         toolEntries = isEnabled ? persistedToolEntries : sessionToolEntries
+    }
+
+    /// Turns saved history on, keeping this session's results. Returns `false` (and stays off)
+    /// if they can't be copied.
+    @discardableResult
+    func enableSavedHistory() -> Bool {
+        guard isEnabled || persistSessionHistory() else { return false }
+        ConversionHistoryUserDefaults.isEnabled = true
+        refreshForCurrentSettings()
+        return true
     }
 
     /// Copies the current session's history into durable storage before saved history is enabled.
