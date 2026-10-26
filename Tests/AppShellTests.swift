@@ -34,6 +34,34 @@ import UniformTypeIdentifiers
     }
 }
 
+/// Import errors read as plain sentences that say what to do, without engine names.
+struct PlainErrorMessageTests {
+    static let errors: [ImportError] = [
+        .noSupportedMediaInPasteboard, .unsupportedType, .copyFailed("NSCocoaErrorDomain 260"),
+        .fileTooLarge(limitBytes: 1_024 * 1_024 * 1_024), .invalidRemoteURL, .couldNotDetermineRemoteFileType,
+        .remoteResponseNotMedia, .networkFailed("Server returned status 404."),
+        .codecNotDecodable(codecLabel: "AV1", reason: "The dav1d AV1 decoder is not included in the bundled FFmpeg runtime.")
+    ]
+
+    @Test func messagesArePlain() throws {
+        for error in Self.errors {
+            let message = try #require(error.errorDescription)
+            for jargon in ["FFmpeg", "dav1d", "decode", "codec", "not supported", "Import failed", "status 404", "NSCocoa", "http or https"] {
+                #expect(!message.localizedCaseInsensitiveContains(jargon), "\(error): \(message)")
+            }
+            #expect(message.hasSuffix("."), "Full sentence: \(message)")
+            #expect(message.split(separator: ".").count >= 2 || message.contains("Try") || message.contains("Choose"),
+                    "Says what to do next: \(message)")
+        }
+    }
+
+    @Test func technicalDetailStaysInTheLog() {
+        #expect(ImportError.networkFailed("Server returned status 404.").failureReason == "Server returned status 404.")
+        #expect(ImportError.codecNotDecodable(codecLabel: "AV1", reason: "No dav1d.").failureReason == "No dav1d.")
+        #expect(ImportError.codecNotDecodable(codecLabel: "AV1", reason: "No dav1d.").errorDescription?.contains("AV1") == true)
+    }
+}
+
 /// Leaving the convert screen only asks "Discard this conversion?" when there is something to lose.
 @Suite @MainActor struct ConvertDiscardTests {
     private func model() async throws -> OutputConfigViewModel {
