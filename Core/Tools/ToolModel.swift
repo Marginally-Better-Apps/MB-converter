@@ -265,6 +265,8 @@ struct ToolOptionValues: Hashable, Sendable {
 enum ToolEditorKind: Hashable, Sendable {
     /// Reorder, rotate, delete, duplicate and insert pages.
     case pageOrganizer
+    /// Tap pages to choose them: kept (Extract) or removed (Delete).
+    case pagePicker(keepsSelection: Bool)
     /// Place text, signatures, shapes, highlights and redactions on pages.
     case pdfMarkup(signatureFirst: Bool)
     /// Pick a crop rectangle (with aspect presets) on an image.
@@ -282,11 +284,14 @@ enum ToolEditorState: Hashable, Sendable {
     case crop(CGRect)
     case range(start: Double, end: Double)
     case texts([TextOverlay])
+    /// Chosen page indices, in document order.
+    case pageSelection([Int])
 
     var pageEdits: [PDFToolkit.PageEdit]? { if case .pages(let edits) = self { edits } else { nil } }
     var overlays: [PDFOverlayItem] { if case .overlays(let items) = self { items } else { [] } }
     var cropRect: CGRect? { if case .crop(let rect) = self { rect } else { nil } }
     var range: (start: Double, end: Double)? { if case .range(let start, let end) = self { (start, end) } else { nil } }
+    var selectedPages: [Int] { if case .pageSelection(let pages) = self { pages } else { [] } }
     var textOverlays: [TextOverlay]? { if case .texts(let overlays) = self { overlays } else { nil } }
 }
 

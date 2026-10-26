@@ -531,6 +531,11 @@ struct ToolView: View {
             PageOrganizerView(url: file.url, password: viewModel.password.nilIfBlank, initialEdits: viewModel.editorState.pageEdits, embedded: true) { edits in
                 viewModel.editorState = .pages(edits)
             }
+        case .pagePicker(let keepsSelection):
+            PagePickerView(url: file.url, password: viewModel.password.nilIfBlank, keepsSelection: keepsSelection,
+                           initialSelection: viewModel.editorState.selectedPages) { pages in
+                viewModel.editorState = .pageSelection(pages)
+            }
         case .pdfMarkup(let signatureFirst):
             PDFMarkupEditorView(url: file.url, password: viewModel.password.nilIfBlank, initialItems: viewModel.editorState.overlays,
                                 startsWithSignature: signatureFirst, embedded: true) { items in

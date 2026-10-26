@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E7CABF45AB95BD30564BC321 /* Features/Tools/Editors/PagePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FF14711B8E999E249EFD250 /* Features/Tools/Editors/PagePickerView.swift */; };
 		9D5BBFC40182D4577AC68BAD /* Core/IO/PhotoLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CFD6491AE30F25DC26CFE9D /* Core/IO/PhotoLibrarySaver.swift */; };
 		E795FF8F556A0AD90FC72843 /* ToolFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D55AE58BD0A3375FC03B3C /* ToolFlowTests.swift */; };
 		2C98520FCB3FE0A3E86B6D48 /* Features/Tools/Editors/TextOverlayEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 047A33F692C4CED2443814C6 /* Features/Tools/Editors/TextOverlayEditor.swift */; };
@@ -209,6 +210,7 @@
 
 
 /* Begin PBXFileReference section */
+		9FF14711B8E999E249EFD250 /* Features/Tools/Editors/PagePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Tools/Editors/PagePickerView.swift; sourceTree = "<group>"; };
 		1CFD6491AE30F25DC26CFE9D /* Core/IO/PhotoLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/IO/PhotoLibrarySaver.swift; sourceTree = "<group>"; };
 		09D55AE58BD0A3375FC03B3C /* ToolFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolFlowTests.swift; sourceTree = "<group>"; };
 		047A33F692C4CED2443814C6 /* Features/Tools/Editors/TextOverlayEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Tools/Editors/TextOverlayEditor.swift; sourceTree = "<group>"; };
@@ -446,6 +448,7 @@
 				301899DD353C30591B36A92A /* Core/ImageTools/TextOverlay.swift */,
 				047A33F692C4CED2443814C6 /* Features/Tools/Editors/TextOverlayEditor.swift */,
 				1CFD6491AE30F25DC26CFE9D /* Core/IO/PhotoLibrarySaver.swift */,
+				9FF14711B8E999E249EFD250 /* Features/Tools/Editors/PagePickerView.swift */,
 				BD52E5E61762F03193CB297B /* Core/ImageTools/MagickRuntime.swift */,
 				C0FFEE1000000000000000A1 /* App/SelfTestSamples */,
 				605E75F0B2AB275FE1CEF447 /* Core/Files/FileFormat.swift */,
@@ -851,6 +854,7 @@
 				68EC1A2E2545E84C92D8D4CF /* Core/ImageTools/TextOverlay.swift in Sources */,
 				2C98520FCB3FE0A3E86B6D48 /* Features/Tools/Editors/TextOverlayEditor.swift in Sources */,
 				9D5BBFC40182D4577AC68BAD /* Core/IO/PhotoLibrarySaver.swift in Sources */,
+				E7CABF45AB95BD30564BC321 /* Features/Tools/Editors/PagePickerView.swift in Sources */,
 				6872A6D0816C7265A0C6E210 /* Core/ImageTools/MagickRuntime.swift in Sources */,
 				5515E3084658006F4A84C792 /* Core/Files/FileFormat.swift in Sources */,
 				00735DEA58DC7CE66AF253FC /* Core/Documents/DocumentConverter.swift in Sources */,

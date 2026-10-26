@@ -18,7 +18,7 @@ struct ToolFlowTests {
             #expect(try tool(id).runsOnPick, "\(id) should run as soon as its file is picked")
         }
         // These need a choice, an editor, or more than one file.
-        for id in ["pdf.compress", "pdf.merge", "pdf.organize", "pdf.sign", "image.meme", "image.crop", "video.trim", "pdf.protect"] {
+        for id in ["pdf.compress", "pdf.merge", "pdf.organize", "pdf.sign", "image.meme", "image.crop", "video.trim", "pdf.protect", "pdf.delete", "pdf.extract"] {
             #expect(try !tool(id).runsOnPick, "\(id) shouldn't run before the user has decided")
         }
     }
@@ -31,7 +31,8 @@ struct ToolFlowTests {
             for (key, value) in values { options[key] = value }
             return tool.validate?(options, editor, [pdf])
         }
-        #expect(try reason("pdf.delete") == "Type the pages to delete")
+        #expect(try reason("pdf.delete") == "Tap the pages to delete")
+        #expect(try reason("pdf.delete", editor: .pageSelection([1])) == nil)
         #expect(try reason("pdf.delete", ["pages": .string("2")]) == nil)
         #expect(try reason("pdf.protect", ["password": .string("a"), "confirm": .string("b")]) == "The passwords don't match")
         #expect(try reason("pdf.protect", ["password": .string("a"), "confirm": .string("a")]) == nil)
@@ -47,7 +48,7 @@ struct ToolFlowTests {
     @Test func viewModelBlocksWithTheToolsReason() throws {
         let input = try Corpus.input(Corpus.documents[0])
         let model = ToolViewModel(tool: try tool("pdf.delete"), inputs: [input])
-        #expect(model.blockingReason == "Type the pages to delete")
+        #expect(model.blockingReason == "Tap the pages to delete")
         #expect(!model.isMissingFiles)
         model.values["pages"] = .string("1")
         #expect(model.blockingReason == nil)
@@ -94,6 +95,16 @@ struct ToolFlowTests {
         #expect(PixelDifference.mean(before, after, region: CGRect(x: 0.3, y: 0.0, width: 0.4, height: 0.12)) > 8, "top text missing")
         #expect(PixelDifference.mean(before, after, region: CGRect(x: 0.3, y: 0.45, width: 0.4, height: 0.1)) > 8, "middle text missing")
         #expect(PixelDifference.mean(before, after, region: CGRect(x: 0.3, y: 0.88, width: 0.4, height: 0.1)) < 3, "an empty box was drawn")
+    }
+
+    @Test func tappedPagesDriveDeleteAndExtract() async throws {
+        let url = TestSupport.tempURL("pdf")
+        try PDFToolkit.write(SelfTestFixtures.makePDF(pages: 4, body: "Body"), to: url)
+        let input = try ToolInputFile(url: url)
+        let deleted = try await Corpus.run("pdf.delete", [input], editor: .pageSelection([0, 2]))
+        #expect(TestSupport.pageTitles(try #require(PDFDocument(url: deleted.files[0].url))) == ["Page 2", "Page 4"])
+        let kept = try await Corpus.run("pdf.extract", [input], editor: .pageSelection([1, 3]))
+        #expect(TestSupport.pageTitles(try #require(PDFDocument(url: kept.files[0].url))) == ["Page 2", "Page 4"])
     }
 
     @Test func exactResizeKeepsProportionsByDefault() async throws {

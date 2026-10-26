@@ -115,16 +115,23 @@ extension ToolCatalog {
         ToolDefinition(
             id: "pdf.delete", title: "Delete Pages", summary: "Remove pages you don't need",
             symbol: "trash", category: .pdf, input: .one([.pdf], noun: "PDF"),
-            options: [.text("pages", "Pages to delete", placeholder: "2, 5-7", footnote: "For example 1-3, 5, 8-")],
-            keywords: ["remove", "page deleter"], actionTitle: "Delete",
-            validate: { values, _, _ in values.string("pages").nilIfBlank == nil ? "Type the pages to delete" : nil }
+            options: [ToolOption.text("pages", "Or type pages", placeholder: "2, 5-7", footnote: "For example 1-3, 5, 8-").advanced()],
+            editor: .pagePicker(keepsSelection: false),
+            keywords: ["remove", "page deleter"], actionTitle: "Delete Pages",
+            validate: { values, editor, _ in
+                editor.selectedPages.isEmpty && values.string("pages").nilIfBlank == nil ? "Tap the pages to delete" : nil
+            }
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
-            guard let text = context.options.string("pages").nilIfBlank else {
-                throw DocumentError.invalidOption("Enter the pages to delete.")
+            let remove: Set<Int>
+            if !context.editor.selectedPages.isEmpty {
+                remove = Set(context.editor.selectedPages)
+            } else if let text = context.options.string("pages").nilIfBlank {
+                remove = try PageRangeParser.parseSet(text, pageCount: document.pageCount)
+            } else {
+                throw DocumentError.invalidOption("Tap the pages to delete.")
             }
-            let remove = try PageRangeParser.parseSet(text, pageCount: document.pageCount)
             let output = try PDFToolkit.deletePages(document, remove: remove)
             let url = context.outputURL("\(input.baseName)-edited", "pdf")
             try PDFToolkit.write(output, to: url)
@@ -135,18 +142,25 @@ extension ToolCatalog {
             id: "pdf.extract", title: "Extract Pages", summary: "Save selected pages as a new PDF",
             symbol: "doc.badge.arrow.up", category: .pdf, input: .one([.pdf], noun: "PDF"),
             options: [
-                .text("pages", "Pages to keep", placeholder: "1-3, 5", footnote: "Pages are kept in the order you type them."),
-                .toggle("separate", "Save each page as its own file")
+                .toggle("separate", "Save each page as its own file"),
+                ToolOption.text("pages", "Or type pages", placeholder: "1-3, 5", footnote: "Typed pages are kept in the order you type them.").advanced()
             ],
-            keywords: ["select", "pull out", "copy"], actionTitle: "Extract",
-            validate: { values, _, _ in values.string("pages").nilIfBlank == nil ? "Type the pages to keep" : nil }
+            editor: .pagePicker(keepsSelection: true),
+            keywords: ["select", "pull out", "copy"], actionTitle: "Extract Pages",
+            validate: { values, editor, _ in
+                editor.selectedPages.isEmpty && values.string("pages").nilIfBlank == nil ? "Tap the pages to keep" : nil
+            }
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
-            guard let text = context.options.string("pages").nilIfBlank else {
-                throw DocumentError.invalidOption("Enter the pages to extract.")
+            let indices: [Int]
+            if !context.editor.selectedPages.isEmpty {
+                indices = context.editor.selectedPages
+            } else if let text = context.options.string("pages").nilIfBlank {
+                indices = try PageRangeParser.parse(text, pageCount: document.pageCount)
+            } else {
+                throw DocumentError.invalidOption("Tap the pages to keep.")
             }
-            let indices = try PageRangeParser.parse(text, pageCount: document.pageCount)
             if context.options.bool("separate") {
                 let urls = try indices.map { index -> URL in
                     let url = context.outputURL("\(input.baseName)-page-\(index + 1)", "pdf")

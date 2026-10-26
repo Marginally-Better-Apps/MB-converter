@@ -96,6 +96,8 @@ final class ToolViewModel {
             return rect == CGRect(x: 0, y: 0, width: 1, height: 1) ? "Full image" : "\(Int((rect.width * 100).rounded()))% × \(Int((rect.height * 100).rounded()))% of original"
         case .range(let start, let end):
             return "\(MetadataFormatter.durationText(start)) – \(MetadataFormatter.durationText(end)) · \(MetadataFormatter.durationText(end - start))"
+        case .pageSelection(let pages):
+            return pages.isEmpty ? "No pages chosen" : "\(pages.count) page\(pages.count == 1 ? "" : "s") chosen"
         case .texts(let overlays):
             let count = overlays.filter { !$0.isEmpty }.count
             return count == 0 ? "No text yet" : "\(count) text box\(count == 1 ? "" : "es")"

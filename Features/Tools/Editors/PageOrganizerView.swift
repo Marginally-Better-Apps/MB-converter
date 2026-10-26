@@ -205,7 +205,7 @@ struct PageOrganizerView: View {
     }
 }
 
-private struct PageCell: View {
+struct PageCell: View {
     let edit: PDFToolkit.PageEdit
     let number: Int
     let image: UIImage?
