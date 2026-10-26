@@ -36,6 +36,7 @@ struct InputDetailView: View {
         outputConfigViewModel.removeAllMetadata = UserDefaults.standard.bool(
             forKey: InputMetadataEditor.removeAllMetadataDefaultsKey
         )
+        outputConfigViewModel.markChoicesAsDefaults()
         self._outputConfigViewModel = State(initialValue: outputConfigViewModel)
     }
 
@@ -210,6 +211,7 @@ struct InputDetailView: View {
                 Haptics.impact(.light)
             }
             Button("Discard", role: .destructive) {
+                Haptics.warning()
                 discardConversion()
             }
         } message: {
@@ -760,11 +762,15 @@ struct InputDetailView: View {
     private func requestDiscardConfirmation() {
         guard isRootSectionActive, selectedEditor == nil, !isDiscardConfirmationPresented else { return }
         Haptics.impact(.light)
+        // Nothing changed from the defaults: there's nothing to lose, so just go back.
+        guard outputConfigViewModel.hasUserChanges else {
+            discardConversion()
+            return
+        }
         isDiscardConfirmationPresented = true
     }
 
     private func discardConversion() {
-        Haptics.warning()
         invalidateCachedRun()
         try? FileManager.default.removeItem(at: viewModel.media.url)
         for url in outputConfigViewModel.livePhotoOwnedFileURLs {

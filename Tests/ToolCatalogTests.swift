@@ -42,6 +42,50 @@ struct ToolCatalogStructureTests {
         #expect(ToolCatalog.search("zzzz-nothing").isEmpty)
     }
 
+    /// People type what they want, not tool names.
+    @Test(arguments: [
+        ("turn my photo into a pdf", "pdf.fromimages"),
+        ("picture to pdf", "pdf.fromimages"),
+        ("make a pdf from pictures", "pdf.fromimages"),
+        ("edit pdf", "pdf.edit"),
+        ("shrink video", "video.compress"),
+        ("remove password", "pdf.unlock"),
+        ("combine pdfs", "pdf.merge"),
+        ("I want to sign a PDF", "pdf.sign"),
+        ("convert pdf to word", "convert.pdf.docx"),
+        ("make my photos smaller", "image.compress"),
+        ("pdf to images", "pdf.toimages")
+    ])
+    func searchUnderstandsPlainEnglish(query: String, expected: String) {
+        let results = ToolCatalog.search(query)
+        #expect(results.first?.id.rawValue == expected, "\(query) → \(results.prefix(4).map(\.title))")
+    }
+
+    @Test func searchReadsDirection() {
+        let results = ToolCatalog.search("picture to pdf").map(\.id)
+        let forward = results.firstIndex(of: "pdf.fromimages")
+        let backward = results.firstIndex(of: "pdf.toimages")
+        #expect(forward != nil && (backward == nil || forward! < backward!), "PDF → Images must not outrank Images → PDF")
+        #expect(ToolCatalog.search("edit pdf").firstIndex { $0.id == "pdf.edit" }! < ToolCatalog.search("edit pdf").firstIndex { $0.id == "pdf.metadata" }!)
+    }
+
+    @Test func searchStillFindsPartialWordsAndFiller() {
+        #expect(ToolCatalog.search("compr").prefix(3).contains { $0.id == "pdf.compress" }, "Typing a word halfway still finds it")
+        #expect(!ToolCatalog.search("convert").isEmpty, "A query of only verbs still matches")
+        #expect(!ToolCatalog.search("to").isEmpty)
+        #expect(ToolCatalog.search("   ").count == ToolCatalog.all.count)
+        #expect(ToolCatalog.tool("pdf.fromimages")!.matches("turn my photo into a pdf"))
+        #expect(!ToolCatalog.tool("pdf.merge")!.matches("shrink video"))
+    }
+
+    @Test func photosOfferImagesToPDFFirst() {
+        for format in [FileFormat.jpeg, .heic, .png] {
+            let tools = ToolCatalog.tools(accepting: format).filter { !$0.opensMediaConverter }
+            #expect(tools.first?.id == "pdf.fromimages", "\(format): \(tools.prefix(3).map(\.title))")
+            #expect(tools.prefix(14).contains { $0.id == "image.removebg" })
+        }
+    }
+
     @Test func suggestsToolsForFiles() {
         let pdfTools = ToolCatalog.tools(accepting: .pdf)
         #expect(pdfTools.first?.category == .pdf)

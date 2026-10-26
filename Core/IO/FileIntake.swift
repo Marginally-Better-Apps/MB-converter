@@ -110,8 +110,15 @@ enum FileIntake {
         for url in pasteboard.urls ?? [] where url.isFileURL {
             if let file = try? importFile(at: url) { files.append(file) }
         }
-        if files.isEmpty, let pdf = pasteboard.data(forPasteboardType: UTType.pdf.identifier) {
-            files.append(try importData(pdf, suggestedName: "Pasted.pdf"))
+        if files.isEmpty {
+            // A PDF or Office file copied as data, named after its source when the provider says.
+            for type in pasteboard.types {
+                guard let format = documentFormat(forPasteboardType: type),
+                      let data = pasteboard.data(forPasteboardType: type), !data.isEmpty else { continue }
+                let base = pasteboard.itemProviders.first?.suggestedName.map { ($0 as NSString).deletingPathExtension } ?? ""
+                files.append(try importData(data, suggestedName: "\(base.isEmpty ? "Pasted" : base).\(format.fileExtension)"))
+                break
+            }
         }
         if files.isEmpty {
             for (index, item) in pasteboard.items.enumerated() {
@@ -131,6 +138,26 @@ enum FileIntake {
         }
         guard !files.isEmpty else { throw ImportError.noSupportedMediaInPasteboard }
         return files
+    }
+
+    /// Documents that arrive on the clipboard as files, not as text to paste into a field.
+    static let pasteboardDocumentFormats: [FileFormat] = [.pdf, .docx, .odt, .epub, .xlsx, .ods, .pptx, .zip]
+
+    /// The kind of document on the clipboard (a copied PDF, Word file, PSD…), or nil.
+    /// Photos, videos and audio are left to the media importer; copied text isn't a document.
+    static func pasteboardDocumentFormat(_ pasteboard: UIPasteboard = .general) -> FileFormat? {
+        if pasteboard.hasURLs {
+            for url in pasteboard.urls ?? [] where url.isFileURL {
+                if let format = FileFormat(url: url), !opensInMediaConverter(format) { return format }
+            }
+        }
+        return pasteboard.types.lazy.compactMap(documentFormat(forPasteboardType:)).first
+    }
+
+    static func documentFormat(forPasteboardType identifier: String) -> FileFormat? {
+        guard let type = UTType(identifier) else { return nil }
+        // Formats without a registered type fall back to `.data`, which everything conforms to.
+        return pasteboardDocumentFormats.first { $0.utType != .data && type.conforms(to: $0.utType) }
     }
 
     // MARK: Routing

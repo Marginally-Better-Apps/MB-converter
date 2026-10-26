@@ -19,6 +19,8 @@ final class HomeViewModel {
     var pasteboardPreviewThumbnail: UIImage?
     var pasteboardFileSizeBytes: Int64?
     var pasteboardDuration: TimeInterval?
+    /// A copied PDF or document; pasting opens it in the file landing screen like Files does.
+    var pasteboardDocumentFormat: FileFormat?
     private var lastSeenPasteboardChangeCount: Int
     private var lastPreviewPasteboardChangeCount: Int?
     private var pasteboardPreviewTask: Task<Void, Never>?
@@ -42,7 +44,15 @@ final class HomeViewModel {
         pasteboardPreviewThumbnail = nil
         pasteboardFileSizeBytes = nil
         pasteboardDuration = nil
-        guard candidateLabel != nil else { return }
+        pasteboardDocumentFormat = nil
+        guard candidateLabel != nil else {
+            if let format = FileIntake.pasteboardDocumentFormat() {
+                pasteboardDocumentFormat = format
+                pasteboardImportLabel = format.badge
+                pasteboardImportFileExtension = format.badge
+            }
+            return
+        }
 
         pasteboardPreviewTask = Task { [weak self] in
             guard let self else { return }
@@ -101,6 +111,24 @@ final class HomeViewModel {
             pasteboardDuration = nil
         }
         return media
+    }
+
+    /// Imports a copied document for the file landing screen.
+    func importDocumentFromPasteboard() -> ToolInputFile? {
+        errorMessage = nil
+        do {
+            let file = try FileIntake.importPasteboard()[0]
+            Haptics.success()
+            return file
+        } catch {
+            errorMessage = error.localizedDescription
+            DiagnosticsLog.shared.record(error: error, context: "Import document from clipboard")
+            Haptics.error()
+            pasteboardDocumentFormat = nil
+            pasteboardImportLabel = nil
+            pasteboardImportFileExtension = nil
+            return nil
+        }
     }
 
     enum ImportedItem {

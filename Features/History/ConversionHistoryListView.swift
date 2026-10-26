@@ -9,6 +9,9 @@ struct ConversionHistoryListView: View {
     @State private var store = ConversionHistoryStore.shared
     @State private var isClearAllConfirming = false
     @State private var entryPendingDeletion: HistoryItem?
+    /// Mirrors the store's setting so turning it on here or in Settings redraws the list.
+    @AppStorage(ConversionHistoryUserDefaults.isEnabledKey)
+    private var isSavedHistoryEnabled = ConversionHistoryUserDefaults.defaultIsEnabled
 
     var body: some View {
         List {
@@ -20,29 +23,26 @@ struct ConversionHistoryListView: View {
 
             if entries.isEmpty {
                 Section {
-                    ContentUnavailableView(
-                        "Nothing Here Yet",
-                        systemImage: "clock.arrow.circlepath",
-                        description: Text("Files you convert or make with Tools will appear here.")
-                    )
-                    .frame(maxWidth: .infinity)
+                    emptyState
                 }
             } else {
-                Section("Recent") {
-                    ForEach(entries) { entry in
-                        historyRow(item: entry)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    Haptics.warning()
-                                    entryPendingDeletion = entry
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
+                ForEach(HistoryDay.group(entries)) { group in
+                    Section(group.day.title) {
+                        ForEach(group.items) { entry in
+                            historyRow(item: entry, day: group.day)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        Haptics.warning()
+                                        entryPendingDeletion = entry
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
                                 }
-                            }
+                        }
                     }
                 }
 
-                if store.isEnabled {
+                if isSavedHistoryEnabled {
                     Section {
                         Button(role: .destructive) {
                             Haptics.warning()
@@ -92,14 +92,14 @@ struct ConversionHistoryListView: View {
             }
         } message: {
             if let entry = entryPendingDeletion {
-                Text("This removes the result \(entry.fileCount == 1 ? "file" : "files") for \(entry.displayName) from History.")
+                Text("This removes the result \(entry.fileCount == 1 ? "file" : "files") for \(entry.outputName) from History.")
             }
         }
     }
 
     private var historySummary: some View {
         HStack(spacing: 14) {
-            IconTile(systemImage: store.isEnabled ? "externaldrive.fill" : "hourglass")
+            IconTile(systemImage: isSavedHistoryEnabled ? "externaldrive.fill" : "hourglass")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(store.storageSummaryTitle)
@@ -145,7 +145,7 @@ struct ConversionHistoryListView: View {
         )
     }
 
-    private func historyRow(item: HistoryItem) -> some View {
+    private func historyRow(item: HistoryItem, day: HistoryDay) -> some View {
         Button {
             Haptics.impact(.light)
             switch item {
@@ -157,7 +157,7 @@ struct ConversionHistoryListView: View {
         } label: {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 5) {
-                    rowText(item: item)
+                    rowText(item: item, day: day)
                 }
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -168,7 +168,7 @@ struct ConversionHistoryListView: View {
                         .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        rowText(item: item)
+                        rowText(item: item, day: day)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -187,19 +187,76 @@ struct ConversionHistoryListView: View {
     }
 
     @ViewBuilder
-    private func rowText(item: HistoryItem) -> some View {
-        Text(item.displayName)
+    private func rowText(item: HistoryItem, day: HistoryDay) -> some View {
+        // What you got, then what made it, then where it came from and when.
+        Text(item.outputName)
             .font(.body.weight(.medium))
             .foregroundStyle(Theme.text)
             .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
             .truncationMode(.middle)
-        Text(item.detail)
+        Text(item.actionSummary)
             .font(.subheadline)
             .foregroundStyle(Theme.textMuted)
             .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-        Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
+        Text(item.sourceLine(timeOnly: day != .earlier))
             .font(.caption)
             .foregroundStyle(Theme.textTertiary)
+            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+            .truncationMode(.middle)
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label("Nothing Here Yet", systemImage: "clock.arrow.circlepath")
+        } description: {
+            Text(isSavedHistoryEnabled
+                 ? "Files you convert or make with Tools will appear here."
+                 : "Keep your results to find them here next time.")
+        } actions: {
+            if !isSavedHistoryEnabled && previewEntries == nil {
+                Button("Keep my results") {
+                    Haptics.impact(.medium)
+                    store.enableSavedHistory()
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityHint("Saves what you convert on this device until you delete it.")
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// History sections: Today, Yesterday, then everything older.
+enum HistoryDay: String, CaseIterable, Hashable {
+    case today, yesterday, earlier
+
+    var title: String {
+        switch self {
+        case .today: "Today"
+        case .yesterday: "Yesterday"
+        case .earlier: "Earlier"
+        }
+    }
+
+    static func day(for date: Date, now: Date = .now, calendar: Calendar = .current) -> HistoryDay {
+        if calendar.isDate(date, inSameDayAs: now) { return .today }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return .yesterday
+        }
+        return date > now ? .today : .earlier
+    }
+
+    struct DayGroup: Identifiable {
+        let day: HistoryDay
+        let items: [HistoryItem]
+        var id: HistoryDay { day }
+    }
+
+    /// Non-empty sections in order, keeping each section's items in the order given (newest first).
+    static func group(_ items: [HistoryItem], now: Date = .now, calendar: Calendar = .current) -> [DayGroup] {
+        let byDay = Dictionary(grouping: items) { day(for: $0.createdAt, now: now, calendar: calendar) }
+        return allCases.compactMap { day in byDay[day].map { DayGroup(day: day, items: $0) } }
     }
 }
 
@@ -260,6 +317,49 @@ extension HistoryItem {
                 : "\(entry.files.count) files"
             return entry.files.isEmpty ? entry.title : "\(entry.title) · \(files) · \(MetadataFormatter.bytes(entry.totalBytes))"
         }
+    }
+
+    /// The file the user got, as it's named when shared: "IMG_0234.jpg", "Report-compressed.pdf + 2 more".
+    var outputName: String {
+        switch self {
+        case .conversion(let entry):
+            let base = (entry.input.originalFilename as NSString).deletingPathExtension
+            return "\(base.isEmpty ? "converted" : base).\(entry.result.outputFormat.fileExtension)"
+        case .tool(let entry):
+            guard let first = entry.files.first?.lastPathComponent else { return entry.title }
+            return entry.files.count > 1 ? "\(first) + \(entry.files.count - 1) more" : first
+        }
+    }
+
+    /// What made it: "HEIC to JPEG · 1.2 MB", "Compress PDF · 2 files · 3 MB".
+    var actionSummary: String {
+        switch self {
+        case .conversion(let entry):
+            let source = (entry.input.originalFilename as NSString).pathExtension.uppercased()
+            let action = source.isEmpty
+                ? "Converted to \(entry.result.outputFormat.displayName)"
+                : "\(source) to \(entry.result.outputFormat.displayName)"
+            return "\(action) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))"
+        case .tool(let entry):
+            guard !entry.files.isEmpty else { return entry.title }
+            let files = entry.files.count == 1 ? nil : "\(entry.files.count) files"
+            return ([entry.title, files, MetadataFormatter.bytes(entry.totalBytes)].compactMap { $0 }).joined(separator: " · ")
+        }
+    }
+
+    /// "From IMG_0234.HEIC · 3:41 PM"; the date is included for older items.
+    func sourceLine(timeOnly: Bool) -> String {
+        let time = timeOnly
+            ? createdAt.formatted(date: .omitted, time: .shortened)
+            : createdAt.formatted(date: .abbreviated, time: .shortened)
+        let inputs: [String]
+        switch self {
+        case .conversion(let entry): inputs = [entry.input.originalFilename].filter { !$0.isEmpty }
+        case .tool(let entry): inputs = entry.inputNames
+        }
+        guard let first = inputs.first else { return time }
+        let source = inputs.count > 1 ? "\(first) + \(inputs.count - 1) more" : first
+        return "From \(source) · \(time)"
     }
 
     var fileCount: Int {

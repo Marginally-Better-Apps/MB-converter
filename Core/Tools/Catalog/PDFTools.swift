@@ -315,7 +315,7 @@ extension ToolCatalog {
             id: "pdf.edit", title: "Edit & Annotate", summary: "Add text, images, highlights and shapes",
             symbol: "pencil.and.outline", category: .pdf, input: .one([.pdf], noun: "PDF"),
             editor: .pdfMarkup(signatureFirst: false),
-            keywords: ["annotate", "add text", "highlight", "whiteout", "markup", "write", "fill"], isFeatured: true, actionTitle: "Save PDF",
+            keywords: ["edit pdf", "annotate", "add text", "highlight", "whiteout", "markup", "write", "fill"], isFeatured: true, actionTitle: "Save PDF",
             validate: { _, editor, _ in editor.overlays.isEmpty ? "Add something to a page" : nil }
         ) { context in
             try await applyOverlays(context, suffix: "edited")

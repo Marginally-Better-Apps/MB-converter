@@ -34,7 +34,6 @@ enum AppRoute: Hashable {
     case processing(MediaFile, ConversionConfig)
     case result(MediaFile, ConversionConfig, ConversionResult, fromHistory: Bool)
     case category(ToolCategory)
-    case allTools
     case tool(ToolID, inputs: [ToolInputFile], preset: [String: String] = [:])
     case toolResult(ToolRun)
     case fileHub(ToolInputFile)
@@ -211,6 +210,7 @@ struct ConverterRootView: View {
     private var toolsStack: some View {
         NavigationStack(path: $toolsPath) {
             ToolBrowserView(path: $toolsPath)
+                .settingsToolbarButton()
                 .navigationDestination(for: AppRoute.self) { route in
                     destination(for: route, path: $toolsPath) {
                         showConvertRoot()
@@ -255,8 +255,6 @@ struct ConverterRootView: View {
         switch route {
         case .category(let category):
             CategoryView(category: category, path: path)
-        case .allTools:
-            ToolBrowserView(path: path)
         case .tool(let id, let inputs, let preset):
             Group {
                 if let tool = ToolCatalog.tool(id) {

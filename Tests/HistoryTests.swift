@@ -83,6 +83,38 @@ struct ToolHistoryTests {
         store.removeEntry(id: run.id)
     }
 
+    @Test func historyIsSavedByDefaultButAnExplicitChoiceWins() {
+        let defaults = UserDefaults.standard
+        let key = ConversionHistoryUserDefaults.isEnabledKey
+        let stored = defaults.object(forKey: key)
+        defer {
+            defaults.set(stored, forKey: key)
+            ConversionHistoryStore.shared.refreshForCurrentSettings()
+        }
+        defaults.removeObject(forKey: key)
+        #expect(ConversionHistoryUserDefaults.isEnabled, "A fresh install keeps results")
+        ConversionHistoryUserDefaults.isEnabled = false
+        #expect(!ConversionHistoryUserDefaults.isEnabled, "Someone who turned it off stays off")
+    }
+
+    @Test func keepMyResultsTurnsSavedHistoryOnAndKeepsThisSession() throws {
+        let store = ConversionHistoryStore.shared
+        let wasEnabled = ConversionHistoryUserDefaults.isEnabled
+        ConversionHistoryUserDefaults.isEnabled = false
+        store.refreshForCurrentSettings()
+        defer {
+            ConversionHistoryUserDefaults.isEnabled = wasEnabled
+            store.refreshForCurrentSettings()
+        }
+        let run = try sampleRun()
+        store.record(run, title: "Reverse Pages")
+        #expect(store.enableSavedHistory())
+        #expect(ConversionHistoryUserDefaults.isEnabled)
+        let entry = try #require(store.toolEntry(withId: run.id), "This session's result is kept")
+        #expect(entry.folder.path.contains("Application Support"))
+        store.removeEntry(id: run.id)
+    }
+
     @Test func runningAToolFromTheToolScreenRecordsIt() async throws {
         let tool = try #require(ToolCatalog.tool("pdf.reverse"))
         let input = try ToolInputFile(url: try ToolInputFactory.makeSync(.pdf))
@@ -92,6 +124,61 @@ struct ToolHistoryTests {
         let entry = try #require(ConversionHistoryStore.shared.toolEntry(withId: run.id))
         #expect(entry.inputNames == [input.displayName])
         #expect(entry.toolID == "pdf.reverse")
+    }
+}
+
+/// History rows lead with the file you got and sit under Today, Yesterday or Earlier.
+@Suite struct HistoryRowTests {
+    private func toolItem(at date: Date, files: [String] = ["Report-compressed.pdf"], inputs: [String] = ["Report.pdf"]) -> HistoryItem {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("history-row-tests", isDirectory: true)
+        return .tool(ToolHistoryEntry(
+            id: UUID(), createdAt: date, toolID: "pdf.compress", title: "Compress PDF", inputNames: inputs,
+            files: files.map { folder.appendingPathComponent($0) }, summary: nil, text: nil
+        ))
+    }
+
+    @Test func rowsNameTheOutputAndTheTool() {
+        let item = toolItem(at: .now, inputs: ["IMG_0234.HEIC", "IMG_0235.HEIC", "IMG_0236.HEIC"])
+        #expect(item.outputName == "Report-compressed.pdf")
+        #expect(item.actionSummary.hasPrefix("Compress PDF"))
+        #expect(item.sourceLine(timeOnly: true).hasPrefix("From IMG_0234.HEIC + 2 more · "))
+
+        let several = toolItem(at: .now, files: ["a.png", "b.png", "c.png"])
+        #expect(several.outputName == "a.png + 2 more")
+        #expect(several.actionSummary.contains("3 files"))
+
+        let made = toolItem(at: .now, files: [], inputs: [])
+        #expect(made.outputName == "Compress PDF", "Nothing saved: the tool's name stands in")
+        #expect(!made.sourceLine(timeOnly: true).contains("From"))
+    }
+
+    @Test func conversionsAreNamedLikeTheirExport() throws {
+        let input = MediaFile(url: URL(fileURLWithPath: "/tmp/in.heic"), originalFilename: "IMG_0234.HEIC", category: .image,
+                              sizeOnDisk: 10, dimensions: CGSize(width: 4, height: 3), containerFormat: "heic")
+        let result = ConversionResult(url: URL(fileURLWithPath: "/tmp/\(UUID().uuidString).jpg"), outputFormat: .jpg, sizeOnDisk: 2048)
+        let item = HistoryItem.conversion(ConversionHistoryEntry(
+            id: UUID(), createdAt: .now, input: input, config: ConversionConfig(outputFormat: .jpg), result: result
+        ))
+        #expect(item.outputName == "IMG_0234.jpg")
+        #expect(item.actionSummary.hasPrefix("HEIC to \(OutputFormat.jpg.displayName)"))
+        #expect(item.sourceLine(timeOnly: true).hasPrefix("From IMG_0234.HEIC"))
+    }
+
+    @Test func groupsByDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 25, hour: 9)))
+        let items = [
+            toolItem(at: now.addingTimeInterval(-60 * 60)),            // 8 AM today
+            toolItem(at: now.addingTimeInterval(-10 * 60 * 60)),       // 11 PM yesterday
+            toolItem(at: now.addingTimeInterval(-30 * 60 * 60)),       // 3 AM yesterday
+            toolItem(at: now.addingTimeInterval(-3 * 24 * 60 * 60))    // three days ago
+        ]
+        let groups = HistoryDay.group(items, now: now, calendar: calendar)
+        #expect(groups.map(\.day) == [.today, .yesterday, .earlier])
+        #expect(groups.map(\.items.count) == [1, 2, 1])
+        #expect(groups[1].items.map(\.id) == [items[1].id, items[2].id], "Newest first within a day")
+        #expect(HistoryDay.group([], now: now, calendar: calendar).isEmpty)
     }
 }
 

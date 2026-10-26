@@ -536,6 +536,35 @@ final class OutputConfigViewModel {
         return makeConfig()
     }
 
+    // MARK: - Unsaved changes
+
+    /// Output choices when the screen opened. Metadata is compared separately because
+    /// discovery fills it in after the screen appears.
+    @ObservationIgnored private var initialChoices: ConversionConfig?
+    @ObservationIgnored private var initialRemoveAllMetadata = false
+
+    /// Treats the current choices as the screen's defaults. Call once they are applied.
+    func markChoicesAsDefaults() {
+        initialChoices = choicesIgnoringMetadata
+        initialRemoveAllMetadata = removeAllMetadata
+    }
+
+    /// Something the user set or edited would be lost by leaving; only then is it worth asking.
+    var hasUserChanges: Bool {
+        if sourceWasTrimmed || livePhotoKeyPhotoTime != nil || removeAllMetadata != initialRemoveAllMetadata {
+            return true
+        }
+        if metadataFieldRows != discoveredMetadataTags.map({ MetadataFieldRowModel(tag: $0) }) { return true }
+        guard let initialChoices else { return false }
+        return choicesIgnoringMetadata != initialChoices
+    }
+
+    private var choicesIgnoringMetadata: ConversionConfig {
+        var config = makeConfig()
+        config.metadata = .default
+        return config
+    }
+
     var canConvert: Bool {
         !isTrimmingVideo && !isLoadingDiscoveredMetadata && !wouldProduceUnchangedOutput
     }

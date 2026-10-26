@@ -396,11 +396,10 @@ struct ToolDefinition: Identifiable, @unchecked Sendable {
         editor == nil && !opensMediaConverter && input.maxCount == 1 && input.acceptsFiles && options.allSatisfy(\.isAdvanced)
     }
 
+    /// Every meaningful word of the query (or one of its synonyms) appears in the tool's title,
+    /// summary, category or keywords. Filler like "turn my … into a" is ignored; see `ToolSearchQuery`.
     func matches(_ query: String) -> Bool {
-        let tokens = query.lowercased().split(separator: " ").map(String.init)
-        guard !tokens.isEmpty else { return true }
-        let haystack = ([title, summary, category.title] + keywords).joined(separator: " ").lowercased()
-        return tokens.allSatisfy { haystack.contains($0) }
+        ToolSearchQuery(query).matches(self)
     }
 }
 
