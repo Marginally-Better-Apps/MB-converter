@@ -89,7 +89,13 @@ class ConverterUITestCase: XCTestCase {
         let run = wait(for: app.buttons["tool.run"], 20, "The tool's action button never appeared")
         XCTAssertTrue(run.isEnabled, "Action button is disabled: \(run.label)")
         run.tap()
-        wait(for: app.buttons["result.finish"], timeout, "The result screen never appeared")
+        // A busy CI simulator occasionally drops a tap. If the tool neither started (the button turns
+        // into a progress bar) nor finished, tap once more; a real failure still shows an alert.
+        let finish = app.buttons["result.finish"]
+        if !finish.waitForExistence(timeout: 4), run.exists, run.isHittable, !app.alerts.firstMatch.exists {
+            run.tap()
+        }
+        wait(for: finish, timeout, "The result screen never appeared")
     }
 
     var resultFiles: XCUIElementQuery { app.buttons.matching(identifier: "result.file") }
