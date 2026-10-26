@@ -72,6 +72,7 @@ struct SelfTestView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(runner.passedCount) passed, \(runner.failedCount) failed, \(runner.skippedCount) skipped")
+            .accessibilityValue(failureSummary)
             .accessibilityIdentifier(runner.finishedAt != nil ? "selftest.finished" : "selftest.summary")
 
             Button {
@@ -99,6 +100,14 @@ struct SelfTestView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
+    }
+
+    /// "Check: problem; …" for each failed check, so VoiceOver and UI tests can say what failed.
+    private var failureSummary: String {
+        runner.cases.compactMap { check -> String? in
+            guard case .failed(let problems) = runner.result(for: check.id).status else { return nil }
+            return "\(check.title): \(problems.joined(separator: "; "))"
+        }.joined(separator: " | ")
     }
 
     private func count(_ value: Int, _ label: String, _ color: Color) -> some View {

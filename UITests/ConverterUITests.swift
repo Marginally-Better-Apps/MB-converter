@@ -437,7 +437,7 @@ final class SelfTestUITests: ConverterUITestCase {
         let finished = app.otherElements["selftest.finished"].firstMatch.exists ? app.otherElements["selftest.finished"].firstMatch : app.descendants(matching: .any)["selftest.finished"].firstMatch
         waitAnsweringSystemPrompts(for: finished, 1_200, "The self-test didn't finish")
         attach("Self-test results", app.screenshot())
-        XCTAssertTrue(finished.label.contains(", 0 failed"), "Self-test summary: \(finished.label)")
+        XCTAssertTrue(finished.label.contains(", 0 failed"), "Self-test summary: \(finished.label). Failed: \(finished.value as? String ?? "?")")
     }
 }
 

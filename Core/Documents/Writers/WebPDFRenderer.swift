@@ -94,7 +94,13 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
         let size = CGSize(width: (intrinsic.width * scale).rounded(), height: (intrinsic.height * scale).rounded())
         _ = try? await renderer.webView.evaluateJavaScript("var a = document.getElementById('art'); a.style.width = '\(size.width)px'; a.style.height = '\(size.height)px'; 0")
         renderer.webView.frame = CGRect(origin: .zero, size: size)
-        try await Task.sleep(nanoseconds: 100_000_000)
+        // Wait for WebKit to lay the image out at its new size (slow machines take a while).
+        for _ in 0 ..< 40 {
+            let laidOut = (try? await renderer.webView.evaluateJavaScript("document.getElementById('art').getBoundingClientRect().width") as? Double) ?? 0
+            if abs(laidOut - size.width) < 1 { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
         let configuration = WKSnapshotConfiguration()
         configuration.rect = CGRect(origin: .zero, size: size)
         configuration.afterScreenUpdates = true
