@@ -28,9 +28,14 @@ struct ToolResultView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
                 header
+                if let file = files.first, files.count == 1, showsLargePreview(file) { largePreview(file) }
                 if let text = run.output.text { textCard(text) }
                 filesCard
                 actions
+                Label("You'll also find this in History.", systemImage: "clock.arrow.circlepath")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textMuted)
+                    .frame(maxWidth: .infinity)
                 if let next = nextTools, !next.isEmpty { continueSection(next) }
             }
             .padding(.horizontal, Theme.Spacing.l)
@@ -39,11 +44,11 @@ struct ToolResultView: View {
             .frame(maxWidth: .infinity)
         }
         .screenBackground()
-        .navigationTitle("Done")
+        .navigationTitle("Ready")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Finish") {
+                Button("Done") {
                     Haptics.impact(.light)
                     path.removeAll()
                 }
@@ -111,6 +116,27 @@ struct ToolResultView: View {
         }
         .padding(.top, Theme.Spacing.s)
         .accessibilityElement(children: .combine)
+    }
+
+    private func showsLargePreview(_ file: ToolOutputFile) -> Bool {
+        guard let family = file.format?.family else { return false }
+        return [.image, .pdf, .video].contains(family)
+    }
+
+    /// The result itself, big enough to check at a glance; tap for full screen.
+    private func largePreview(_ file: ToolOutputFile) -> some View {
+        Button {
+            preview = IdentifiableURLs(urls: urls, index: 0)
+        } label: {
+            FileThumbnail(url: file.url, size: CGSize(width: 320, height: 260), format: file.format)
+                .frame(maxWidth: .infinity)
+                .frame(height: 260)
+                .padding(Theme.Spacing.s)
+                .background(Theme.surfaceSunken, in: RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous))
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityLabel("Preview \(file.name)")
+        .accessibilityIdentifier("result.preview")
     }
 
     private func textCard(_ text: String) -> some View {
@@ -189,38 +215,45 @@ struct ToolResultView: View {
         .card(padding: 0)
     }
 
+    private var canSaveToPhotos: Bool { PhotoLibrarySaver.canSave(files) }
+
+    /// Photos and videos go to Photos first; documents to Files. Share is always one tap away.
     private var actions: some View {
         VStack(spacing: Theme.Spacing.s) {
-            Button {
-                Haptics.impact(.light)
-                share = IdentifiableURLs(urls: urls)
-            } label: {
-                Label(files.count > 1 ? "Share All" : "Share", systemImage: "square.and.arrow.up")
-            }
-            .buttonStyle(PrimaryButtonStyle())
-
-            HStack(spacing: Theme.Spacing.s) {
+            if canSaveToPhotos {
+                Button(action: saveToPhotos) {
+                    Label(files.count > 1 ? "Save All to Photos" : "Save to Photos", systemImage: "photo.badge.plus")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .accessibilityIdentifier("result.savePhotos")
+            } else {
                 Button {
                     export = IdentifiableURLs(urls: urls)
                 } label: {
-                    Label("Save to Files", systemImage: "folder")
+                    Label(files.count > 1 ? "Save All to Files" : "Save to Files", systemImage: "folder")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+
+            HStack(spacing: Theme.Spacing.s) {
+                Button {
+                    Haptics.impact(.light)
+                    share = IdentifiableURLs(urls: urls)
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(SecondaryButtonStyle())
 
-                if files.count > 1 {
-                    Button(action: shareZip) {
-                        Label("ZIP", systemImage: "doc.zipper")
+                if canSaveToPhotos {
+                    Button {
+                        export = IdentifiableURLs(urls: urls)
+                    } label: {
+                        Label("Files", systemImage: "folder")
                     }
                     .buttonStyle(SecondaryButtonStyle())
-                } else if let file = files.first, file.format?.family == .image {
-                    Button {
-                        if let data = try? Data(contentsOf: file.url), let image = UIImage(data: data) {
-                            UIPasteboard.general.image = image
-                            Haptics.success()
-                            showToast("Image copied")
-                        }
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
+                } else if files.count > 1 {
+                    Button(action: shareZip) {
+                        Label("ZIP", systemImage: "doc.zipper")
                     }
                     .buttonStyle(SecondaryButtonStyle())
                 } else if let file = files.first {
@@ -233,12 +266,25 @@ struct ToolResultView: View {
                     .buttonStyle(SecondaryButtonStyle())
                 }
             }
+
+            if tool?.input.acceptsFiles == true {
+                Button {
+                    Haptics.impact(.light)
+                    // Back to the tool with its file and settings, to make another version.
+                    if !path.isEmpty { path.removeLast() }
+                } label: {
+                    Label("Make Another", systemImage: "arrow.uturn.backward")
+                        .font(.subheadline.weight(.medium))
+                }
+                .padding(.top, 4)
+                .accessibilityIdentifier("result.again")
+            }
         }
     }
 
     private var nextTools: [ToolDefinition]? {
         guard files.count == 1, let format = files.first?.format else { return nil }
-        return Array(ToolCatalog.tools(accepting: format).filter { $0.id != run.toolID && !$0.opensMediaConverter }.prefix(6))
+        return Array(ToolCatalog.tools(accepting: format).filter { $0.id != run.toolID && !$0.opensMediaConverter }.prefix(3))
     }
 
     private func continueSection(_ tools: [ToolDefinition]) -> some View {
@@ -271,6 +317,20 @@ struct ToolResultView: View {
     }
 
     // MARK: Actions
+
+    private func saveToPhotos() {
+        Haptics.impact(.light)
+        let urls = urls
+        Task {
+            do {
+                try await PhotoLibrarySaver.save(urls)
+                Haptics.success()
+                showToast(urls.count == 1 ? "Saved to Photos" : "Saved \(urls.count) to Photos")
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
 
     private func shareZip() {
         do {
