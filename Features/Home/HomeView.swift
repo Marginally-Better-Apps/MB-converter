@@ -424,7 +424,7 @@ struct HomeView: View {
 
     private var pasteboardSubtitle: String {
         guard let label = viewModel.pasteboardImportLabel else {
-            return "No supported media copied"
+            return "Copy a photo, video or PDF first"
         }
 
         let format = viewModel.pasteboardImportFileExtension ?? label
@@ -527,6 +527,10 @@ struct HomeView: View {
     }
 
     private func importPasteboard() async {
+        if viewModel.pasteboardDocumentFormat != nil {
+            if let file = viewModel.importDocumentFromPasteboard() { path.append(.fileHub(file)) }
+            return
+        }
         if let media = await viewModel.importFromPasteboard() {
             path.append(.inputDetail(media))
         }
