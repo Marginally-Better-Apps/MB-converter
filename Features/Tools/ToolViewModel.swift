@@ -41,10 +41,15 @@ final class ToolViewModel {
         }
     }
 
-    /// Visible options grouped by section, in declaration order.
+    /// Visible advanced options, folded under "More options".
+    var advancedOptions: [ToolOption] {
+        visibleOptions.filter(\.isAdvanced)
+    }
+
+    /// Visible everyday options grouped by section, in declaration order.
     var optionSections: [(title: String?, options: [ToolOption])] {
         var sections: [(String?, [ToolOption])] = []
-        for option in visibleOptions {
+        for option in visibleOptions where !option.isAdvanced {
             if let index = sections.firstIndex(where: { $0.0 == option.section }) {
                 sections[index].1.append(option)
             } else {
@@ -64,16 +69,23 @@ final class ToolViewModel {
 
     var blockingReason: String? {
         if tool.input.acceptsFiles {
-            if inputs.isEmpty { return "Add \(tool.input.minCount > 1 ? "at least \(tool.input.minCount) " : "")\(tool.input.noun)" }
-            if inputs.count < tool.input.minCount { return "Add at least \(tool.input.minCount) \(tool.input.noun)" }
+            // A noun like "a video and a song" already says how many.
+            let counted = tool.input.noun.contains(" and ")
+            if inputs.isEmpty { return "Add \(tool.input.minCount > 1 && !counted ? "at least \(tool.input.minCount) " : "")\(tool.input.noun)" }
+            if inputs.count < tool.input.minCount { return counted ? "Add \(tool.input.noun)" : "Add at least \(tool.input.minCount) \(tool.input.noun)" }
         }
         if needsPassword, password.isEmpty { return "Enter the PDF password" }
-        return nil
+        return tool.validate?(values, editorState, inputs)
+    }
+
+    /// Only files are missing: the action button opens the picker instead of being disabled.
+    var isMissingFiles: Bool {
+        tool.input.acceptsFiles && inputs.count < tool.input.minCount
     }
 
     var editorSummary: String {
         switch editorState {
-        case .none: return tool.editor == .captionLayout ? "Default positions · drag to place anywhere" : "Not edited yet"
+        case .none: return "Not edited yet"
         case .pages(let edits):
             let rotated = edits.filter { $0.rotation % 360 != 0 }.count
             return "\(edits.count) page\(edits.count == 1 ? "" : "s")" + (rotated > 0 ? " · \(rotated) rotated" : "")
@@ -84,8 +96,9 @@ final class ToolViewModel {
             return rect == CGRect(x: 0, y: 0, width: 1, height: 1) ? "Full image" : "\(Int((rect.width * 100).rounded()))% × \(Int((rect.height * 100).rounded()))% of original"
         case .range(let start, let end):
             return "\(MetadataFormatter.durationText(start)) – \(MetadataFormatter.durationText(end)) · \(MetadataFormatter.durationText(end - start))"
-        case .captions(let positions):
-            return positions.count == 1 ? "Text moved" : "\(positions.count) captions moved"
+        case .texts(let overlays):
+            let count = overlays.filter { !$0.isEmpty }.count
+            return count == 0 ? "No text yet" : "\(count) text box\(count == 1 ? "" : "es")"
         }
     }
 

@@ -162,8 +162,17 @@ struct ToolOption: Identifiable, @unchecked Sendable {
     var footnote: String?
     var section: String?
     var isVisible: (ToolOptionValues) -> Bool = { _ in true }
+    /// Settings most people never need (output format, quality, dpi…): folded under "More options".
+    var isAdvanced = false
 
     var id: String { key }
+
+    /// The same option, folded under "More options".
+    func advanced() -> ToolOption {
+        var copy = self
+        copy.isAdvanced = true
+        return copy
+    }
 
     static func choice(_ key: String, _ label: String, _ choices: [ToolChoice], default value: String? = nil, segmented: Bool = false, section: String? = nil, footnote: String? = nil, visible: @escaping (ToolOptionValues) -> Bool = { _ in true }) -> ToolOption {
         ToolOption(key: key, label: label, kind: .choice(choices, segmented: segmented), defaultValue: .string(value ?? choices.first?.value ?? ""), footnote: footnote, section: section, isVisible: visible)
@@ -262,8 +271,8 @@ enum ToolEditorKind: Hashable, Sendable {
     case imageCrop
     /// Choose a start/end range on a video or audio timeline.
     case mediaRange
-    /// Drag captions (meme text, watermarks) to where they belong on an image.
-    case captionLayout
+    /// Text boxes placed, typed and styled directly on an image (memes, captions, watermarks).
+    case textOverlay(TextOverlay.Preset)
 }
 
 enum ToolEditorState: Hashable, Sendable {
@@ -272,14 +281,13 @@ enum ToolEditorState: Hashable, Sendable {
     case overlays([PDFOverlayItem])
     case crop(CGRect)
     case range(start: Double, end: Double)
-    /// Caption centers as fractions of the image (top-left origin), by caption key.
-    case captions([String: CGPoint])
+    case texts([TextOverlay])
 
     var pageEdits: [PDFToolkit.PageEdit]? { if case .pages(let edits) = self { edits } else { nil } }
     var overlays: [PDFOverlayItem] { if case .overlays(let items) = self { items } else { [] } }
     var cropRect: CGRect? { if case .crop(let rect) = self { rect } else { nil } }
     var range: (start: Double, end: Double)? { if case .range(let start, let end) = self { (start, end) } else { nil } }
-    var captionPositions: [String: CGPoint] { if case .captions(let positions) = self { positions } else { [:] } }
+    var textOverlays: [TextOverlay]? { if case .texts(let overlays) = self { overlays } else { nil } }
 }
 
 final class ToolProgress: @unchecked Sendable {
@@ -372,7 +380,16 @@ struct ToolDefinition: Identifiable, @unchecked Sendable {
     /// Hands off to the existing media conversion screen rather than running here.
     var opensMediaConverter = false
     var actionTitle = "Export"
+    /// Why the tool can't run yet with these settings ("Choose pages to delete"), shown on the action
+    /// button instead of failing after the tap. nil = ready.
+    var validate: (@Sendable (ToolOptionValues, ToolEditorState, [ToolInputFile]) -> String?)?
     let run: ToolRunner
+
+    /// Picking the file is the only decision: no editor, nothing to set, one file. Runs right away
+    /// when a file is picked on the tool's screen.
+    var runsOnPick: Bool {
+        editor == nil && !opensMediaConverter && input.maxCount == 1 && input.acceptsFiles && options.allSatisfy(\.isAdvanced)
+    }
 
     func matches(_ query: String) -> Bool {
         let tokens = query.lowercased().split(separator: " ").map(String.init)

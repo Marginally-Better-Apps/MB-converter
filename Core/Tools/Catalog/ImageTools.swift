@@ -10,12 +10,12 @@ extension ToolCatalog {
         // Every format this runtime can write (ImageIO, libwebp or ImageMagick), common ones first.
         let formats = ImageToolkit.OutputFormat.available.filter { !transparentOnly || $0.supportsTransparency }
         choices += formats.map { ToolChoice($0.rawValue, $0.label) }
-        return .choice("saveAs", "Save as", choices, default: defaultValue, section: "Output")
+        return ToolOption.choice("saveAs", "Save as", choices, default: defaultValue, section: "Output").advanced()
     }
 
     static let qualityOption = ToolOption.slider("quality", "Quality", range: 30 ... 100, default: 90, section: "Output", format: { "\(Int($0))%" }, visible: { values in
         ["original", "jpeg", "heic", "webp", "avif", "jxl", "jp2"].contains(values.string("saveAs"))
-    })
+    }).advanced()
 
     /// Applies `transform` to every input image and writes results in the chosen format.
     @MainActor
@@ -88,12 +88,14 @@ extension ToolCatalog {
                 .stepper("max", "Longest side", range: 16 ... 12_000, default: 1_080, suffix: " px", visible: { $0.string("mode") == "max" }),
                 .stepper("width", "Width", range: 1 ... 12_000, default: 1_080, suffix: " px", visible: { $0.string("mode") == "exact" }),
                 .stepper("height", "Height", range: 1 ... 12_000, default: 1_080, suffix: " px", visible: { $0.string("mode") == "exact" }),
+                .toggle("keepProportions", "Keep proportions", default: true, footnote: "Fits the photo inside this size without stretching it.", visible: { $0.string("mode") == "exact" }),
                 formatOption(), qualityOption
             ],
             keywords: ["dimensions", "scale", "pixels", "smaller", "bigger"], actionTitle: "Resize"
         ) { context in
             let mode: ImageToolkit.ResizeMode = switch context.options.string("mode") {
             case "max": .maxDimension(context.options.int("max"))
+            case "exact" where context.options.bool("keepProportions"): .fit(width: context.options.int("width"), height: context.options.int("height"))
             case "exact": .exact(width: context.options.int("width"), height: context.options.int("height"))
             default: .percent(context.options.double("percent"))
             }
@@ -193,45 +195,27 @@ extension ToolCatalog {
         },
 
         ToolDefinition(
-            id: "image.text", title: "Add Text & Watermark", summary: "Captions, memes and copyright marks",
+            id: "image.text", title: "Add Text & Watermark", summary: "Type on photos: captions, labels and copyright marks",
             symbol: "textformat", category: .images, input: .many(imageInputs, noun: "images"),
-            options: [
-                .text("text", "Text", placeholder: "© Your Name", default: "", multiline: true),
-                .choice("placement", "Position", ToolHelpers.placementChoices, default: PDFStamper.Placement.bottomRight.rawValue, section: "Style",
-                        footnote: "Or use Move text to drag it anywhere."),
-                .choice("font", "Font", CaptionItems.fontChoices, default: CaptionRenderer.Font.bold.rawValue, section: "Style"),
-                .slider("size", "Size", range: 2 ... 25, step: 0.5, default: 6, section: "Style", format: { String(format: "%.1f%%", $0) }),
-                .slider("opacity", "Opacity", range: 10 ... 100, default: 85, section: "Style", format: { "\(Int($0))%" }),
-                .slider("rotation", "Angle", range: -90 ... 90, step: 5, default: 0, section: "Style", format: { "\(Int($0))°" }),
-                .color("color", "Color", default: 0xFFFFFF, section: "Style"),
-                .toggle("outline", "Outline", default: true, section: "Style"),
-                formatOption(), qualityOption
-            ],
-            editor: .captionLayout,
-            keywords: ["caption", "meme", "watermark", "copyright", "label", "write on image"], actionTitle: "Apply"
+            options: [formatOption(), qualityOption],
+            editor: .textOverlay(.watermark),
+            keywords: ["caption", "meme", "watermark", "copyright", "label", "write on image", "type on photo"], actionTitle: "Add Text",
+            validate: { _, editor, _ in editor.texts(for: .watermark).allSatisfy(\.isEmpty) ? "Type your text on the photo" : nil }
         ) { context in
-            let captions = CaptionItems.items(for: "image.text", options: context.options, positions: context.editor.captionPositions).map(\.caption)
-            guard !captions.isEmpty else { throw DocumentError.invalidOption("Enter some text.") }
+            let captions = context.editor.texts(for: .watermark).filter { !$0.isEmpty }.map(\.caption)
+            guard !captions.isEmpty else { throw DocumentError.invalidOption("Type your text on the photo.") }
             return try await processImages(context, suffix: "text") { try require(ImageToolkit.addText($0, captions), "caption") }
         },
 
         ToolDefinition(
-            id: "image.meme", title: "Meme Maker", summary: "Top and bottom captions you can drag anywhere",
+            id: "image.meme", title: "Meme Maker", summary: "Tap to type, drag text anywhere, add as many boxes as you like",
             symbol: "face.smiling", category: .images, input: .one(imageInputs, noun: "image"),
-            options: [
-                .text("top", "Top text", placeholder: "TOP TEXT"),
-                .text("bottom", "Bottom text", placeholder: "BOTTOM TEXT"),
-                .choice("font", "Font", CaptionItems.fontChoices, default: CaptionRenderer.Font.meme.rawValue, section: "Style"),
-                .slider("size", "Size", range: 4 ... 20, step: 0.5, default: 10, section: "Style", format: { String(format: "%.1f%%", $0) }),
-                .color("color", "Text color", default: 0xFFFFFF, section: "Style"),
-                .toggle("outline", "Black outline", default: true, section: "Style"),
-                .toggle("caps", "ALL CAPS", default: true, section: "Style")
-            ],
-            editor: .captionLayout,
-            keywords: ["funny", "caption", "impact", "top text", "bottom text"], actionTitle: "Make Meme"
+            editor: .textOverlay(.meme),
+            keywords: ["funny", "caption", "impact", "top text", "bottom text"], actionTitle: "Make Meme",
+            validate: { _, editor, _ in editor.texts(for: .meme).allSatisfy(\.isEmpty) ? "Tap a text box and type" : nil }
         ) { context in
-            let captions = CaptionItems.items(for: "image.meme", options: context.options, positions: context.editor.captionPositions).map(\.caption)
-            guard !captions.isEmpty else { throw DocumentError.invalidOption("Add top or bottom text.") }
+            let captions = context.editor.texts(for: .meme).filter { !$0.isEmpty }.map(\.caption)
+            guard !captions.isEmpty else { throw DocumentError.invalidOption("Tap a text box and type.") }
             return try await processImages(context, suffix: "meme") { try require(ImageToolkit.addText($0, captions), "caption") }
         },
 
@@ -457,48 +441,4 @@ extension ToolCatalog {
 
 extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
-}
-
-/// The captions a text tool draws, shared by the tool and its Move text editor so both lay them out
-/// identically.
-enum CaptionItems {
-    static let fontChoices = CaptionRenderer.Font.allCases.map { ToolChoice($0.rawValue, $0.label) }
-
-    struct Item {
-        let key: String
-        let label: String
-        let caption: ImageToolkit.Caption
-    }
-
-    static func items(for tool: ToolID, options: ToolOptionValues, positions: [String: CGPoint]) -> [Item] {
-        let font = options.choice("font", as: CaptionRenderer.Font.self, default: tool == "image.meme" ? .meme : .bold)
-        switch tool.rawValue {
-        case "image.meme":
-            let caps = options.bool("caps")
-            return [("top", "Top text", PDFStamper.Placement.top), ("bottom", "Bottom text", .bottom)].compactMap { key, label, placement in
-                guard let text = options.string(key).nilIfBlank else { return nil }
-                let caption = ImageToolkit.Caption(
-                    text: caps ? text.uppercased() : text, placement: placement, relativeSize: options.double("size") / 100,
-                    colorHex: options.hex("color"), outlined: options.bool("outline"), font: font, position: positions[key]
-                )
-                return Item(key: key, label: label, caption: caption)
-            }
-        case "image.text":
-            guard let text = options.string("text").nilIfBlank else { return [] }
-            let caption = ImageToolkit.Caption(
-                text: text,
-                placement: options.choice("placement", as: PDFStamper.Placement.self, default: .bottomRight),
-                relativeSize: options.double("size") / 100,
-                colorHex: options.hex("color"),
-                opacity: options.double("opacity") / 100,
-                outlined: options.bool("outline"),
-                rotation: options.double("rotation"),
-                font: font,
-                position: positions["text"]
-            )
-            return [Item(key: "text", label: "Text", caption: caption)]
-        default:
-            return []
-        }
-    }
 }

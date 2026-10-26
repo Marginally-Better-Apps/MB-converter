@@ -20,8 +20,6 @@ enum SelfTestPlan {
         "pdf.extract": ["pages": .string("3,1")],
         "pdf.protect": ["password": .string("pw"), "confirm": .string("pw")],
         "pdf.redact": ["terms": .string("555-0100")],
-        "image.text": ["text": .string("© Test")],
-        "image.meme": ["top": .string("hello")],
         "util.qr": ["text": .string("https://example.com")],
         "util.write": ["body": .string("# Hello\n\nWorld")],
         "audio.adjust": ["volume": .number(-3)],
@@ -39,9 +37,9 @@ enum SelfTestPlan {
             .crop(CGRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5))
         case .mediaRange:
             .range(start: 0.2, end: 1.0)
-        case .captionLayout:
-            // Moved off the default spot, so the check below sees the text land where it was dragged.
-            .captions(["top": CGPoint(x: 0.3, y: 0.55), "text": CGPoint(x: 0.3, y: 0.55)])
+        case .textOverlay:
+            // Typed and dragged off the default spot, so the check below sees the text land where it was placed.
+            .texts([TextOverlay(text: "hello", center: CGPoint(x: 0.3, y: 0.55), relativeSize: 0.08)])
         default:
             .none
         }

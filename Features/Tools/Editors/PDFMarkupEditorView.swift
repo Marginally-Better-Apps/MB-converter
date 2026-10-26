@@ -6,6 +6,8 @@ struct PDFMarkupEditorView: View {
     let url: URL
     let password: String?
     let startsWithSignature: Bool
+    /// Shown inline on the tool screen: no navigation bar or Done/Cancel; every change is reported.
+    var embedded = false
     let onDone: ([PDFOverlayItem]) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -21,10 +23,11 @@ struct PDFMarkupEditorView: View {
     @State private var loadError: String?
     @State private var didAutoOpenSignature = false
 
-    init(url: URL, password: String?, initialItems: [PDFOverlayItem], startsWithSignature: Bool, onDone: @escaping ([PDFOverlayItem]) -> Void) {
+    init(url: URL, password: String?, initialItems: [PDFOverlayItem], startsWithSignature: Bool, embedded: Bool = false, onDone: @escaping ([PDFOverlayItem]) -> Void) {
         self.url = url
         self.password = password
         self.startsWithSignature = startsWithSignature
+        self.embedded = embedded
         self.onDone = onDone
         _items = State(initialValue: initialItems)
     }
@@ -37,15 +40,31 @@ struct PDFMarkupEditorView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let loadError {
-                    ContentUnavailableView("Can't Open PDF", systemImage: "lock.doc", description: Text(loadError))
-                } else {
-                    pageCanvas
-                }
+        if embedded {
+            presentations(
+                canvasArea
+                    .safeAreaInset(edge: .bottom, spacing: 0) { toolbar }
+                    .onChange(of: items) { _, items in onDone(items) }
+            )
+        } else {
+            sheet
+        }
+    }
+
+    private var canvasArea: some View {
+        Group {
+            if let loadError {
+                ContentUnavailableView("Can't Open PDF", systemImage: "lock.doc", description: Text(loadError))
+            } else {
+                pageCanvas
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var sheet: some View {
+        presentations(NavigationStack {
+            canvasArea
             .background(Theme.surfaceSunken.ignoresSafeArea())
             .navigationTitle(pageCount > 0 ? "Page \(pageIndex + 1) of \(pageCount)" : "Edit")
             .navigationBarTitleDisplayMode(.inline)
@@ -60,7 +79,11 @@ struct PDFMarkupEditorView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) { toolbar }
-        }
+        })
+    }
+
+    private func presentations<Content: View>(_ content: Content) -> some View {
+        content
         .task { load() }
         .sheet(isPresented: $isSignaturePresented) {
             SignaturePadView { data in add(.image(data), aspect: aspectRatio(of: data)) }
@@ -129,18 +152,32 @@ struct PDFMarkupEditorView: View {
             HStack(spacing: Theme.Spacing.s) {
                 Button { go(-1) } label: { Image(systemName: "chevron.left").frame(width: 32, height: 44) }
                     .disabled(pageIndex == 0)
+                if embedded, pageCount > 1 {
+                    Text("\(pageIndex + 1)/\(pageCount)")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(Theme.textMuted)
+                        .accessibilityLabel("Page \(pageIndex + 1) of \(pageCount)")
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
                         toolButton("Sign", "signature") { isSignaturePresented = true }
                         toolButton("Text", "textformat") { add(.text("Text", fontSize: 14, colorHex: 0x111111, bold: false), size: CGSize(width: 0.36, height: 0.04)); beginEditing(items.last!) }
-                        PhotosPicker(selection: $photoItem, matching: .images) {
-                            toolLabel("Image", "photo")
+                        if startsWithSignature {
+                            toolButton("Date", "calendar") {
+                                let today = Date.now.formatted(date: .numeric, time: .omitted)
+                                add(.text(today, fontSize: 12, colorHex: 0x111111, bold: false), size: CGSize(width: 0.2, height: 0.03))
+                            }
+                        } else {
+                            PhotosPicker(selection: $photoItem, matching: .images) {
+                                toolLabel("Image", "photo")
+                            }
+                            toolButton("Highlight", "highlighter") { add(.highlight(colorHex: 0xFFE14D), size: CGSize(width: 0.4, height: 0.025)) }
+                            toolButton("Box", "rectangle") { add(.rectangle(colorHex: 0xC0392B, lineWidth: 2), size: CGSize(width: 0.3, height: 0.1)) }
+                            toolButton("Strike", "strikethrough") { add(.strikeLine(colorHex: 0xC0392B), size: CGSize(width: 0.3, height: 0.02)) }
+                            // White boxes only cover; Black out removes the text underneath for good.
+                            toolButton("Cover", "eraser") { add(.whiteout, size: CGSize(width: 0.3, height: 0.04)) }
+                            toolButton("Black out", "rectangle.fill") { add(.redaction, size: CGSize(width: 0.3, height: 0.03)) }
                         }
-                        toolButton("Highlight", "highlighter") { add(.highlight(colorHex: 0xFFE14D), size: CGSize(width: 0.4, height: 0.025)) }
-                        toolButton("Box", "rectangle") { add(.rectangle(colorHex: 0xC0392B, lineWidth: 2), size: CGSize(width: 0.3, height: 0.1)) }
-                        toolButton("Strike", "strikethrough") { add(.strikeLine(colorHex: 0xC0392B), size: CGSize(width: 0.3, height: 0.02)) }
-                        toolButton("White-out", "eraser") { add(.whiteout, size: CGSize(width: 0.3, height: 0.04)) }
-                        toolButton("Redact", "rectangle.fill") { add(.redaction, size: CGSize(width: 0.3, height: 0.03)) }
                     }
                 }
                 Button { go(1) } label: { Image(systemName: "chevron.right").frame(width: 32, height: 44) }

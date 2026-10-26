@@ -313,6 +313,8 @@ enum ImageToolkit {
         case percent(Double)
         case maxDimension(Int)
         case exact(width: Int, height: Int)
+        /// As large as fits inside width × height, keeping proportions.
+        case fit(width: Int, height: Int)
         case width(Int)
         case height(Int)
     }
@@ -323,6 +325,9 @@ enum ImageToolkit {
         switch mode {
         case .percent(let percent):
             return CGSize(width: width * percent / 100, height: height * percent / 100)
+        case .fit(let boxWidth, let boxHeight):
+            let scale = min(CGFloat(boxWidth) / width, CGFloat(boxHeight) / height)
+            return CGSize(width: width * scale, height: height * scale)
         case .maxDimension(let maximum):
             let scale = min(1, CGFloat(maximum) / max(width, height))
             return CGSize(width: width * scale, height: height * scale)

@@ -75,7 +75,7 @@ extension ToolCatalog {
         ToolDefinition(
             id: "video.trim", title: "Trim Video", summary: "Cut the start and end of a clip",
             symbol: "timeline.selection", category: .video, input: .one(videoInputs, noun: "video"),
-            options: [.toggle("precise", "Frame-accurate cut", default: false, footnote: "Off is instant and lossless but may start at the nearest keyframe. On re-encodes for exact cuts.")],
+            options: [ToolOption.toggle("precise", "Exact cut (slower)", default: true, footnote: "Off is instant and lossless but may start up to a few seconds early.").advanced()],
             editor: .mediaRange, keywords: ["cut", "clip", "shorten", "crop length"], isFeatured: true, actionTitle: "Trim"
         ) { context in
             let precise = context.options.bool("precise")
@@ -172,7 +172,7 @@ extension ToolCatalog {
 
         ToolDefinition(
             id: "video.addaudio", title: "Add Music to Video", summary: "Replace a video's soundtrack",
-            symbol: "music.note.tv", category: .video, input: .many(videoInputs.union(audioInputs), noun: "one video and one audio file", min: 2, max: 2),
+            symbol: "music.note.tv", category: .video, input: .many(videoInputs.union(audioInputs), noun: "a video and a song", min: 2, max: 2),
             options: [.toggle("loop", "Loop audio to fill the video", default: true)],
             keywords: ["soundtrack", "background music", "replace audio", "dub"], actionTitle: "Combine"
         ) { context in
@@ -226,11 +226,15 @@ extension ToolCatalog {
             symbol: "speaker.wave.3", category: .audio, input: .many(audioInputs, noun: "audio files"),
             options: [
                 .slider("volume", "Volume", range: -20 ... 20, step: 0.5, default: 0, format: { String(format: "%+.1f dB", $0) }),
-                .toggle("normalize", "Normalize loudness", footnote: "Evens out levels to a broadcast-friendly −16 LUFS."),
+                .toggle("normalize", "Even out volume", footnote: "Makes quiet and loud parts play at a similar level."),
                 .slider("fadeIn", "Fade in", range: 0 ... 10, step: 0.5, default: 0, section: "Fades", format: { String(format: "%.1f s", $0) }),
                 .slider("fadeOut", "Fade out", range: 0 ... 10, step: 0.5, default: 0, section: "Fades", format: { String(format: "%.1f s", $0) })
             ],
-            keywords: ["louder", "quieter", "boost", "normalize", "fade in", "fade out", "gain"], actionTitle: "Apply"
+            keywords: ["louder", "quieter", "boost", "normalize", "fade in", "fade out", "gain"], actionTitle: "Apply",
+            validate: { values, _, _ in
+                let edit = MediaToolkit.AudioEdit(volumeDB: values.double("volume"), fadeIn: values.double("fadeIn"), fadeOut: values.double("fadeOut"), normalize: values.bool("normalize"))
+                return edit.isIdentity ? "Change the volume or add a fade" : nil
+            }
         ) { context in
             let edit = MediaToolkit.AudioEdit(volumeDB: context.options.double("volume"), fadeIn: context.options.double("fadeIn"), fadeOut: context.options.double("fadeOut"), normalize: context.options.bool("normalize"))
             guard !edit.isIdentity else { throw DocumentError.invalidOption("Change the volume, add a fade or turn on normalize.") }

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ImageCropEditorView: View {
     let url: URL
+    /// Shown inline on the tool screen: no navigation bar or Done/Cancel; every change is reported.
+    var embedded = false
     let onDone: (CGRect) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -10,8 +12,9 @@ struct ImageCropEditorView: View {
     @State private var aspect: AspectPreset = .free
     @State private var dragStart: CGRect?
 
-    init(url: URL, initialRect: CGRect?, onDone: @escaping (CGRect) -> Void) {
+    init(url: URL, initialRect: CGRect?, embedded: Bool = false, onDone: @escaping (CGRect) -> Void) {
         self.url = url
+        self.embedded = embedded
         self.onDone = onDone
         _rect = State(initialValue: initialRect ?? CGRect(x: 0, y: 0, width: 1, height: 1))
     }
@@ -47,6 +50,67 @@ struct ImageCropEditorView: View {
     }
 
     var body: some View {
+        if embedded {
+            VStack(spacing: 0) {
+                cropArea
+                HStack(spacing: Theme.Spacing.s) {
+                    aspectChips
+                    Button("Reset") { reset() }
+                        .font(.subheadline.weight(.medium))
+                        .disabled(rect == CGRect(x: 0, y: 0, width: 1, height: 1))
+                        .padding(.trailing, Theme.Spacing.l)
+                }
+            }
+            .task { loadImage() }
+            .onChange(of: rect) { _, rect in onDone(rect) }
+        } else {
+            sheet
+        }
+    }
+
+    private var cropArea: some View {
+        GeometryReader { geometry in
+            if let image {
+                let fitted = fittedSize(image.size, in: CGSize(width: geometry.size.width - 40, height: geometry.size.height - 40))
+                ZStack(alignment: .topLeading) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .frame(width: fitted.width, height: fitted.height)
+                    cropOverlay(size: fitted)
+                }
+                .frame(width: fitted.width, height: fitted.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private var aspectChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.s) {
+                ForEach(AspectPreset.allCases) { preset in
+                    FilterChip(title: preset.label, isSelected: aspect == preset) {
+                        aspect = preset
+                        applyAspect()
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.l)
+            .padding(.vertical, Theme.Spacing.m)
+        }
+    }
+
+    private func reset() {
+        aspect = .free
+        withAnimation(.snappy) { rect = CGRect(x: 0, y: 0, width: 1, height: 1) }
+    }
+
+    private func loadImage() {
+        if image == nil, let cg = try? ImageToolkit.load(url, maxPixelSize: 2_000) { image = UIImage(cgImage: cg) }
+    }
+
+    private var sheet: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 GeometryReader { geometry in

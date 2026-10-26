@@ -8,7 +8,9 @@ struct ToolView: View {
     @State private var viewModel: ToolViewModel
     @State private var isFileImporterPresented = false
     @State private var photoItems: [PhotosPickerItem] = []
-    @State private var isEditorPresented = false
+    @State private var isPhotoPickerPresented = false
+    @State private var showsMoreOptions = false
+    @State private var isKeyboardVisible = false
     @State private var isDropTargeted = false
     @State private var mediaRouter = HomeViewModel()
     @State private var preview = ToolPreviewModel()
@@ -41,7 +43,18 @@ struct ToolView: View {
     }
 
     private var showsPreview: Bool {
-        tool.previewKind != nil && !viewModel.inputs.isEmpty && !viewModel.needsPassword
+        tool.previewKind != nil && tool.editor == nil && !viewModel.inputs.isEmpty && !viewModel.needsPassword
+    }
+
+    /// Editor tools show their editor as the screen once a file is in: pages, crop box, timeline,
+    /// signature canvas or text boxes, with the action button below.
+    private var showsInlineEditor: Bool {
+        tool.editor != nil && !viewModel.inputs.isEmpty && !viewModel.needsPassword
+    }
+
+    /// Photo and video tools open Photos first; everything else opens Files.
+    private var prefersPhotos: Bool {
+        acceptsPhotos && tool.input.formats.allSatisfy { $0.family == .image || $0.family == .video }
     }
 
     var body: some View {
@@ -50,13 +63,25 @@ struct ToolView: View {
 
     private var screen: some View {
         VStack(spacing: 0) {
-            if showsPreview, let kind = tool.previewKind {
-                ToolPreviewPanel(kind: kind, model: preview, isExpanded: $isPreviewExpanded)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+            if showsInlineEditor, let editor = tool.editor, let file = viewModel.inputs.first {
+                // While typing on the canvas, the photo gets the room.
+                if !isKeyboardVisible { fileStrip(file) }
+                inlineEditor(editor, file: file)
+                    .id(file.id)
+                    .frame(maxHeight: .infinity)
+                if !viewModel.optionSections.isEmpty || !viewModel.advancedOptions.isEmpty {
+                    editorOptions
+                }
+            } else {
+                if showsPreview, let kind = tool.previewKind {
+                    ToolPreviewPanel(kind: kind, model: preview, isExpanded: $isPreviewExpanded)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                optionsScroll
             }
-            optionsScroll
         }
         .animation(.snappy(duration: 0.25), value: showsPreview)
+        .animation(.snappy(duration: 0.25), value: showsInlineEditor)
         .onChange(of: previewKey, initial: true) { _, _ in
             guard showsPreview else { preview.reset(); return }
             preview.schedule(tool: tool, inputs: viewModel.inputs, options: viewModel.values, editor: viewModel.editorState)
@@ -65,26 +90,26 @@ struct ToolView: View {
         .screenBackground()
         .navigationTitle(tool.title)
         .navigationBarTitleDisplayMode(.inline)
-        .floatingBottomBar { actionBar }
+        .floatingBottomBar {
+            if !(showsInlineEditor && isKeyboardVisible) { actionBar }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in isKeyboardVisible = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in isKeyboardVisible = false }
     }
 
     private var optionsScroll: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
-                // With a live preview pinned above, the description only takes room from the options.
-                if !showsPreview { header }
+                // The description and privacy note help before a file is picked; after that they only
+                // take room from the options.
+                if viewModel.inputs.isEmpty { header }
                 if tool.input.acceptsFiles { filesSection }
-                // Text editors come after the options: there's nothing to move until text is typed.
-                let editorFirst = tool.editor != .captionLayout
-                if editorFirst, let editor = tool.editor, !viewModel.inputs.isEmpty { editorSection(editor) }
                 if viewModel.needsPassword { passwordSection }
-                ForEach(Array(viewModel.optionSections.enumerated()), id: \.offset) { index, section in
-                    optionSection(section.title, section.options)
-                    if !editorFirst, index == 0, let editor = tool.editor, !viewModel.inputs.isEmpty {
-                        editorSection(editor)
-                    }
+                ForEach(Array(viewModel.optionSections.enumerated()), id: \.offset) { _, section in
+                    optionSection(section.title, section.options, single: viewModel.optionSections.count == 1)
                 }
-                PrivacyNote().padding(.top, Theme.Spacing.s)
+                if !viewModel.advancedOptions.isEmpty { moreOptions }
+                if viewModel.inputs.isEmpty { PrivacyNote().padding(.top, Theme.Spacing.s) }
             }
             .padding(.horizontal, Theme.Spacing.l)
             .padding(.top, Theme.Spacing.s)
@@ -101,15 +126,20 @@ struct ToolView: View {
         return content
         .fileImporter(isPresented: $isFileImporterPresented, allowedContentTypes: tool.input.contentTypes, allowsMultipleSelection: tool.input.allowsMultiple) { result in
             switch result {
-            case .success(let urls): viewModel.importURLs(urls)
+            case .success(let urls):
+                viewModel.importURLs(urls)
+                runIfPickWasTheOnlyChoice()
             case .failure(let error): viewModel.errorMessage = error.localizedDescription
             }
         }
+        .photosPicker(isPresented: $isPhotoPickerPresented, selection: $photoItems,
+                      maxSelectionCount: max(1, tool.input.maxCount - viewModel.inputs.count), matching: photoFilter)
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
             Task {
                 await viewModel.importPhotos(items)
                 photoItems = []
+                runIfPickWasTheOnlyChoice()
             }
         }
         .alert("Something went wrong", isPresented: Binding(get: { viewModel.errorMessage != nil }, set: { if !$0 { viewModel.errorMessage = nil } })) {
@@ -117,19 +147,6 @@ struct ToolView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
-        .fullScreenCover(isPresented: $isEditorPresented) {
-            if let editor = tool.editor, let file = viewModel.inputs.first {
-                editorView(editor, file: file)
-            }
-        }
-        #if DEBUG
-        .task {
-            if DebugLaunchRouter.opensEditor, tool.editor != nil, !viewModel.inputs.isEmpty {
-                try? await Task.sleep(for: .milliseconds(600))
-                isEditorPresented = true
-            }
-        }
-        #endif
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -258,7 +275,7 @@ struct ToolView: View {
         return videos ? .videos : .images
     }
 
-    private func addMenu(compact: Bool) -> some View {
+    private func addMenu(compact: Bool, title: String? = nil) -> some View {
         Menu {
             Button { isFileImporterPresented = true } label: { Label("Choose Files", systemImage: "folder") }
             if acceptsPhotos {
@@ -266,40 +283,104 @@ struct ToolView: View {
                     Label("Choose from Photos", systemImage: "photo.on.rectangle")
                 }
             }
-            Button { viewModel.importPasteboard() } label: { Label("Paste", systemImage: "doc.on.clipboard") }
+            Button { viewModel.importPasteboard(); runIfPickWasTheOnlyChoice() } label: { Label("Paste", systemImage: "doc.on.clipboard") }
         } label: {
-            Label(tool.input.allowsMultiple ? "Add" : "Replace", systemImage: "plus")
+            Label(title ?? (tool.input.allowsMultiple ? "Add" : "Replace"), systemImage: tool.input.allowsMultiple ? "plus" : "arrow.triangle.2.circlepath")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.tint)
         }
     }
 
-    private func editorSection(_ editor: ToolEditorKind) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            sectionTitle(editorTitle(editor))
+    /// One line above an inline editor: which file, and a way to swap it.
+    private func fileStrip(_ file: ToolInputFile) -> some View {
+        HStack(spacing: Theme.Spacing.s) {
+            Image(systemName: file.format.symbolName)
+                .foregroundStyle(Theme.tint)
+            Text(viewModel.inputs.count > 1 ? "\(viewModel.inputs.count) \(tool.input.noun)" : file.displayName)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            addMenu(compact: true, title: tool.input.allowsMultiple ? "Add" : "Change")
+        }
+        .padding(.horizontal, Theme.Spacing.l)
+        .padding(.vertical, Theme.Spacing.s)
+    }
+
+    /// The few settings an editor tool has, under its editor.
+    private var editorOptions: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Spacing.m) {
+                ForEach(Array(viewModel.optionSections.enumerated()), id: \.offset) { _, section in
+                    optionSection(section.title, section.options, single: true)
+                }
+                if !viewModel.advancedOptions.isEmpty { moreOptions }
+            }
+            .padding(.horizontal, Theme.Spacing.l)
+            .padding(.vertical, Theme.Spacing.s)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: viewModel.optionSections.isEmpty && !showsMoreOptions ? 64 : 230)
+    }
+
+    /// Settings most people never touch, folded into one row that says what they're set to.
+    private var moreOptions: some View {
+        @Bindable var viewModel = viewModel
+        return VStack(spacing: 0) {
             Button {
-                Haptics.impact(.light)
-                isEditorPresented = true
+                withAnimation(.snappy) { showsMoreOptions.toggle() }
             } label: {
-                HStack(spacing: Theme.Spacing.m) {
-                    ToolGlyph(symbol: editorSymbol(editor), size: 36)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(editorActionTitle(editor))
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Theme.text)
-                        Text(viewModel.editorSummary)
-                            .font(.footnote)
-                            .foregroundStyle(Theme.textMuted)
-                    }
+                HStack {
+                    Text("More options")
+                        .font(.body)
+                        .foregroundStyle(Theme.text)
                     Spacer()
-                    Image(systemName: "chevron.right")
+                    if !showsMoreOptions {
+                        Text(advancedSummary)
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.textMuted)
+                            .lineLimit(1)
+                    }
+                    Image(systemName: "chevron.down")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Theme.textFaint)
+                        .rotationEffect(.degrees(showsMoreOptions ? 180 : 0))
                 }
-                .card(padding: 14)
+                .padding(.horizontal, Theme.Spacing.l)
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(PressableStyle())
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("tool.moreOptions")
+            if showsMoreOptions {
+                ForEach(viewModel.advancedOptions) { option in
+                    Divider().overlay(Theme.separator).padding(.leading, Theme.Spacing.l)
+                    OptionControl(option: option, values: $viewModel.values, inputs: viewModel.inputs)
+                }
+            }
         }
+        .card(padding: 0)
+    }
+
+    /// "Same as original · 90%": what the folded settings are set to.
+    private var advancedSummary: String {
+        viewModel.advancedOptions.prefix(3).compactMap { option -> String? in
+            switch option.kind {
+            case .choice(let choices, _):
+                return choices.first { $0.value == viewModel.values.string(option.key) }?.label
+            case .toggle:
+                return viewModel.values.bool(option.key) ? option.label : nil
+            case .slider(_, _, let format):
+                return format(viewModel.values.double(option.key))
+            case .stepper(_, let suffix):
+                return "\(viewModel.values.int(option.key))\(suffix)"
+            default:
+                return nil
+            }
+        }.joined(separator: " · ")
     }
 
     private var passwordSection: some View {
@@ -320,10 +401,11 @@ struct ToolView: View {
         }
     }
 
-    private func optionSection(_ title: String?, _ options: [ToolOption]) -> some View {
+    private func optionSection(_ title: String?, _ options: [ToolOption], single: Bool = false) -> some View {
         @Bindable var viewModel = viewModel
         return VStack(alignment: .leading, spacing: Theme.Spacing.s) {
-            sectionTitle(title ?? "Options")
+            // A lone untitled card needs no "Options" heading.
+            if let heading = title ?? (single ? nil : "Options") { sectionTitle(heading) }
             VStack(spacing: 0) {
                 ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
                     OptionControl(option: option, values: $viewModel.values, inputs: viewModel.inputs)
@@ -371,15 +453,17 @@ struct ToolView: View {
                 .padding(.vertical, 10)
                 .glassSurface(in: Capsule())
             } else {
-                Button(action: perform) {
-                    PrimaryActionLabel(title: viewModel.blockingReason ?? tool.actionTitle, systemImage: viewModel.blockingReason == nil ? actionSymbol : "plus")
+                Button(action: primaryAction) {
+                    PrimaryActionLabel(title: viewModel.blockingReason ?? tool.actionTitle,
+                                       systemImage: viewModel.isMissingFiles ? "plus" : (viewModel.blockingReason == nil ? actionSymbol : "exclamationmark.circle"))
                 }
                 .accessibilityIdentifier("tool.run")
                 .glassButtonStyle(prominent: true)
                 .buttonBorderShape(.capsule)
                 .controlSize(.large)
                 .tint(Theme.tint)
-                .disabled(viewModel.blockingReason != nil)
+                // Missing files: the button opens the picker. Anything else missing: it says what.
+                .disabled(viewModel.blockingReason != nil && !viewModel.isMissingFiles)
             }
         }
         .frame(maxWidth: 520)
@@ -390,6 +474,25 @@ struct ToolView: View {
 
     private var actionSymbol: String {
         tool.opensMediaConverter ? "arrow.right" : (tool.input.acceptsFiles ? "checkmark" : "sparkles")
+    }
+
+    private func primaryAction() {
+        if viewModel.isMissingFiles {
+            openPicker()
+        } else {
+            perform()
+        }
+    }
+
+    private func openPicker() {
+        Haptics.impact(.light)
+        if prefersPhotos { isPhotoPickerPresented = true } else { isFileImporterPresented = true }
+    }
+
+    /// For tools where picking the file was the only decision, picking it runs the tool.
+    private func runIfPickWasTheOnlyChoice() {
+        guard tool.runsOnPick, viewModel.blockingReason == nil, !viewModel.isRunning else { return }
+        perform()
     }
 
     private func perform() {
@@ -419,62 +522,37 @@ struct ToolView: View {
 
     // MARK: Editors
 
+    /// The tool's editor, inline: every change goes straight into the tool's state.
     @ViewBuilder
-    private func editorView(_ editor: ToolEditorKind, file: ToolInputFile) -> some View {
+    private func inlineEditor(_ editor: ToolEditorKind, file: ToolInputFile) -> some View {
         @Bindable var viewModel = viewModel
         switch editor {
         case .pageOrganizer:
-            PageOrganizerView(url: file.url, password: viewModel.password.nilIfBlank, initialEdits: viewModel.editorState.pageEdits) { edits in
+            PageOrganizerView(url: file.url, password: viewModel.password.nilIfBlank, initialEdits: viewModel.editorState.pageEdits, embedded: true) { edits in
                 viewModel.editorState = .pages(edits)
             }
         case .pdfMarkup(let signatureFirst):
-            PDFMarkupEditorView(url: file.url, password: viewModel.password.nilIfBlank, initialItems: viewModel.editorState.overlays, startsWithSignature: signatureFirst) { items in
+            PDFMarkupEditorView(url: file.url, password: viewModel.password.nilIfBlank, initialItems: viewModel.editorState.overlays,
+                                startsWithSignature: signatureFirst, embedded: true) { items in
                 viewModel.editorState = .overlays(items)
             }
         case .imageCrop:
-            ImageCropEditorView(url: file.url, initialRect: viewModel.editorState.cropRect) { rect in
+            ImageCropEditorView(url: file.url, initialRect: viewModel.editorState.cropRect, embedded: true) { rect in
                 viewModel.editorState = .crop(rect)
             }
         case .mediaRange:
-            MediaRangeEditorView(url: file.url, initialRange: viewModel.editorState.range) { start, end in
+            MediaRangeEditorView(url: file.url, initialRange: viewModel.editorState.range, embedded: true) { start, end in
                 viewModel.editorState = .range(start: start, end: end)
             }
-        case .captionLayout:
-            let positions = viewModel.editorState.captionPositions
-            CaptionLayoutEditorView(url: file.url, items: CaptionItems.items(for: tool.id, options: viewModel.values, positions: positions),
-                                    initialPositions: positions) { moved in
-                viewModel.editorState = moved.isEmpty ? .none : .captions(moved)
+        case .textOverlay(let preset):
+            TextOverlayEditor(url: file.url, preset: preset, imageCount: viewModel.inputs.count, overlays: Binding(
+                get: { viewModel.editorState.texts(for: preset) },
+                set: { viewModel.editorState = .texts($0) }
+            ))
+            .onAppear {
+                // Seed the starting boxes once, so they keep their identity while being edited.
+                if viewModel.editorState.textOverlays == nil { viewModel.editorState = .texts(TextOverlay.defaults(for: preset)) }
             }
-        }
-    }
-
-    private func editorTitle(_ editor: ToolEditorKind) -> String {
-        switch editor {
-        case .pageOrganizer: "Pages"
-        case .pdfMarkup: "Edit"
-        case .imageCrop: "Crop"
-        case .mediaRange: "Range"
-        case .captionLayout: "Text position"
-        }
-    }
-
-    private func editorActionTitle(_ editor: ToolEditorKind) -> String {
-        switch editor {
-        case .pageOrganizer: "Arrange pages"
-        case .pdfMarkup(let signature): signature ? "Place signature" : "Open editor"
-        case .imageCrop: "Choose crop"
-        case .mediaRange: "Choose start and end"
-        case .captionLayout: "Move text"
-        }
-    }
-
-    private func editorSymbol(_ editor: ToolEditorKind) -> String {
-        switch editor {
-        case .pageOrganizer: "square.grid.2x2"
-        case .pdfMarkup(let signature): signature ? "signature" : "pencil.tip.crop.circle"
-        case .imageCrop: "crop"
-        case .mediaRange: "timeline.selection"
-        case .captionLayout: "arrow.up.and.down.and.arrow.left.and.right"
         }
     }
 }

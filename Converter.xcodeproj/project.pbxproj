@@ -7,8 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E795FF8F556A0AD90FC72843 /* ToolFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D55AE58BD0A3375FC03B3C /* ToolFlowTests.swift */; };
+		2C98520FCB3FE0A3E86B6D48 /* Features/Tools/Editors/TextOverlayEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 047A33F692C4CED2443814C6 /* Features/Tools/Editors/TextOverlayEditor.swift */; };
+		68EC1A2E2545E84C92D8D4CF /* Core/ImageTools/TextOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301899DD353C30591B36A92A /* Core/ImageTools/TextOverlay.swift */; };
 		B56ADCB27BF6CD9582F5822E /* AuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 739BCD9C323EDB28CBDDFDEA /* AuditTests.swift */; };
-		CD6EF6D5DB57DD0BA6CC23BB /* Features/Tools/Editors/CaptionLayoutEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47795A776E933B1C81677723 /* Features/Tools/Editors/CaptionLayoutEditorView.swift */; };
 		B01504E3B3B4075A30DAFF17 /* Core/ImageTools/CaptionRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9E8EC2616CB2E35B62A05D /* Core/ImageTools/CaptionRenderer.swift */; };
 		9F911C565DC12AE882B2ABE5 /* Core/PDF/PDFFidelity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4006055DFD9638090E06B7 /* Core/PDF/PDFFidelity.swift */; };
 		9E68CA5864800D615DCE7736 /* GhostscriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AEEE2D44C059DEEDEA75A1D /* GhostscriptTests.swift */; };
@@ -206,8 +208,10 @@
 
 
 /* Begin PBXFileReference section */
+		09D55AE58BD0A3375FC03B3C /* ToolFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolFlowTests.swift; sourceTree = "<group>"; };
+		047A33F692C4CED2443814C6 /* Features/Tools/Editors/TextOverlayEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Tools/Editors/TextOverlayEditor.swift; sourceTree = "<group>"; };
+		301899DD353C30591B36A92A /* Core/ImageTools/TextOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ImageTools/TextOverlay.swift; sourceTree = "<group>"; };
 		739BCD9C323EDB28CBDDFDEA /* AuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditTests.swift; sourceTree = "<group>"; };
-		47795A776E933B1C81677723 /* Features/Tools/Editors/CaptionLayoutEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Tools/Editors/CaptionLayoutEditorView.swift; sourceTree = "<group>"; };
 		7F9E8EC2616CB2E35B62A05D /* Core/ImageTools/CaptionRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ImageTools/CaptionRenderer.swift; sourceTree = "<group>"; };
 		7C4006055DFD9638090E06B7 /* Core/PDF/PDFFidelity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/PDF/PDFFidelity.swift; sourceTree = "<group>"; };
 		5AEEE2D44C059DEEDEA75A1D /* GhostscriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostscriptTests.swift; sourceTree = "<group>"; };
@@ -437,7 +441,8 @@
 				52272AFC6C136061ADF250F0 /* Core/PDF/Ghostscript.swift */,
 				7C4006055DFD9638090E06B7 /* Core/PDF/PDFFidelity.swift */,
 				7F9E8EC2616CB2E35B62A05D /* Core/ImageTools/CaptionRenderer.swift */,
-				47795A776E933B1C81677723 /* Features/Tools/Editors/CaptionLayoutEditorView.swift */,
+				301899DD353C30591B36A92A /* Core/ImageTools/TextOverlay.swift */,
+				047A33F692C4CED2443814C6 /* Features/Tools/Editors/TextOverlayEditor.swift */,
 				BD52E5E61762F03193CB297B /* Core/ImageTools/MagickRuntime.swift */,
 				C0FFEE1000000000000000A1 /* App/SelfTestSamples */,
 				605E75F0B2AB275FE1CEF447 /* Core/Files/FileFormat.swift */,
@@ -595,6 +600,7 @@
 				906F195D1FC2CEBDE8FADAAF /* ToolPreviewTests.swift */,
 				5AEEE2D44C059DEEDEA75A1D /* GhostscriptTests.swift */,
 				739BCD9C323EDB28CBDDFDEA /* AuditTests.swift */,
+				09D55AE58BD0A3375FC03B3C /* ToolFlowTests.swift */,
 				831A58B22F2D1BFEE8B89C8C /* NativeFormatTests.swift */,
 				C2029C60E2CCED638CB48A12 /* TestSupport.swift */,
 				EE24DAD6F0F67A17DF449F6B /* DocumentFormatTests.swift */,
@@ -839,7 +845,8 @@
 				59D43C040465E336746D3914 /* Core/PDF/Ghostscript.swift in Sources */,
 				9F911C565DC12AE882B2ABE5 /* Core/PDF/PDFFidelity.swift in Sources */,
 				B01504E3B3B4075A30DAFF17 /* Core/ImageTools/CaptionRenderer.swift in Sources */,
-				CD6EF6D5DB57DD0BA6CC23BB /* Features/Tools/Editors/CaptionLayoutEditorView.swift in Sources */,
+				68EC1A2E2545E84C92D8D4CF /* Core/ImageTools/TextOverlay.swift in Sources */,
+				2C98520FCB3FE0A3E86B6D48 /* Features/Tools/Editors/TextOverlayEditor.swift in Sources */,
 				6872A6D0816C7265A0C6E210 /* Core/ImageTools/MagickRuntime.swift in Sources */,
 				5515E3084658006F4A84C792 /* Core/Files/FileFormat.swift in Sources */,
 				00735DEA58DC7CE66AF253FC /* Core/Documents/DocumentConverter.swift in Sources */,
@@ -981,6 +988,7 @@
 				8C0AD6B65EB174D9EF508C28 /* ToolPreviewTests.swift in Sources */,
 				9E68CA5864800D615DCE7736 /* GhostscriptTests.swift in Sources */,
 				B56ADCB27BF6CD9582F5822E /* AuditTests.swift in Sources */,
+				E795FF8F556A0AD90FC72843 /* ToolFlowTests.swift in Sources */,
 				57B2E93AD5EA23E986DB3AB2 /* NativeFormatTests.swift in Sources */,
 				8BFA5008DCB4443DC7AA7F2F /* TestSupport.swift in Sources */,
 				17485C67901465130ECEF30F /* DocumentFormatTests.swift in Sources */,

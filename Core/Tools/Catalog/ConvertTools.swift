@@ -26,19 +26,24 @@ extension ToolCatalog {
                 guard !inputs.isEmpty, inputs.allSatisfy({ $0.format == .pdf }) else { return [] }
                 return PDFHTMLLayout.allCases.map { ToolChoice($0.rawValue, $0.label) }
             },
-            .choice("layout", "Layout", DocumentConverter.Layout.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: DocumentConverter.Layout.reformat.rawValue, segmented: true, section: "Layout",
-                    footnote: "“Keep original” renders Word, PowerPoint, Excel, RTF and web pages exactly as designed.",
-                    visible: { target($0) == .pdf }),
-            .choice("pageSize", "Page size", PageSize.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: PageSize.regionalDefault.rawValue, section: "Page", visible: paged),
-            .choice("orientation", "Orientation", PageOrientation.allCases.map { ToolChoice($0.rawValue, $0.label) }, segmented: true, section: "Page", visible: paged),
-            .choice("margins", "Margins", PageMargins.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: PageMargins.normal.rawValue, segmented: true, section: "Page", visible: paged),
-            .toggle("pageNumbers", "Page numbers", section: "Page", visible: paged),
-            .choice("font", "Font", FontChoice.allCases.map { ToolChoice($0.rawValue, $0.label) }, segmented: true, section: "Text", visible: reflows),
-            .slider("fontSize", "Size", range: 8 ... 20, step: 0.5, default: 11, section: "Text", format: { $0.rounded() == $0 ? "\(Int($0)) pt" : String(format: "%.1f pt", $0) }, visible: reflows),
-            .slider("lineSpacing", "Line spacing", range: 1 ... 2, step: 0.05, default: 1.25, section: "Text", format: { String(format: "%.2f×", $0) }, visible: reflows),
-            .toggle("images", "Include images", default: true, section: "Text", visible: reflows),
-            .text("title", "Title", placeholder: "Keep from file", section: "Document info", visible: reflows),
-            .text("author", "Author", placeholder: "Keep from file", section: "Document info", visible: reflows)
+            // Only offered when every input can keep its look; then keeping it is the default
+            // (someone making a PDF expects their document, not a restyled one).
+            .dynamicChoice("layout", "Look", section: "Layout",
+                           footnote: "“Keep the look” makes the PDF look just like the document. “Restyle” lays the text out again with your own page and font settings.",
+                           visible: { target($0) == .pdf }) { inputs in
+                guard !inputs.isEmpty, inputs.allSatisfy({ DocumentConverter.originalLayoutSources.contains($0.format) }) else { return [] }
+                return [ToolChoice(DocumentConverter.Layout.original.rawValue, "Keep the look"), ToolChoice(DocumentConverter.Layout.reformat.rawValue, "Restyle")]
+            },
+            ToolOption.choice("pageSize", "Page size", PageSize.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: PageSize.regionalDefault.rawValue, section: "Page", visible: paged).advanced(),
+            ToolOption.choice("orientation", "Orientation", PageOrientation.allCases.map { ToolChoice($0.rawValue, $0.label) }, segmented: true, section: "Page", visible: paged).advanced(),
+            ToolOption.choice("margins", "Margins", PageMargins.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: PageMargins.normal.rawValue, segmented: true, section: "Page", visible: paged).advanced(),
+            ToolOption.toggle("pageNumbers", "Page numbers", section: "Page", visible: paged).advanced(),
+            ToolOption.choice("font", "Font", FontChoice.allCases.map { ToolChoice($0.rawValue, $0.label) }, segmented: true, section: "Text", visible: reflows).advanced(),
+            ToolOption.slider("fontSize", "Size", range: 8 ... 20, step: 0.5, default: 11, section: "Text", format: { $0.rounded() == $0 ? "\(Int($0)) pt" : String(format: "%.1f pt", $0) }, visible: reflows).advanced(),
+            ToolOption.slider("lineSpacing", "Line spacing", range: 1 ... 2, step: 0.05, default: 1.25, section: "Text", format: { String(format: "%.2f×", $0) }, visible: reflows).advanced(),
+            ToolOption.toggle("images", "Include images", default: true, section: "Text", visible: reflows).advanced(),
+            ToolOption.text("title", "Title", placeholder: "Keep from file", section: "Document info", visible: reflows).advanced(),
+            ToolOption.text("author", "Author", placeholder: "Keep from file", section: "Document info", visible: reflows).advanced()
         ]
     }
 

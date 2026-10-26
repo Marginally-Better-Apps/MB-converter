@@ -12,12 +12,16 @@ extension ToolCatalog {
                 .text("text", "Content", placeholder: "https://example.com", multiline: true, keyboard: .url, visible: { $0.string("kind") != "wifi" }),
                 .text("ssid", "Network name", placeholder: "Home Wi-Fi", visible: { $0.string("kind") == "wifi" }),
                 .text("wifiPassword", "Password", placeholder: "Leave empty for open networks", secure: true, visible: { $0.string("kind") == "wifi" }),
-                .choice("size", "Size", [ToolChoice("512", "512"), ToolChoice("1024", "1024"), ToolChoice("2048", "2048")], default: "1024", segmented: true, section: "Style"),
-                .choice("correction", "Error correction", ImageToolkit.QRCorrection.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: ImageToolkit.QRCorrection.medium.rawValue, section: "Style"),
+                ToolOption.choice("size", "Size", [ToolChoice("512", "Small"), ToolChoice("1024", "Medium"), ToolChoice("2048", "Large")], default: "1024", segmented: true, section: "Style").advanced(),
+                ToolOption.choice("correction", "Error correction", ImageToolkit.QRCorrection.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: ImageToolkit.QRCorrection.medium.rawValue, section: "Style").advanced(),
                 .color("foreground", "Color", default: 0x0B1622, section: "Style"),
                 .color("background", "Background", default: 0xFFFFFF, section: "Style")
             ],
-            keywords: ["qr", "barcode", "link", "wifi"], isFeatured: true, actionTitle: "Generate"
+            keywords: ["qr", "barcode", "link", "wifi"], isFeatured: true, actionTitle: "Make QR Code",
+            validate: { values, _, _ in
+                if values.string("kind") == "wifi" { return values.string("ssid").nilIfBlank == nil ? "Type the network name" : nil }
+                return values.string("text").nilIfBlank == nil ? "Type a link or text" : nil
+            }
         ) { context in
             let content: String
             if context.options.string("kind") == "wifi" {
@@ -111,10 +115,11 @@ extension ToolCatalog {
             id: "util.write", title: "Create Document", summary: "Type or paste text, export as PDF, Word and more",
             symbol: "square.and.pencil", category: .documents, input: .none,
             options: [
-                .text("body", "Text", placeholder: "Start typing. Markdown works: # Heading, **bold**, - lists", multiline: true, section: "Content"),
+                .text("body", "Text", placeholder: "Type or paste your text", multiline: true, section: "Content", footnote: "Tip: # makes a heading, **word** makes it bold, - starts a list."),
                 .choice("target", "Save as", [FileFormat.pdf, .docx, .odt, .rtf, .epub, .html, .markdown, .txt].map { ToolChoice($0.rawValue, $0.displayName) }, section: "Output")
-            ] + layoutOptions(fixedTarget: nil).filter { $0.key != "layout" },
-            keywords: ["create pdf", "text to pdf", "write", "new document", "markdown"], actionTitle: "Create"
+            ] + layoutOptions(fixedTarget: nil).filter { $0.key != "layout" }.map { $0.advanced() },
+            keywords: ["create pdf", "text to pdf", "write", "new document", "markdown"], actionTitle: "Create",
+            validate: { values, _, _ in values.string("body").nilIfBlank == nil ? "Type or paste some text" : nil }
         ) { context in
             guard let body = context.options.string("body").nilIfBlank else { throw DocumentError.invalidOption("Write something first.") }
             let document = MarkdownReader.read(markdown: body)

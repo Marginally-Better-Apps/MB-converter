@@ -4,6 +4,8 @@ import SwiftUI
 struct PageOrganizerView: View {
     let url: URL
     let password: String?
+    /// Shown inline on the tool screen: no navigation bar or Done/Cancel; every change is reported.
+    var embedded = false
     let onDone: ([PDFToolkit.PageEdit]) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -13,9 +15,10 @@ struct PageOrganizerView: View {
     @State private var thumbnails: [Int: UIImage] = [:]
     @State private var loadError: String?
 
-    init(url: URL, password: String?, initialEdits: [PDFToolkit.PageEdit]?, onDone: @escaping ([PDFToolkit.PageEdit]) -> Void) {
+    init(url: URL, password: String?, initialEdits: [PDFToolkit.PageEdit]?, embedded: Bool = false, onDone: @escaping ([PDFToolkit.PageEdit]) -> Void) {
         self.url = url
         self.password = password
+        self.embedded = embedded
         self.onDone = onDone
         _edits = State(initialValue: initialEdits ?? [])
     }
@@ -23,17 +26,32 @@ struct PageOrganizerView: View {
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 14)]
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let loadError {
-                    ContentUnavailableView("Can't Open PDF", systemImage: "lock.doc", description: Text(loadError))
-                } else if document == nil {
-                    ProgressView()
-                } else {
-                    grid
-                }
+        if embedded {
+            content
+                .safeAreaInset(edge: .bottom, spacing: 0) { actionBar }
+                .task { load() }
+                .onChange(of: edits) { _, edits in onDone(edits) }
+        } else {
+            sheet
+        }
+    }
+
+    private var content: some View {
+        Group {
+            if let loadError {
+                ContentUnavailableView("Can't Open PDF", systemImage: "lock.doc", description: Text(loadError))
+            } else if document == nil {
+                ProgressView()
+            } else {
+                grid
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var sheet: some View {
+        NavigationStack {
+            content
             .screenBackground()
             .navigationTitle(selection.isEmpty ? "\(edits.count) Pages" : "\(selection.count) Selected")
             .navigationBarTitleDisplayMode(.inline)
@@ -75,7 +93,7 @@ struct PageOrganizerView: View {
                 }
             }
             .padding(Theme.Spacing.l)
-            Text("Tap to select. Drag to reorder.")
+            Text(embedded ? "\(edits.count) pages · tap to select, drag to reorder" : "Tap to select. Drag to reorder.")
                 .font(.footnote)
                 .foregroundStyle(Theme.textMuted)
                 .padding(.bottom, Theme.Spacing.l)

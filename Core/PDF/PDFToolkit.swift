@@ -251,9 +251,10 @@ enum PDFToolkit {
         )
     }
 
-    static func autoTrim(_ source: PDFDocument, padding: CGFloat = 18) -> PDFDocument {
+    /// Trims empty margins on `pages` (nil = every page).
+    static func autoTrim(_ source: PDFDocument, pages: Set<Int>? = nil, padding: CGFloat = 18) -> PDFDocument {
         let output = document(from: source, pageIndices: Array(0 ..< source.pageCount))
-        for index in 0 ..< output.pageCount {
+        for index in 0 ..< output.pageCount where pages?.contains(index) ?? true {
             guard let page = output.page(at: index), let content = contentBounds(of: page) else { continue }
             let box = page.bounds(for: .cropBox)
             let padded = content.insetBy(dx: -padding, dy: -padding).intersection(box)

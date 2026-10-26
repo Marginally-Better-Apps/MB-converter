@@ -4,6 +4,8 @@ import SwiftUI
 
 struct MediaRangeEditorView: View {
     let url: URL
+    /// Shown inline on the tool screen: no navigation bar or Done/Cancel; every change is reported.
+    var embedded = false
     let onDone: (Double, Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -21,13 +23,65 @@ struct MediaRangeEditorView: View {
     @State private var seeker = SmoothSeeker()
     private let initialRange: (start: Double, end: Double)?
 
-    init(url: URL, initialRange: (start: Double, end: Double)?, onDone: @escaping (Double, Double) -> Void) {
+    init(url: URL, initialRange: (start: Double, end: Double)?, embedded: Bool = false, onDone: @escaping (Double, Double) -> Void) {
         self.url = url
         self.initialRange = initialRange
+        self.embedded = embedded
         self.onDone = onDone
     }
 
     var body: some View {
+        if embedded {
+            editor
+                .task { await load() }
+                .onDisappear { stop() }
+                .onChange(of: start) { _, start in report(start, end) }
+                .onChange(of: end) { _, end in report(start, end) }
+        } else {
+            sheet
+        }
+    }
+
+    private func report(_ start: Double, _ end: Double) {
+        guard duration > 0, end - start >= 0.1 else { return }
+        onDone(start, end)
+    }
+
+    private var editor: some View {
+        VStack(spacing: Theme.Spacing.l) {
+            preview
+            trimControls
+            Spacer(minLength: 0)
+        }
+        .padding(.top, Theme.Spacing.s)
+    }
+
+    private var trimControls: some View {
+        VStack(spacing: Theme.Spacing.m) {
+            RangeTrack(start: $start, end: $end, duration: duration, frames: frames, waveform: waveform, playhead: playhead) { time in
+                if isPlaying { stop() }
+                seeker.seek(player, to: time)
+            }
+            .frame(height: 56)
+            HStack {
+                timeLabel("Start", start)
+                Spacer()
+                timeLabel("Length", end - start)
+                Spacer()
+                timeLabel("End", end)
+            }
+            Button {
+                togglePlayback()
+            } label: {
+                Label(isPlaying ? "Pause" : "Play Selection", systemImage: isPlaying ? "pause.fill" : "play.fill")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .frame(maxWidth: 260)
+        }
+        .padding(.horizontal, Theme.Spacing.l)
+    }
+
+    private var sheet: some View {
         NavigationStack {
             VStack(spacing: Theme.Spacing.xl) {
                 preview

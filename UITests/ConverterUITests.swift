@@ -498,8 +498,9 @@ final class LivePreviewUITests: ConverterUITestCase {
     }
 
     func testTrimHandlesScrubTheVideo() {
-        launch(["-MBRoute", "tool:video.trim", "-MBInputs", fixture("test-pattern.mp4"), "-MBEditor", "1"])
-        let video = wait(for: app.descendants(matching: .any)["Video preview"].firstMatch, 20, "The trim editor didn't open")
+        // The trim timeline is on the tool screen as soon as the video is in.
+        launch(["-MBRoute", "tool:video.trim", "-MBInputs", fixture("test-pattern.mp4")])
+        let video = wait(for: app.descendants(matching: .any)["Video preview"].firstMatch, 20, "The trim editor isn't on the screen")
         Thread.sleep(forTimeInterval: 1)
         let before = app.screenshot().image
         let start = app.descendants(matching: .any)["Start"].firstMatch
@@ -531,8 +532,8 @@ final class LivePreviewUITests: ConverterUITestCase {
     }
 }
 
-/// The Meme Maker end to end: type captions, drag one in the Move Text editor, make the meme.
-/// Screens are attached to the result (and saved to $MB_AUDIT_DIR/ui when set, for audits).
+/// The Meme Maker end to end, on the tool screen itself: tap a box and type, drag it, add another
+/// box, make the meme. Screens are attached (and saved to $MB_AUDIT_DIR/ui when set, for audits).
 final class MemeEditorUITests: ConverterUITestCase {
     func saveScreen(_ name: String) {
         let screenshot = app.screenshot()
@@ -544,48 +545,45 @@ final class MemeEditorUITests: ConverterUITestCase {
         }
     }
 
-    /// Taps a field until it has the keyboard (the layout can still be settling), then types.
-    func type(_ text: String, into field: XCUIElement) {
-        wait(for: field, 15, "No field \(field)")
-        for _ in 0 ..< 4 where !app.keyboards.firstMatch.exists || !(field.value(forKey: "hasKeyboardFocus") as? Bool ?? false) {
-            field.tap()
-            _ = app.keyboards.firstMatch.waitForExistence(timeout: 2)
-        }
-        field.typeText(text + "\n")
+    /// Selects a text box and types into the field that appears for it.
+    func type(_ text: String, intoBox index: Int) {
+        let box = wait(for: app.descendants(matching: .any)["text.box.\(index)"].firstMatch, 15, "No text box \(index)")
+        box.tap()
+        let field = wait(for: app.descendants(matching: .any)["text.field"].firstMatch, 10, "Tapping the box didn't open typing")
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 3) { field.tap() }
+        field.typeText(text)
     }
 
-    func testDragMemeTextThenMakeMeme() {
+    func testTypeDragAndAddMemeText() {
         launch(["-MBRoute", "tool:image.meme", "-MBInputs", fixture("astronaut-portrait.jpg")])
-        wait(for: app.descendants(matching: .any)["tool.preview"].firstMatch, 20, "The preview panel never appeared")
-        type("Alex", into: app.textFields["TOP TEXT"])
-        type("Letter league", into: app.textFields["BOTTOM TEXT"])
-        wait(for: app.staticTexts["tool.preview.caption"], 20, "The live preview never rendered")
-        saveScreen("meme-1-tool")
+        let run = wait(for: app.buttons["tool.run"], 20, "No action button")
+        XCTAssertFalse(run.isEnabled, "With no text yet the button should say what to do, not run")
+        saveScreen("meme-1-empty")
 
-        let move = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Move text'")).firstMatch
-        var swipes = 0
-        while swipes < 6, !(move.exists && move.isHittable && move.frame.maxY < app.buttons["tool.run"].frame.minY - 8) {
-            app.scrollViews.firstMatch.swipeUp(velocity: .slow)
-            swipes += 1
-        }
-        wait(for: move, 5, "No Move text button").tap()
+        type("Alex", intoBox: 0)
+        type("Letter league", intoBox: 1)
+        saveScreen("meme-2-typed")
+        app.keyboards.buttons["done"].firstMatch.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "The keyboard didn't close")
 
-        let caption = wait(for: app.descendants(matching: .any)["caption.top"].firstMatch, 15, "The editor shows no top caption")
-        wait(for: app.descendants(matching: .any)["caption.bottom"].firstMatch, 5, "The editor shows no bottom caption")
-        saveScreen("meme-2-editor")
-        let before = caption.frame
-        let start = caption.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        start.press(forDuration: 0.15, thenDragTo: start.withOffset(CGVector(dx: -70, dy: 200)))
-        let after = caption.frame
-        XCTAssertGreaterThan(after.midY - before.midY, 120, "The caption didn't follow the drag (\(before) → \(after))")
-        saveScreen("meme-3-dragged")
-        app.buttons["captions.done"].tap()
+        // Drag the top caption down to the middle of the photo.
+        let top = app.descendants(matching: .any)["text.box.0"].firstMatch
+        let before = top.frame
+        let start = top.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.15, thenDragTo: start.withOffset(CGVector(dx: -40, dy: 160)))
+        XCTAssertGreaterThan(top.frame.midY - before.midY, 100, "The text didn't follow the drag (\(before) → \(top.frame))")
 
-        wait(for: app.staticTexts["Text moved"], 10, "The tool screen doesn't show the moved text")
-        Thread.sleep(forTimeInterval: 1.5) // Let the live preview re-render with the new position.
-        saveScreen("meme-4-preview")
+        // A third box, anywhere.
+        wait(for: app.buttons["text.add"], 5, "No Add text button").tap()
+        XCTAssertTrue(app.descendants(matching: .any)["text.box.2"].firstMatch.waitForExistence(timeout: 5), "Add text didn't add a box")
+        app.descendants(matching: .any)["text.field"].firstMatch.typeText("MOON")
+        saveScreen("meme-3-arranged")
+
+        if app.keyboards.firstMatch.exists { app.keyboards.buttons["done"].firstMatch.tap() }
+        XCTAssertTrue(run.waitForExistence(timeout: 5) && run.isEnabled, "With text typed the button should run")
         runTool()
-        saveScreen("meme-5-result")
+        saveScreen("meme-4-result")
+        XCTAssertEqual(resultFiles.count, 1)
     }
 }
 

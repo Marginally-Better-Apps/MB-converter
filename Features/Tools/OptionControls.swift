@@ -109,10 +109,12 @@ struct OptionControl: View {
         }
     }
 
+    /// Steps by 1 for small numbers ("Start at 1", "every 2 pages") and coarser for large ones
+    /// (pixel sizes), based on the current value rather than how high the range goes.
     private func stepSize(for range: ClosedRange<Int>) -> Int {
-        switch range.upperBound {
-        case 100_000...: 100
-        case 2_000...: 10
+        switch abs(values.int(option.key)) {
+        case 10_000...: 100
+        case 200...: 10
         default: 1
         }
     }

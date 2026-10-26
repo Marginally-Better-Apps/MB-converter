@@ -59,7 +59,8 @@ extension ToolCatalog {
                 .stepper("every", "Pages per file", range: 1 ... 500, default: 2, visible: { $0.string("mode") == "every" }),
                 .slider("size", "Max file size", range: 1 ... 50, default: 5, format: { "\(Int($0)) MB" }, visible: { $0.string("mode") == "size" })
             ],
-            keywords: ["separate", "divide", "extract"], isFeatured: true, actionTitle: "Split"
+            keywords: ["separate", "divide", "extract"], isFeatured: true, actionTitle: "Split",
+            validate: { values, _, _ in values.string("mode") == "ranges" && values.string("ranges").nilIfBlank == nil ? "Type where to split, like 1-3, 4-6" : nil }
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
@@ -115,7 +116,8 @@ extension ToolCatalog {
             id: "pdf.delete", title: "Delete Pages", summary: "Remove pages you don't need",
             symbol: "trash", category: .pdf, input: .one([.pdf], noun: "PDF"),
             options: [.text("pages", "Pages to delete", placeholder: "2, 5-7", footnote: "For example 1-3, 5, 8-")],
-            keywords: ["remove", "page deleter"], actionTitle: "Delete"
+            keywords: ["remove", "page deleter"], actionTitle: "Delete",
+            validate: { values, _, _ in values.string("pages").nilIfBlank == nil ? "Type the pages to delete" : nil }
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
@@ -136,7 +138,8 @@ extension ToolCatalog {
                 .text("pages", "Pages to keep", placeholder: "1-3, 5", footnote: "Pages are kept in the order you type them."),
                 .toggle("separate", "Save each page as its own file")
             ],
-            keywords: ["select", "pull out", "copy"], actionTitle: "Extract"
+            keywords: ["select", "pull out", "copy"], actionTitle: "Extract",
+            validate: { values, _, _ in values.string("pages").nilIfBlank == nil ? "Type the pages to keep" : nil }
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
@@ -191,12 +194,17 @@ extension ToolCatalog {
             options: [
                 .text("password", "Password", placeholder: "Required to open", secure: true, section: "Password"),
                 .text("confirm", "Confirm password", placeholder: "Type it again", secure: true, section: "Password"),
-                .toggle("print", "Allow printing", default: true, section: "Permissions"),
-                .toggle("copy", "Allow copying text", default: true, section: "Permissions"),
-                .toggle("edit", "Allow editing", default: false, section: "Permissions",
-                        footnote: "Uses AES encryption. Keep the password safe — it can't be recovered.")
+                ToolOption.toggle("print", "Allow printing", default: true, section: "Permissions").advanced(),
+                ToolOption.toggle("copy", "Allow copying text", default: true, section: "Permissions").advanced(),
+                ToolOption.toggle("edit", "Allow editing", default: false, section: "Permissions",
+                                  footnote: "Uses AES encryption. Keep the password safe — it can't be recovered.").advanced()
             ],
-            keywords: ["password", "encrypt", "secure", "lock"], actionTitle: "Protect"
+            keywords: ["password", "encrypt", "secure", "lock"], actionTitle: "Protect",
+            validate: { values, _, _ in
+                if values.string("password").isEmpty { return "Type a password" }
+                if values.string("password") != values.string("confirm") { return "The passwords don't match" }
+                return nil
+            }
         ) { context in
             let input = try context.first
             let password = context.options.string("password")
@@ -233,15 +241,15 @@ extension ToolCatalog {
                 .text("text", "Text", placeholder: "CONFIDENTIAL", default: "CONFIDENTIAL", visible: { $0.string("kind") != "image" }),
                 .image("logo", "Image", visible: { $0.string("kind") == "image" }),
                 .choice("placement", "Position", ToolHelpers.placementChoices, default: PDFStamper.Placement.center.rawValue, section: "Style"),
-                .slider("size", "Size", range: 12 ... 120, default: 54, section: "Style", format: { "\(Int($0)) pt" }, visible: { $0.string("kind") != "image" }),
-                .slider("scale", "Width", range: 5 ... 100, default: 30, section: "Style", format: { "\(Int($0))%" }, visible: { $0.string("kind") == "image" }),
-                .slider("opacity", "Opacity", range: 5 ... 100, default: 30, section: "Style", format: { "\(Int($0))%" }),
-                .slider("rotation", "Angle", range: -90 ... 90, step: 5, default: -35, section: "Style", format: { "\(Int($0))°" }, visible: { $0.string("kind") != "image" }),
-                .color("color", "Color", default: 0x7A8794, section: "Style", visible: { $0.string("kind") != "image" }),
-                .toggle("behind", "Place behind content", section: "Style", visible: { $0.string("kind") != "image" }),
+                ToolOption.slider("size", "Size", range: 12 ... 120, default: 54, section: "Style", format: { "\(Int($0)) pt" }, visible: { $0.string("kind") != "image" }).advanced(),
+                ToolOption.slider("scale", "Width", range: 5 ... 100, default: 30, section: "Style", format: { "\(Int($0))%" }, visible: { $0.string("kind") == "image" }).advanced(),
+                ToolOption.slider("opacity", "Opacity", range: 5 ... 100, default: 30, section: "Style", format: { "\(Int($0))%" }).advanced(),
+                ToolOption.slider("rotation", "Angle", range: -90 ... 90, step: 5, default: -35, section: "Style", format: { "\(Int($0))°" }, visible: { $0.string("kind") != "image" }).advanced(),
+                ToolOption.color("color", "Color", default: 0x7A8794, section: "Style", visible: { $0.string("kind") != "image" }).advanced(),
+                ToolOption.toggle("behind", "Place behind content", section: "Style", visible: { $0.string("kind") != "image" }).advanced(),
                 ToolHelpers.pagesOption
             ],
-            keywords: ["stamp", "confidential", "draft", "logo", "brand"], actionTitle: "Apply"
+            keywords: ["stamp", "confidential", "draft", "logo", "brand"], actionTitle: "Add Watermark"
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
@@ -270,11 +278,11 @@ extension ToolCatalog {
             options: [
                 .choice("format", "Format", PDFStamper.NumberFormat.allCases.map { ToolChoice($0.rawValue, $0.label) }),
                 .choice("placement", "Position", [PDFStamper.Placement.bottom, .bottomRight, .bottomLeft, .top, .topRight, .topLeft].map { ToolChoice($0.rawValue, $0.label) }),
-                .slider("size", "Text size", range: 7 ... 24, default: 10, format: { "\(Int($0)) pt" }),
+                ToolOption.slider("size", "Text size", range: 7 ... 24, default: 10, format: { "\(Int($0)) pt" }).advanced(),
                 .stepper("start", "Start at", range: 0 ... 9_999, default: 1),
                 .toggle("skipFirst", "Skip the first page", footnote: "Useful for cover pages.")
             ],
-            keywords: ["numbering", "paginate", "footer", "header"], actionTitle: "Apply"
+            keywords: ["numbering", "paginate", "footer", "header"], actionTitle: "Add Numbers"
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
@@ -293,7 +301,8 @@ extension ToolCatalog {
             id: "pdf.edit", title: "Edit & Annotate", summary: "Add text, images, highlights and shapes",
             symbol: "pencil.and.outline", category: .pdf, input: .one([.pdf], noun: "PDF"),
             editor: .pdfMarkup(signatureFirst: false),
-            keywords: ["annotate", "add text", "highlight", "whiteout", "markup", "write", "fill"], isFeatured: true, actionTitle: "Save"
+            keywords: ["annotate", "add text", "highlight", "whiteout", "markup", "write", "fill"], isFeatured: true, actionTitle: "Save PDF",
+            validate: { _, editor, _ in editor.overlays.isEmpty ? "Add something to a page" : nil }
         ) { context in
             try await applyOverlays(context, suffix: "edited")
         },
@@ -302,7 +311,8 @@ extension ToolCatalog {
             id: "pdf.sign", title: "Sign PDF", summary: "Draw your signature and place it on any page",
             symbol: "signature", category: .pdf, input: .one([.pdf], noun: "PDF"),
             editor: .pdfMarkup(signatureFirst: true),
-            keywords: ["esign", "signature", "initials", "fill and sign"], isFeatured: true, actionTitle: "Save"
+            keywords: ["esign", "signature", "initials", "fill and sign"], isFeatured: true, actionTitle: "Save Signed PDF",
+            validate: { _, editor, _ in editor.overlays.isEmpty ? "Place your signature" : nil }
         ) { context in
             try await applyOverlays(context, suffix: "signed")
         },
@@ -312,9 +322,10 @@ extension ToolCatalog {
             symbol: "eye.slash", category: .pdf, input: .one([.pdf], noun: "PDF"),
             options: [
                 .text("terms", "Find and redact", placeholder: "Names, account numbers…", multiline: true, footnote: "Separate terms with commas or new lines. Matching pages are flattened so the hidden text is truly removed."),
-                .toggle("case", "Match case")
+                ToolOption.toggle("case", "Match case").advanced()
             ],
-            keywords: ["black out", "censor", "hide", "privacy", "remove text"], actionTitle: "Redact"
+            keywords: ["black out", "censor", "hide", "privacy", "remove text"], actionTitle: "Redact",
+            validate: { values, _, _ in values.string("terms").nilIfBlank == nil ? "Type the words to hide" : nil }
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
@@ -347,7 +358,8 @@ extension ToolCatalog {
                 let insets = PDFToolkit.CropInsets(top: context.options.double("top"), left: context.options.double("left"), bottom: context.options.double("bottom"), right: context.options.double("right"))
                 output = try PDFToolkit.crop(document, insets: insets, pages: try ToolHelpers.pageSet(context.options.string("pages"), pageCount: document.pageCount))
             } else {
-                output = try await background { PDFToolkit.autoTrim(document) }
+                let pages = try ToolHelpers.pageSet(context.options.string("pages"), pageCount: document.pageCount)
+                output = try await background { PDFToolkit.autoTrim(document, pages: pages) }
             }
             let url = context.outputURL("\(input.baseName)-cropped", "pdf")
             try PDFToolkit.write(output, to: url)
@@ -358,11 +370,11 @@ extension ToolCatalog {
             id: "pdf.ocr", title: "Make Searchable (OCR)", summary: "Recognize text in scanned PDFs, on device",
             symbol: "text.viewfinder", category: .pdf, input: .one([.pdf], noun: "PDF"),
             options: [
-                .choice("language", "Language", OCRLanguages.choices),
-                .toggle("force", "Re-recognize pages that already have text"),
-                .toggle("text", "Also save a .txt file", default: false)
+                ToolOption.choice("language", "Language", OCRLanguages.choices).advanced(),
+                ToolOption.toggle("force", "Re-recognize pages that already have text").advanced(),
+                ToolOption.toggle("text", "Also save a .txt file", default: false).advanced()
             ],
-            keywords: ["ocr", "scan", "recognize", "searchable", "selectable", "text"], actionTitle: "Recognize"
+            keywords: ["ocr", "scan", "recognize", "searchable", "selectable", "text"], actionTitle: "Make Searchable"
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
@@ -439,10 +451,10 @@ extension ToolCatalog {
             id: "pdf.pdfa", title: "Convert to PDF/A", summary: "Archive-ready PDFs for records and court filings",
             symbol: "archivebox", category: .pdf, input: .one([.pdf], noun: "PDF"),
             options: [
-                .choice("part", "Standard", [ToolChoice("2", "PDF/A-2b"), ToolChoice("1", "PDF/A-1b"), ToolChoice("3", "PDF/A-3b")], segmented: true,
-                        footnote: "PDF/A-2b suits most archives. Choose 1b only if a portal asks for it: it can't hold transparency, so pages that use it become images. Fonts are embedded and colors set to sRGB; passwords and form fields are removed.")
+                ToolOption.choice("part", "Standard", [ToolChoice("2", "PDF/A-2b"), ToolChoice("1", "PDF/A-1b"), ToolChoice("3", "PDF/A-3b")], segmented: true,
+                                  footnote: "PDF/A-2b suits most archives. Choose 1b only if a portal asks for it: it can't hold transparency, so pages that use it become images. Fonts are embedded and colors set to sRGB; passwords and form fields are removed.").advanced()
             ],
-            keywords: ["pdfa", "pdf/a", "archive", "archival", "iso 19005", "long term", "court", "records"], actionTitle: "Convert"
+            keywords: ["pdfa", "pdf/a", "archive", "archival", "iso 19005", "long term", "court", "records"], actionTitle: "Make PDF/A"
         ) { context in
             let input = try context.first
             guard Ghostscript.isAvailable else { throw DocumentError.unsupportedFormat("PDF/A") }
@@ -518,8 +530,8 @@ extension ToolCatalog {
             symbol: "photo.on.rectangle", category: .pdf, input: .one([.pdf], noun: "PDF"),
             options: [
                 .choice("format", "Format", [ToolChoice("jpeg", "JPEG"), ToolChoice("png", "PNG"), ToolChoice("heic", "HEIC"), ToolChoice("tiff", "TIFF (one file)")], segmented: false),
-                .choice("dpi", "Resolution", [ToolChoice("72", "72 dpi"), ToolChoice("150", "150 dpi"), ToolChoice("300", "300 dpi")], default: "150", segmented: true),
-                .slider("quality", "Quality", range: 30 ... 100, default: 85, format: { "\(Int($0))%" }, visible: { ["jpeg", "heic"].contains($0.string("format")) }),
+                ToolOption.choice("dpi", "Resolution", [ToolChoice("72", "72 dpi"), ToolChoice("150", "150 dpi"), ToolChoice("300", "300 dpi")], default: "150", segmented: true).advanced(),
+                ToolOption.slider("quality", "Quality", range: 30 ... 100, default: 85, format: { "\(Int($0))%" }, visible: { ["jpeg", "heic"].contains($0.string("format")) }).advanced(),
                 ToolHelpers.pagesOption
             ],
             keywords: ["pdf to jpg", "pdf to png", "pdf to tiff", "convert", "pages to pictures"], isFeatured: true, actionTitle: "Convert"
@@ -544,10 +556,10 @@ extension ToolCatalog {
             symbol: "photo.stack", category: .pdf, input: .many(Set(FileFormat.stillImages), noun: "images"),
             options: [
                 .choice("page", "Page size", ImagesToPDF.PageSizing.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: ImagesToPDF.PageSizing.a4.rawValue),
-                .choice("orientation", "Orientation", ImagesToPDF.Orientation.allCases.map { ToolChoice($0.rawValue, $0.label) }, segmented: true, visible: { $0.string("page") != "fitImage" }),
-                .choice("fit", "Image fit", ImagesToPDF.Fit.allCases.map { ToolChoice($0.rawValue, $0.label) }, segmented: true, visible: { $0.string("page") != "fitImage" }),
-                .choice("margin", "Margins", [ToolChoice("0", "None"), ToolChoice("18", "Small"), ToolChoice("36", "Large")], default: "18", segmented: true),
-                .choice("quality", "Image quality", [ToolChoice("high", "High"), ToolChoice("medium", "Medium"), ToolChoice("original", "Original")], segmented: true, footnote: "Medium makes much smaller files; Original keeps full resolution.")
+                ToolOption.choice("orientation", "Orientation", ImagesToPDF.Orientation.allCases.map { ToolChoice($0.rawValue, $0.label) }, segmented: true, visible: { $0.string("page") != "fitImage" }).advanced(),
+                ToolOption.choice("fit", "Image fit", ImagesToPDF.Fit.allCases.map { ToolChoice($0.rawValue, $0.label) }, segmented: true, visible: { $0.string("page") != "fitImage" }).advanced(),
+                ToolOption.choice("margin", "Margins", [ToolChoice("0", "None"), ToolChoice("18", "Small"), ToolChoice("36", "Large")], default: "18", segmented: true).advanced(),
+                ToolOption.choice("quality", "Image quality", [ToolChoice("high", "High"), ToolChoice("medium", "Medium"), ToolChoice("original", "Original")], segmented: true, footnote: "Medium makes much smaller files; Original keeps full resolution.").advanced()
             ],
             keywords: ["jpg to pdf", "png to pdf", "heic to pdf", "photo to pdf", "scan", "create pdf", "tiff to pdf"], isFeatured: true, actionTitle: "Create PDF"
         ) { context in
