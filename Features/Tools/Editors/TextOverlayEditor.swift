@@ -243,7 +243,8 @@ struct TextOverlayEditor: View {
     private func select(_ id: UUID, typing: Bool) {
         if selectedID != id { Haptics.selection() }
         selectedID = id
-        if typing { isTyping = true }
+        // The text field only appears once a box is selected; focus it on the next turn.
+        if typing { Task { @MainActor in isTyping = true } }
     }
 
     private func deselect() {

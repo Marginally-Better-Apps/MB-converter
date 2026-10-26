@@ -550,8 +550,15 @@ final class MemeEditorUITests: ConverterUITestCase {
         let box = wait(for: app.descendants(matching: .any)["text.box.\(index)"].firstMatch, 15, "No text box \(index)")
         box.tap()
         let field = wait(for: app.descendants(matching: .any)["text.field"].firstMatch, 10, "Tapping the box didn't open typing")
-        if !app.keyboards.firstMatch.waitForExistence(timeout: 3) { field.tap() }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Tapping the box should bring up the keyboard")
+        dismissKeyboardTip()
         field.typeText(text)
+    }
+
+    /// iOS shows a one-time "slide to type" tip over a fresh simulator's keyboard.
+    func dismissKeyboardTip() {
+        let tip = app.buttons["Continue"].firstMatch
+        if tip.waitForExistence(timeout: 1) { tip.tap() }
     }
 
     func testTypeDragAndAddMemeText() {
@@ -563,6 +570,7 @@ final class MemeEditorUITests: ConverterUITestCase {
         type("Alex", intoBox: 0)
         type("Letter league", intoBox: 1)
         saveScreen("meme-2-typed")
+        dismissKeyboardTip()
         app.keyboards.buttons["done"].firstMatch.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "The keyboard didn't close")
 
