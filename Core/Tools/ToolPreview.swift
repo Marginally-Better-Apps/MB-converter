@@ -35,7 +35,8 @@ enum ToolPreview {
         "pdf.redact": .pdf, "pdf.flatten": .pdf, "pdf.compress": .pdf, "pdf.edit": .pdf, "pdf.sign": .pdf,
         "video.gif": .animation, "video.webp": .animation, "image.animated": .animation, "image.gif": .animation,
         "video.speed": .video, "video.rotate": .video, "video.loop": .video,
-        "audio.adjust": .audio
+        "audio.adjust": .audio,
+        "util.qr": .image
     ]
 
     /// How long to wait after the last change before re-rendering: quick for pictures, longer for media.
@@ -84,7 +85,8 @@ final class ToolPreviewModel {
     private var runDirectories: [URL] = []
 
     func schedule(tool: ToolDefinition, inputs: [ToolInputFile], options: ToolOptionValues, editor: ToolEditorState) {
-        guard let kind = tool.previewKind, !inputs.isEmpty else {
+        // Generators (QR codes) have no input file; their preview is the thing they make.
+        guard let kind = tool.previewKind, !inputs.isEmpty || !tool.input.acceptsFiles else {
             reset()
             return
         }

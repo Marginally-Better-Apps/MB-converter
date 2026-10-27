@@ -18,6 +18,7 @@ struct HomeView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var viewModel = HomeViewModel()
     @State private var historyStore = ConversionHistoryStore.shared
+    @State private var incoming = IncomingFiles.shared
     @State private var selectedImageItem: PhotosPickerItem?
     @State private var selectedVideoItem: PhotosPickerItem?
     @State private var isFileImporterPresented = false
@@ -75,6 +76,8 @@ struct HomeView: View {
         ) { result in
             handleFileImporter(result)
         }
+        .onChange(of: incoming.pending, initial: true) { _, _ in openIncomingFile() }
+        .onChange(of: path.isEmpty) { _, _ in openIncomingFile() }
         .onChange(of: selectedImageItem) { _, item in
             guard let item else { return }
             Task {
@@ -523,6 +526,17 @@ struct HomeView: View {
             if let media = await viewModel.importFromFiles(url) {
                 path.append(.inputDetail(media))
             }
+        }
+    }
+
+    /// Opens a file handed over by another app, once Home is the visible screen.
+    private func openIncomingFile() {
+        guard path.isEmpty, let url = incoming.pending else { return }
+        incoming.pending = nil
+        Task {
+            await importFile(url)
+            // iOS copies opened files into Documents/Inbox; ours is imported now, so drop that copy.
+            if url.path.contains("/Documents/Inbox/") { try? FileManager.default.removeItem(at: url) }
         }
     }
 

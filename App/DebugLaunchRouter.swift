@@ -9,6 +9,7 @@ import UIKit
 ///   -MBResetState 1                          (start with empty saved history; UI tests)
 ///   -MBSavedHistory 1|0                      (turn saved history on or off before launch)
 ///   -MBNoAnimations 1                        (faster, steadier UI tests)
+///   -MBOpenFile /path/file.pdf               (as if another app opened the file in MB Converter)
 enum DebugLaunchRouter {
     static var arguments: [String: String] {
         let args = ProcessInfo.processInfo.arguments
@@ -39,6 +40,9 @@ enum DebugLaunchRouter {
 
     @MainActor
     static func apply(selectTab: @escaping (RootSection) -> Void, push: @escaping (AppRoute) -> Void) {
+        if let path = arguments["MBOpenFile"] {
+            IncomingFiles.shared.pending = URL(fileURLWithPath: path)
+        }
         guard let route = arguments["MBRoute"] else { return }
         let parts = route.split(separator: ":", maxSplits: 1).map(String.init)
         let value = parts.count > 1 ? parts[1] : ""

@@ -6,6 +6,7 @@ struct OptionControl: View {
     let option: ToolOption
     @Binding var values: ToolOptionValues
     let inputs: [ToolInputFile]
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -25,7 +26,8 @@ struct OptionControl: View {
     private var control: some View {
         switch option.kind {
         case .choice(let choices, let segmented):
-            choicePicker(choices, segmented: segmented && choices.count <= 5)
+            // Segments can't grow with large text, so big text gets a menu instead.
+            choicePicker(choices, segmented: segmented && choices.count <= 5 && !dynamicTypeSize.isAccessibilitySize)
         case .dynamicChoice(let provider):
             choicePicker(provider(inputs), segmented: false)
         case .toggle:
@@ -96,9 +98,12 @@ struct OptionControl: View {
                 .labelsHidden()
             }
         } else {
-            HStack {
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                : AnyLayout(HStackLayout())
+            layout {
                 Text(option.label)
-                Spacer(minLength: Theme.Spacing.m)
+                if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: Theme.Spacing.m) }
                 Picker(option.label, selection: stringBinding) {
                     ForEach(choices) { Text($0.label).tag($0.value) }
                 }

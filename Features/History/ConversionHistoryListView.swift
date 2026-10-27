@@ -98,8 +98,14 @@ struct ConversionHistoryListView: View {
     }
 
     private var historySummary: some View {
-        HStack(spacing: 14) {
-            IconTile(systemImage: isSavedHistoryEnabled ? "externaldrive.fill" : "hourglass")
+        // Large text stacks the storage under the title instead of squeezing both into one row.
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 14))
+        return layout {
+            if !dynamicTypeSize.isAccessibilitySize {
+                IconTile(systemImage: isSavedHistoryEnabled ? "externaldrive.fill" : "hourglass")
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(store.storageSummaryTitle)
@@ -110,9 +116,9 @@ struct ConversionHistoryListView: View {
                     .foregroundStyle(Theme.textMuted)
             }
 
-            Spacer(minLength: 8)
+            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
 
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .trailing, spacing: 2) {
                 Text(MetadataFormatter.bytes(storageBytes))
                     .font(.headline)
                     .monospacedDigit()

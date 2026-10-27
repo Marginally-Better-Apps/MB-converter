@@ -13,7 +13,7 @@ extension ToolCatalog {
                 .text("ssid", "Network name", placeholder: "Home Wi-Fi", visible: { $0.string("kind") == "wifi" }),
                 .text("wifiPassword", "Password", placeholder: "Leave empty for open networks", secure: true, visible: { $0.string("kind") == "wifi" }),
                 ToolOption.choice("size", "Size", [ToolChoice("512", "Small"), ToolChoice("1024", "Medium"), ToolChoice("2048", "Large")], default: "1024", segmented: true, section: "Style").advanced(),
-                ToolOption.choice("correction", "Error correction", ImageToolkit.QRCorrection.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: ImageToolkit.QRCorrection.medium.rawValue, section: "Style").advanced(),
+                ToolOption.choice("correction", "Still scans when smudged", ImageToolkit.QRCorrection.allCases.map { ToolChoice($0.rawValue, $0.label) }, default: ImageToolkit.QRCorrection.medium.rawValue, section: "Style").advanced(),
                 .color("foreground", "Color", default: 0x0B1622, section: "Style"),
                 .color("background", "Background", default: 0xFFFFFF, section: "Style")
             ],

@@ -29,6 +29,15 @@ struct ConverterApp: App {
     }
 }
 
+/// A file another app handed us ("Open in MB Converter" from Files, Mail or the share sheet),
+/// waiting for the Convert tab to open it like a file picked there.
+@MainActor
+@Observable
+final class IncomingFiles {
+    static let shared = IncomingFiles()
+    var pending: URL?
+}
+
 enum AppRoute: Hashable {
     case inputDetail(MediaFile)
     case processing(MediaFile, ConversionConfig)
@@ -126,6 +135,13 @@ struct ConverterRootView: View {
                 }
             }
             #endif
+            .onOpenURL { url in
+                guard url.isFileURL else { return }
+                // A running conversion keeps its screen; the file opens once it's done and you're back home.
+                if !isConversionRunning { convertPath.removeAll() }
+                selectedSection = .convert
+                IncomingFiles.shared.pending = url
+            }
             .onReceive(NotificationCenter.default.publisher(for: .conversionWarningOpened)) { notification in
                 guard let id = notification.object as? UUID, id == session.attemptID,
                       let input = session.input, let config = session.config else { return }

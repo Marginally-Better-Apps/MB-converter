@@ -128,7 +128,7 @@ struct PageOrganizerView: View {
         } label: {
             VStack(spacing: 3) {
                 Image(systemName: symbol).font(.system(size: 18))
-                Text(title).font(.caption2)
+                Text(title).font(.caption2).lineLimit(1).minimumScaleFactor(0.6)
             }
             .frame(maxWidth: .infinity, minHeight: 44)
             .foregroundStyle(role == .destructive ? Theme.danger : Theme.tint)

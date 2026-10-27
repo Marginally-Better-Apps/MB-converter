@@ -288,6 +288,44 @@ final class MediaFlowUITests: ConverterUITestCase {
     }
 }
 
+/// Files handed over by other apps ("Open in MB Converter" from Files, Mail or the share sheet).
+final class OpenInUITests: ConverterUITestCase {
+    func testOpenedPDFLandsOnItsFileScreen() {
+        launch(["-MBOpenFile", fixture("irs-w9-form.pdf")])
+        wait(for: app.buttons["Convert to Word"].firstMatch, 20, "An opened PDF should land on its file screen")
+        attach("Opened PDF", app.screenshot())
+    }
+
+    func testOpenedVideoLandsOnTheConverter() {
+        launch(["-MBOpenFile", fixture("test-pattern.mp4")])
+        wait(for: app.buttons["media.convert"], 30, "An opened video should land on the converter")
+    }
+}
+
+final class PlainWordsUITests: ConverterUITestCase {
+    /// A greyed-out button says what to do instead of leaving people guessing.
+    func testUnchangedVideoSaysWhyConvertIsOff() {
+        launch(["-MBRoute", "media", "-MBInputs", fixture("test-pattern.mp4")])
+        let convert = wait(for: app.buttons["media.convert"], 30, "Video settings screen didn't open")
+        XCTAssertFalse(convert.isEnabled)
+        XCTAssertTrue(convert.label.hasPrefix("Pick"), "Disabled Convert should explain itself: \(convert.label)")
+        XCTAssertFalse(app.staticTexts["Remux"].exists, "No engine jargon on the main screen")
+        chooseOutputFormat("MOV")
+        XCTAssertTrue(convert.waitForEnabled(10))
+        XCTAssertEqual(convert.label, "Convert")
+    }
+
+    func testQRCodePreviewsWhileTyping() {
+        launch(["-MBRoute", "tool:util.qr"])
+        XCTAssertFalse(app.descendants(matching: .any)["tool.preview"].exists, "Nothing to preview before typing")
+        let field = app.textViews.firstMatch.waitForExistence(timeout: 10) ? app.textViews.firstMatch : app.textFields.firstMatch
+        wait(for: field, 10, "No content field").tap()
+        field.typeText("https://example.com")
+        wait(for: app.descendants(matching: .any)["tool.preview"].firstMatch, 15, "The QR code should preview as you type")
+        attach("QR preview", app.screenshot())
+    }
+}
+
 final class BrowseUITests: ConverterUITestCase {
     func testFindAToolFromTheToolsTab() {
         launch()

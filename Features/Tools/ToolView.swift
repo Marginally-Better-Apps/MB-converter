@@ -16,6 +16,7 @@ struct ToolView: View {
     @State private var preview = ToolPreviewModel()
     @State private var isPreviewExpanded = true
     @FocusState private var focusedField: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(tool: ToolDefinition, initialInputs: [ToolInputFile] = [], preset: [String: String] = [:], path: Binding<[AppRoute]>) {
         _path = path
@@ -43,7 +44,8 @@ struct ToolView: View {
     }
 
     private var showsPreview: Bool {
-        tool.previewKind != nil && tool.editor == nil && !viewModel.inputs.isEmpty && !viewModel.needsPassword
+        guard tool.previewKind != nil, tool.editor == nil, !viewModel.needsPassword else { return false }
+        return tool.input.acceptsFiles ? !viewModel.inputs.isEmpty : viewModel.blockingReason == nil
     }
 
     /// Editor tools show their editor as the screen once a file is in: pages, crop box, timeline,
@@ -239,23 +241,28 @@ struct ToolView: View {
                     .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
             }
-            HStack(spacing: Theme.Spacing.s) {
+            let buttons = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: Theme.Spacing.s))
+                : AnyLayout(HStackLayout(spacing: Theme.Spacing.s))
+            buttons {
                 Button {
                     isFileImporterPresented = true
                 } label: {
                     Label("Files", systemImage: "folder")
-                        .frame(maxWidth: 140)
+                        .lineLimit(1)
+                        .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 140)
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 if acceptsPhotos {
                     PhotosPicker(selection: $photoItems, maxSelectionCount: tool.input.maxCount, matching: photoFilter) {
                         Label("Photos", systemImage: "photo.on.rectangle")
-                            .frame(maxWidth: 140)
+                            .lineLimit(1)
+                            .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 140)
                     }
                     .buttonStyle(SecondaryButtonStyle())
                 }
             }
-            .frame(maxWidth: 320)
+            .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 320)
             if viewModel.isImporting { ProgressView().padding(.top, 4) }
         }
         .frame(maxWidth: .infinity)
@@ -285,9 +292,15 @@ struct ToolView: View {
             }
             Button { viewModel.importPasteboard(); runIfPickWasTheOnlyChoice() } label: { Label("Paste", systemImage: "doc.on.clipboard") }
         } label: {
-            Label(title ?? (tool.input.allowsMultiple ? "Add" : "Replace"), systemImage: tool.input.allowsMultiple ? "plus" : "arrow.triangle.2.circlepath")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Theme.tint)
+            let label = Label(title ?? (tool.input.allowsMultiple ? "Add" : "Replace"), systemImage: tool.input.allowsMultiple ? "plus" : "arrow.triangle.2.circlepath")
+            Group {
+                // Large text keeps the icon alone so the word never breaks across lines.
+                if dynamicTypeSize.isAccessibilitySize { label.labelStyle(.iconOnly) } else { label.lineLimit(1).fixedSize() }
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(Theme.tint)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
         }
     }
 

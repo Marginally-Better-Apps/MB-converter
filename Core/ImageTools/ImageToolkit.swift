@@ -827,10 +827,10 @@ enum ImageToolkit {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .low: "Low (7%)"
-            case .medium: "Medium (15%)"
-            case .quartile: "Quartile (25%)"
-            case .high: "High (30%)"
+            case .low: "Simplest pattern"
+            case .medium: "Standard"
+            case .quartile: "Sturdy"
+            case .high: "Sturdiest (room for a logo)"
             }
         }
     }
