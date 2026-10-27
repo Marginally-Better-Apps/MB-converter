@@ -5,6 +5,7 @@
 
 #include "MBFFmpegBridge.h"
 #include <errno.h>
+#include <pthread.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <math.h>
@@ -60,6 +61,9 @@ typedef struct MBFOptions {
     int64_t video_bitrate, audio_bitrate, seek_us, max_video_frames;
     AVRational fps;
     MBFMetadata *metadata;
+    // Encoder/muxer private options (-mb-codec-opt:v|a key=value, -mb-muxer-opt key=value).
+    // Unused keys fail the job so unsupported settings are never silently ignored.
+    AVDictionary *video_codec_options, *audio_codec_options, *muxer_user_options;
     int video_pipeline, acceleration; // 0=off, 1=auto, 2=required
 #ifdef MBF_TESTING
     const char *test_failure;
@@ -151,6 +155,30 @@ static int mbf_bitrate(const char *value, int64_t *result) {
     return 0;
 }
 
+/// Splits "key=value" into a dictionary entry.
+static int mbf_key_value(const char *pair, AVDictionary **target) {
+    const char *equals = pair ? strchr(pair, '=') : NULL;
+    if (!equals || equals == pair || !equals[1]) return AVERROR(EINVAL);
+    char key[128];
+    size_t length = (size_t)(equals - pair);
+    if (length >= sizeof(key)) return AVERROR(EINVAL);
+    memcpy(key, pair, length);
+    key[length] = 0;
+    return av_dict_set(target, key, equals + 1, 0);
+}
+
+/// Fails when a caller-provided option wasn't consumed by the encoder or muxer.
+static int mbf_check_consumed(MBFJob *job, AVDictionary *requested, AVDictionary *remaining, const char *what) {
+    const AVDictionaryEntry *entry = NULL;
+    while ((entry = av_dict_iterate(requested, entry))) {
+        if (av_dict_get(remaining, entry->key, NULL, 0)) {
+            mbf_log(job, "Unsupported %s option: %s", what, entry->key);
+            return AVERROR_OPTION_NOT_FOUND;
+        }
+    }
+    return 0;
+}
+
 static int mbf_parse(MBFJob *job, int argc, const char *const *argv) {
     MBFOptions *options = &job->options;
     options->max_video_frames = INT64_MAX;
@@ -186,6 +214,9 @@ static int mbf_parse(MBFJob *job, int argc, const char *const *argv) {
         else if (!strcmp(argument, "-mb-test-failure")) options->test_failure = value;
 #endif
         else if (!strcmp(argument, "-c:a")) options->audio_codec = value;
+        else if (!strcmp(argument, "-mb-codec-opt:v")) error = mbf_key_value(value, &options->video_codec_options);
+        else if (!strcmp(argument, "-mb-codec-opt:a")) error = mbf_key_value(value, &options->audio_codec_options);
+        else if (!strcmp(argument, "-mb-muxer-opt")) error = mbf_key_value(value, &options->muxer_user_options);
         else if (!strcmp(argument, "-c")) options->video_codec = options->audio_codec = value;
         else if (!strcmp(argument, "-vf")) options->filter = value;
         else if (!strcmp(argument, "-af")) options->audio_filter = value;
@@ -475,6 +506,14 @@ static int mbf_pass_options(MBFJob *job, MBFStream *stream) {
     if (!job->options.pass || stream->decoder->codec_type != AVMEDIA_TYPE_VIDEO) return 0;
     char *filename = av_asprintf("%s-0.log", job->options.pass_log);
     if (!filename) return AVERROR(ENOMEM);
+    // x264 reads and writes its own statistics file (and .mbtree) instead of
+    // stats_out/stats_in, so hand it the path and leave the file to it.
+    if (!strcmp(stream->encoder->codec->name, "libx264")) {
+        stream->encoder->flags |= job->options.pass == 1 ? AV_CODEC_FLAG_PASS1 : AV_CODEC_FLAG_PASS2;
+        int error = av_opt_set(stream->encoder->priv_data, "stats", filename, 0);
+        av_free(filename);
+        return error;
+    }
     if (job->options.pass == 1) {
         stream->encoder->flags |= AV_CODEC_FLAG_PASS1;
         stream->pass_file = fopen(filename, "wb");
@@ -581,6 +620,13 @@ static int mbf_initialize_stream(MBFJob *job, int index, const char *codec_name)
             stream->encoder->width = av_buffersink_get_w(stream->sink);
             stream->encoder->height = av_buffersink_get_h(stream->sink);
             stream->encoder->pix_fmt = av_buffersink_get_format(stream->sink);
+            const AVPixFmtDescriptor *output_desc = av_pix_fmt_desc_get(stream->encoder->pix_fmt);
+            if (output_desc && !(output_desc->flags & AV_PIX_FMT_FLAG_RGB) && stream->encoder->colorspace == AVCOL_SPC_RGB) {
+                // RGB sources (PNG, screenshots) converted to YUV must not keep the identity matrix tag.
+                enum AVColorSpace converted = av_buffersink_get_colorspace(stream->sink);
+                stream->encoder->colorspace = converted == AVCOL_SPC_RGB ? AVCOL_SPC_UNSPECIFIED : converted;
+                stream->encoder->color_range = av_buffersink_get_color_range(stream->sink);
+            }
             stream->encoder->sample_aspect_ratio = av_buffersink_get_sample_aspect_ratio(stream->sink);
             if (stream->hardware_filter) {
                 stream->encoder->hw_frames_ctx = av_buffer_ref(av_buffersink_get_hw_frames_ctx(stream->sink));
@@ -612,7 +658,10 @@ static int mbf_initialize_stream(MBFJob *job, int index, const char *codec_name)
             av_dict_set(&codec_options, "cpu-used", "4", 0);
             av_dict_set(&codec_options, "row-mt", "1", 0);
         }
+        AVDictionary *requested = type == AVMEDIA_TYPE_VIDEO ? job->options.video_codec_options : job->options.audio_codec_options;
+        av_dict_copy(&codec_options, requested, 0);
         error = avcodec_open2(stream->encoder, encoder, &codec_options);
+        if (error >= 0) error = mbf_check_consumed(job, requested, codec_options, "encoder");
         av_dict_free(&codec_options);
         if (error < 0) {
             if (stream->pipeline && encoder->id == AV_CODEC_ID_HEVC && pixel_format == AV_PIX_FMT_P010LE)
@@ -729,6 +778,7 @@ static int mbf_open(MBFJob *job) {
     }
     AVDictionary *muxer_options = NULL;
     if (options->movflags) av_dict_set(&muxer_options, "movflags", options->movflags, 0);
+    av_dict_copy(&muxer_options, options->muxer_user_options, 0);
     if (!strcmp(job->output->oformat->name, "image2")) av_dict_set(&muxer_options, "update", "1", 0);
     error = avformat_write_header(job->output, &muxer_options);
     if (error >= 0 && av_dict_count(muxer_options)) error = AVERROR_OPTION_NOT_FOUND;
@@ -998,11 +1048,31 @@ static void mbf_cleanup(MBFJob *job) {
         av_free(item);
         item = next;
     }
+    av_dict_free(&job->options.video_codec_options);
+    av_dict_free(&job->options.audio_codec_options);
+    av_dict_free(&job->options.muxer_user_options);
 }
+
+/* Library errors (encoder init, muxer rejects…) are forwarded to the job running on this thread. */
+static _Thread_local MBFJob *mbf_current_job;
+static pthread_once_t mbf_log_once = PTHREAD_ONCE_INIT;
+
+static void mbf_av_log(void *avcl, int level, const char *format, va_list args) {
+    if (level > AV_LOG_ERROR || !mbf_current_job || !mbf_current_job->log) return;
+    char message[1024];
+    int print_prefix = 1;
+    av_log_format_line(avcl, level, format, args, message, sizeof(message), &print_prefix);
+    size_t length = strlen(message);
+    while (length && (message[length - 1] == '\n' || message[length - 1] == '\r')) message[--length] = 0;
+    if (length) mbf_current_job->log(mbf_current_job->context, message);
+}
+
+static void mbf_install_log(void) { av_log_set_callback(mbf_av_log); }
 
 int mbf_execute(int argc, const char *const *argv, mbf_log_callback log,
                 mbf_progress_callback progress, mbf_cancel_callback cancel, void *context) {
     if (argc <= 0 || !argv || !argv[0]) return AVERROR(EINVAL);
+    pthread_once(&mbf_log_once, mbf_install_log);
     int64_t floor_time = 0, floor_frames = 0;
     int64_t started = av_gettime_relative();
     for (int attempt = 0; attempt < 2; ++attempt) {
@@ -1013,6 +1083,7 @@ int mbf_execute(int argc, const char *const *argv, mbf_log_callback log,
         job.context = context;
         job.progress_floor_time = floor_time;
         job.progress_floor_frames = floor_frames;
+        mbf_current_job = &job;
         int error = mbf_parse(&job, argc, argv);
         if (attempt) job.options.acceleration = 0;
         if (error >= 0 && mbf_interrupted(&job)) error = AVERROR_EXIT;
@@ -1031,6 +1102,7 @@ int mbf_execute(int argc, const char *const *argv, mbf_log_callback log,
             mbf_log(&job, "Conversion elapsed=%.3fs attempts=%d", (av_gettime_relative() - started) / 1000000.0, attempt + 1);
         }
         mbf_cleanup(&job);
+        mbf_current_job = NULL;
         if (remove_partial && output) remove(output);
         if (!retry) return error;
     }

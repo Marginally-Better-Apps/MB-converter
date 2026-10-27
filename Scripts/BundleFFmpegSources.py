@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Create corresponding source/rebuild materials for the current working tree.
 
-Run after building the matching XCFramework and before publishing a release.
+Covers the copyleft runtimes: FFmpeg and x264 (GPL) and Ghostscript (AGPL).
+Run after building the matching XCFrameworks and before publishing a release.
 This writes a local archive only; it never uploads or uses signing credentials.
 """
 import hashlib
@@ -10,10 +11,13 @@ from pathlib import Path
 import subprocess
 import tarfile
 from BuildFFmpeg import tree_digest
+from BuildGhostscript import patches_digest as ghostscript_patches
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "build/ffmpeg"
 SOURCES = json.loads((ROOT / "Native/FFmpeg/sources.json").read_text())
+GHOSTSCRIPT = json.loads((ROOT / "Native/Ghostscript/sources.json").read_text())
+GHOSTSCRIPT_CACHE = ROOT / "build/ghostscript"
 
 
 def sha256(path):
@@ -33,7 +37,30 @@ def main():
                 or manifest.get("patches_sha256") != tree_digest(ROOT / "Native/FFmpeg/patches")
                 or manifest["bridge_sha256"] != tree_digest(ROOT / "Native/MBFFmpegBridge")):
             raise SystemExit("Framework source/build recipe changed. Rebuild before bundling source.")
+    ghostscript = sorted((ROOT / "Native/Ghostscript/Artifacts/MBGhostscriptBridge.xcframework").glob("*/MBGhostscriptBridge.framework/BuildManifest.json"))
+    if not ghostscript:
+        raise SystemExit("Build the Ghostscript XCFramework before bundling matching source.")
+    bridge = ROOT / "Native/MBGhostscriptBridge"
+    bridge_hash = hashlib.sha256(b"".join(sha256(path).encode() for path in sorted(bridge.rglob("*.[ch]")))).hexdigest()
+    for path in ghostscript:
+        manifest = json.loads(path.read_text())
+        if (manifest["sources"] != GHOSTSCRIPT
+                or manifest["recipe_sha256"] != sha256(ROOT / "Scripts/BuildGhostscript.py")
+                or manifest["bridge_sha256"] != bridge_hash
+                or manifest.get("patches_sha256") != ghostscript_patches()):
+            raise SystemExit("Ghostscript source/build recipe changed. Rebuild before bundling source.")
     entries = {}
+    for name, spec in GHOSTSCRIPT.items():
+        source = GHOSTSCRIPT_CACHE / "downloads" / spec["archive"]
+        if not source.exists() or sha256(source) != spec["sha256"]:
+            raise SystemExit(f"Missing or changed source archive: {name}")
+        entries["dependencies/" + source.name] = source
+    for manifest in ghostscript:
+        entries["build-manifests/ghostscript-" + manifest.parent.parent.name + ".json"] = manifest
+    for platform in ("ios", "ios-simulator"):
+        log = GHOSTSCRIPT_CACHE / f"{platform}-arm64/configure.log"
+        if log.exists():
+            entries[f"build-configuration/ghostscript-{platform}/configure.log"] = log
     for name, spec in SOURCES.items():
         source = CACHE / "downloads" / spec["archive"]
         if not source.exists() or sha256(source) != spec["sha256"]:

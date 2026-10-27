@@ -8,6 +8,7 @@ struct HomeView: View {
     @Binding var path: [AppRoute]
     /// Opens the History tab from the Recent shelf.
     var onShowHistory: (() -> Void)? = nil
+    var onShowTools: (() -> Void)? = nil
     /// Preview-only state injection. Production call sites use the default `nil` value.
     var previewImportProgress: RemoteDownloadProgress? = nil
 
@@ -17,6 +18,7 @@ struct HomeView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var viewModel = HomeViewModel()
     @State private var historyStore = ConversionHistoryStore.shared
+    @State private var incoming = IncomingFiles.shared
     @State private var selectedImageItem: PhotosPickerItem?
     @State private var selectedVideoItem: PhotosPickerItem?
     @State private var isFileImporterPresented = false
@@ -39,6 +41,8 @@ struct HomeView: View {
                 }
 
                 moreSources
+
+                toolsShelf
 
                 if !recentEntries.isEmpty {
                     recentConversions
@@ -67,11 +71,13 @@ struct HomeView: View {
         .settingsToolbarButton()
         .fileImporter(
             isPresented: $isFileImporterPresented,
-            allowedContentTypes: Self.allowedContentTypes,
+            allowedContentTypes: FileIntake.allContentTypes,
             allowsMultipleSelection: false
         ) { result in
             handleFileImporter(result)
         }
+        .onChange(of: incoming.pending, initial: true) { _, _ in openIncomingFile() }
+        .onChange(of: path.isEmpty) { _, _ in openIncomingFile() }
         .onChange(of: selectedImageItem) { _, item in
             guard let item else { return }
             Task {
@@ -138,7 +144,7 @@ struct HomeView: View {
                 Task { await importFromRemoteLink(text) }
             }
         } message: {
-            Text("The file must be a supported format and 150 MB or smaller. Use a direct link to the file when possible.")
+            Text("Media, PDFs, documents and spreadsheets up to 150 MB. Use a direct link to the file when possible.")
         }
     }
 
@@ -208,13 +214,13 @@ struct HomeView: View {
                 } label: {
                     SourceRow(
                         title: "From Link",
-                        subtitle: "Download a media file",
+                        subtitle: "Download a file from the web",
                         systemImage: "link"
                     )
                 }
                 .disabled(isImporting)
                 .accessibilityLabel("Import file from web link")
-                .accessibilityHint("Downloads a supported media file up to 150 megabytes.")
+                .accessibilityHint("Downloads a supported file up to 150 megabytes.")
 
                 rowDivider
 
@@ -240,6 +246,49 @@ struct HomeView: View {
         }
     }
 
+    // MARK: - Tools
+
+    /// Popular tools and categories — PDFs, documents, data and more.
+    private var toolsShelf: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(title: "Tools", actionTitle: onShowTools == nil ? nil : "See All", action: onShowTools)
+
+            LazyVGrid(columns: toolColumns, spacing: 12) {
+                ForEach(ToolCatalog.featured.prefix(horizontalSizeClass == .regular ? 9 : 6)) { tool in
+                    NavigationLink(value: AppRoute.tool(tool.id, inputs: [])) {
+                        ToolTile(tool: tool)
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .disabled(isImporting)
+                }
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(ToolCategory.allCases.enumerated()), id: \.element) { index, category in
+                    NavigationLink(value: AppRoute.category(category)) {
+                        CategoryRowLabel(category: category)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 11)
+                    }
+                    .disabled(isImporting)
+                    if index < ToolCategory.allCases.count - 1 {
+                        rowDivider
+                    }
+                }
+            }
+            .buttonStyle(RowButtonStyle())
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+            .padding(.top, 4)
+        }
+    }
+
+    private var toolColumns: [GridItem] {
+        if dynamicTypeSize.isAccessibilitySize { return [GridItem(.flexible())] }
+        let count = horizontalSizeClass == .regular ? 3 : 2
+        return Array(repeating: GridItem(.flexible(), spacing: 12), count: count)
+    }
+
     private var rowDivider: some View {
         Divider()
             .padding(.leading, dynamicTypeSize.isAccessibilitySize ? 16 : 62)
@@ -248,8 +297,8 @@ struct HomeView: View {
 
     // MARK: - Recent
 
-    private var recentEntries: [ConversionHistoryEntry] {
-        Array(historyStore.entries.prefix(12))
+    private var recentEntries: [HistoryItem] {
+        Array(historyStore.items.prefix(12))
     }
 
     /// The newest conversions, like Recently Played in Apple Music.
@@ -266,10 +315,16 @@ struct HomeView: View {
                     ForEach(recentEntries) { entry in
                         Button {
                             Haptics.impact(.light)
-                            path.append(.result(entry.input, entry.config, entry.result, fromHistory: true))
+                            switch entry {
+                            case .conversion(let conversion):
+                                path.append(.result(conversion.input, conversion.config, conversion.result, fromHistory: true))
+                            case .tool(let run):
+                                path.append(.toolResult(run.run))
+                            }
                         } label: {
                             RecentConversionCard(entry: entry)
                         }
+                        .accessibilityIdentifier("recent.card")
                         .buttonStyle(PressableButtonStyle())
                         .disabled(isImporting)
                         .accessibilityHint("Opens the converted file")
@@ -372,7 +427,7 @@ struct HomeView: View {
 
     private var pasteboardSubtitle: String {
         guard let label = viewModel.pasteboardImportLabel else {
-            return "No supported media copied"
+            return "Copy a photo, video or PDF first"
         }
 
         let format = viewModel.pasteboardImportFileExtension ?? label
@@ -464,34 +519,43 @@ struct HomeView: View {
     }
 
     private func importFile(_ url: URL) async {
-        if let media = await viewModel.importFromFiles(url) {
-            path.append(.inputDetail(media))
+        switch viewModel.importDocumentIfNeeded(url) {
+        case .some(let file):
+            if let file { path.append(.fileHub(file)) }
+        case .none:
+            if let media = await viewModel.importFromFiles(url) {
+                path.append(.inputDetail(media))
+            }
+        }
+    }
+
+    /// Opens a file handed over by another app, once Home is the visible screen.
+    private func openIncomingFile() {
+        guard path.isEmpty, let url = incoming.pending else { return }
+        incoming.pending = nil
+        Task {
+            await importFile(url)
+            // iOS copies opened files into Documents/Inbox; ours is imported now, so drop that copy.
+            if url.path.contains("/Documents/Inbox/") { try? FileManager.default.removeItem(at: url) }
         }
     }
 
     private func importPasteboard() async {
+        if viewModel.pasteboardDocumentFormat != nil {
+            if let file = viewModel.importDocumentFromPasteboard() { path.append(.fileHub(file)) }
+            return
+        }
         if let media = await viewModel.importFromPasteboard() {
             path.append(.inputDetail(media))
         }
     }
 
     private func importFromRemoteLink(_ raw: String) async {
-        if let media = await viewModel.importFromRemoteLink(raw) {
-            path.append(.inputDetail(media))
+        switch await viewModel.importAnyFromRemoteLink(raw) {
+        case .media(let media): path.append(.inputDetail(media))
+        case .document(let file): path.append(.fileHub(file))
+        case nil: break
         }
-    }
-
-    private static var allowedContentTypes: [UTType] {
-        [
-            .image,
-            .movie,
-            .audio,
-            UTType(filenameExtension: "webm") ?? .data,
-            UTType(filenameExtension: "mkv") ?? .data,
-            UTType(filenameExtension: "flac") ?? .data,
-            UTType(filenameExtension: "opus") ?? .data,
-            UTType(filenameExtension: "ogg") ?? .data
-        ]
     }
 }
 
@@ -647,30 +711,22 @@ private struct SourceRow: View {
 
 /// A square thumbnail with a caption, like an album in a shelf.
 private struct RecentConversionCard: View {
-    let entry: ConversionHistoryEntry
+    let entry: HistoryItem
     @ScaledMetric(relativeTo: .body) private var side: CGFloat = 132
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            MediaPreview(
-                url: entry.result.url,
-                category: entry.result.outputFormat.category,
-                compact: true,
-                showsChrome: false,
-                isInteractive: false
-            )
-            .frame(width: side, height: side)
-            .background(Theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .accessibilityHidden(true)
+            HistoryThumbnail(item: entry, cornerRadius: 16)
+                .frame(width: side, height: side)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.input.originalFilename)
+                Text(entry.displayName)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.text)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("\(entry.result.outputFormat.displayName) · \(MetadataFormatter.bytes(entry.result.sizeOnDisk))")
+                Text(entry.detail)
                     .font(.caption)
                     .foregroundStyle(Theme.textMuted)
                     .lineLimit(1)

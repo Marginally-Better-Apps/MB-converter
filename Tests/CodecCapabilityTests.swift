@@ -60,12 +60,19 @@ struct CodecCapabilityTests {
         FFmpegRuntimeInfo.decoders = ["av1"]
         check(!CodecCapability.canDecode(videoCodec: "av01"), "Hardware-only AV1 registration does not enable the software pipeline")
 
-        for format in OutputFormat.allCases {
-            let defaultConfig = ConversionConfig(outputFormat: format)
-            let fastConfig = ConversionConfig(outputFormat: format, usesSinglePassVideoTargetEncode: true)
-            check(defaultConfig.usesTwoPassVideoEncoding == (format == .webm), "Only VP9 uses a statistics pass, even with legacy configuration defaults")
-            check(!fastConfig.usesTwoPassVideoEncoding, "Single-pass requests never run two-pass encoding")
+        for withX264 in [false, true] {
+            if withX264 { FFmpegRuntimeInfo.encoders.insert("libx264") } else { FFmpegRuntimeInfo.encoders.remove("libx264") }
+            for format in OutputFormat.allCases {
+                let defaultConfig = ConversionConfig(outputFormat: format)
+                let fastConfig = ConversionConfig(outputFormat: format, usesSinglePassVideoTargetEncode: true)
+                // VP9 has a statistics pass; H.264 gets one from x264 when the GPL runtime includes it.
+                let expected = format == .webm || (withX264 && [.mp4_h264, .mov].contains(format))
+                check(defaultConfig.usesTwoPassVideoEncoding == expected, "\(format) two-pass support with x264=\(withX264)")
+                check(!fastConfig.usesTwoPassVideoEncoding, "Single-pass requests never run two-pass encoding")
+            }
         }
+        check(OutputFormat.mp4_h264.twoPassVideoEncoder?.name == "libx264", "Two-pass H.264 runs on x264")
+        check(OutputFormat.mp4_hevc.twoPassVideoEncoder == nil, "HEVC stays on VideoToolbox")
         print("Format capability tests passed")
     }
 

@@ -17,18 +17,19 @@ private struct ImportedPhotoLibraryFile: Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(importedContentType: .image) { received in
-            try copy(received.file, fallbackExtension: "heic")
+            try copy(received.file, fallbackExtension: "heic", kind: "Photo")
         }
         FileRepresentation(importedContentType: .movie) { received in
-            try copy(received.file, fallbackExtension: "mov")
+            try copy(received.file, fallbackExtension: "mov", kind: "Video")
         }
     }
 
-    private static func copy(_ sourceURL: URL, fallbackExtension: String) throws -> Self {
+    private static func copy(_ sourceURL: URL, fallbackExtension: String, kind: String) throws -> Self {
         let sourceExtension = sourceURL.pathExtension
         let outputURL = try ImportStorage.copyFile(
             at: sourceURL,
-            fallbackExtension: fallbackExtension
+            fallbackExtension: fallbackExtension,
+            kind: kind
         )
         return Self(url: outputURL, usedFallbackExtension: sourceExtension.isEmpty)
     }
@@ -484,8 +485,9 @@ struct ImportService {
         }
         if let binary = Self.preferredPasteboardBinaryMediaRepresentation(in: pasteboard) {
             let outputURL = ImportStorage.url(
-                originalName: "clipboard.\(binary.fileExtension)",
-                fallbackExtension: binary.fileExtension
+                originalName: nil,
+                fallbackExtension: binary.fileExtension,
+                kind: "Pasted"
             )
             try write(binary.data, to: outputURL)
             return outputURL
@@ -496,8 +498,9 @@ struct ImportService {
         }
 
         let outputURL = ImportStorage.url(
-            originalName: "clipboard.\(representation.fileExtension)",
-            fallbackExtension: representation.fileExtension
+            originalName: nil,
+            fallbackExtension: representation.fileExtension,
+            kind: "Pasted"
         )
         try write(representation.data, to: outputURL)
         return outputURL
@@ -786,8 +789,9 @@ struct ImportService {
     }
 
     private func replaceFilenameExtension(of url: URL, with fileExtension: String) throws -> URL {
+        // Keep the (already friendly) name; only the extension changes.
         let outputURL = ImportStorage.url(
-            originalName: nil,
+            originalName: url.deletingPathExtension().lastPathComponent + "." + fileExtension,
             fallbackExtension: fileExtension
         )
         do {

@@ -23,7 +23,7 @@ enum FormatMatrix {
         case .video:
             [
                 // Same-category
-                .mp4_h264, .mp4_hevc, .mov, .webm,
+                .mp4_h264, .mp4_hevc, .mov, .webm, .mp4_av1, .ogv,
                 // Audio extraction
                 .m4a, .mp3, .wav, .aac, .flac, .ogg, .opus
             ]

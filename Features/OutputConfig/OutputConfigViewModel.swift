@@ -536,8 +536,46 @@ final class OutputConfigViewModel {
         return makeConfig()
     }
 
+    // MARK: - Unsaved changes
+
+    /// Output choices when the screen opened. Metadata is compared separately because
+    /// discovery fills it in after the screen appears.
+    @ObservationIgnored private var initialChoices: ConversionConfig?
+    @ObservationIgnored private var initialRemoveAllMetadata = false
+
+    /// Treats the current choices as the screen's defaults. Call once they are applied.
+    func markChoicesAsDefaults() {
+        initialChoices = choicesIgnoringMetadata
+        initialRemoveAllMetadata = removeAllMetadata
+    }
+
+    /// Something the user set or edited would be lost by leaving; only then is it worth asking.
+    var hasUserChanges: Bool {
+        if sourceWasTrimmed || livePhotoKeyPhotoTime != nil || removeAllMetadata != initialRemoveAllMetadata {
+            return true
+        }
+        if metadataFieldRows != discoveredMetadataTags.map({ MetadataFieldRowModel(tag: $0) }) { return true }
+        guard let initialChoices else { return false }
+        return choicesIgnoringMetadata != initialChoices
+    }
+
+    private var choicesIgnoringMetadata: ConversionConfig {
+        var config = makeConfig()
+        config.metadata = .default
+        return config
+    }
+
     var canConvert: Bool {
         !isTrimmingVideo && !isLoadingDiscoveredMetadata && !wouldProduceUnchangedOutput
+    }
+
+    /// Why Convert is off, said on the button so a greyed-out button is never a mystery.
+    var convertBlockedReason: String? {
+        if isTrimmingVideo { return "Trimming…" }
+        if isLoadingDiscoveredMetadata { return "Reading the file…" }
+        guard wouldProduceUnchangedOutput else { return nil }
+        return selectedFormat.supportsTargetSize && targetMinimumSizeBytes < input.sizeOnDisk
+            ? "Pick a format or a smaller size" : "Pick a different format"
     }
 
     /// Compare the effective output with the source, so reverting edits also
@@ -661,7 +699,7 @@ final class OutputConfigViewModel {
 
     var fpsOptions: [FPSOption] {
         guard let sourceFPS = input.fps, shouldShowFPS else { return [] }
-        var options = [FPSOption(id: "original", label: "\(fpsDisplayText(sourceFPS)) (Source)", value: nil)]
+        var options = [FPSOption(id: "original", label: "\(fpsDisplayText(sourceFPS)) (original)", value: nil)]
         for fps in [60.0, 30.0, 24.0, 15.0] where fps <= sourceFPS.rounded(.up) {
             if abs(fps - sourceFPS) < 0.01 {
                 continue
@@ -690,9 +728,9 @@ final class OutputConfigViewModel {
 
     var videoAudioSourceLabel: String {
         if let sourceKbps = input.audioBitrate.map({ max(1, $0 / 1000) }) {
-            return "\(sourceKbps) kbps (Source)"
+            return "\(sourceKbps) kbps (original)"
         }
-        return "(Source)"
+        return "Original"
     }
 
     var shouldShowResolution: Bool {
@@ -767,7 +805,7 @@ final class OutputConfigViewModel {
     }
 
     var targetControlTitle: String {
-        usesVideoQualityFallback ? "Quality" : "Target Size"
+        usesVideoQualityFallback ? "Quality" : "File Size"
     }
 
     var targetControlValueLabel: String? {
@@ -780,7 +818,7 @@ final class OutputConfigViewModel {
     }
 
     var targetControlAccessibilityLabel: String {
-        usesVideoQualityFallback ? "Encode quality" : "Target size"
+        usesVideoQualityFallback ? "Quality" : "File size"
     }
 
     /// 100% on the target-size slider enables best-effort remux for compatible audio codecs.
@@ -794,9 +832,9 @@ final class OutputConfigViewModel {
 
     var losslessNote: String? {
         if selectedFormat == .webpImage {
-            return "WebP uses quality mode (single pass). Output size is not guaranteed."
+            return "WebP saves by quality, so the final size can vary."
         }
-        return selectedFormat.supportsTargetSize ? nil : "\(selectedFormat.fileExtension.uppercased()) is lossless. Output size depends on dimensions."
+        return selectedFormat.supportsTargetSize ? nil : "\(selectedFormat.fileExtension.uppercased()) keeps every pixel, so its size depends on the dimensions."
     }
 
     var targetSizeBytes: Int64 {
@@ -850,20 +888,20 @@ final class OutputConfigViewModel {
 
     var estimatedLabel: String {
         guard selectedFormat.supportsTargetSize else {
-            return "Output size depends on the selected dimensions."
+            return "The size depends on the dimensions you pick."
         }
 
         switch selectedFormat.category {
         case .video, .animatedImage:
             if prefersRemuxWhenPossible {
                 return canRemuxCurrentVideoSelection
-                    ? "Max target: remux compatible streams without re-encoding."
-                    : "Max target: remux if compatible; otherwise re-encode."
+                    ? "Full quality: the video is copied as-is, which is fast and loses nothing."
+                    : "Full quality: the video is copied as-is when possible."
             }
 
             if usesVideoQualityFallback {
                 let bitrate = qualityFallbackVideoBitrateKbps()
-                return "Quality mode: higher values use more bitrate. Video \(MetadataFormatter.bitrateText(bitrate * 1000)); final size depends on stream length."
+                return "Higher quality makes a bigger file. Video \(MetadataFormatter.bitrateText(bitrate * 1000))."
             }
 
             if isAutoTargetMode {
@@ -873,8 +911,8 @@ final class OutputConfigViewModel {
                 let audioLine = includesVideoOutputAudio
                     ? " · audio \(plan.audioBitrateKbps) kbps"
                     : ""
-                let reachability = plan.isTargetReachable ? "" : " · best effort"
-                return "Auto: \(resolution), \(fps), video \(MetadataFormatter.bitrateText(plan.videoBitrateKbps * 1000))\(audioLine)\(reachability)\(singlePassVideoTargetSuffix)"
+                let reachability = plan.isTargetReachable ? "" : " · as close as possible"
+                return "Saves as \(resolution), \(fps), video \(MetadataFormatter.bitrateText(plan.videoBitrateKbps * 1000))\(audioLine)\(reachability)\(singlePassVideoTargetSuffix)"
             }
 
             let duration = videoOutputDuration ?? 1
@@ -890,15 +928,15 @@ final class OutputConfigViewModel {
             let audioLine = (selectedFormat.category == .video && input.audioCodec != nil)
                 ? " · audio \(effectiveAudioKbpsString(for: targetSizeBytes))"
                 : ""
-            return "Estimated video bitrate: \(MetadataFormatter.bitrateText(video * 1000))\(audioLine)\(singlePassVideoTargetSuffix)"
+            return "Video \(MetadataFormatter.bitrateText(video * 1000))\(audioLine)\(singlePassVideoTargetSuffix)"
         case .audio:
             if isAudioTargetSizeAtMax, canRemuxCurrentAudioOutput {
-                return "Stream copy (remux) at 100% target when codec/container are compatible"
+                return "Full quality: the sound is copied as-is."
             }
             let planningBytes: Int64 = selectedFormat.supportsTargetSize ? targetSizeBytes : max(1, input.sizeOnDisk)
             return audioLossySummaryLabel(targetBytes: planningBytes)
         case .image:
-            return "Image quality will be tuned for the target size."
+            return "The quality is tuned to land on this size."
         }
     }
 
@@ -1214,7 +1252,7 @@ final class OutputConfigViewModel {
     }
 
     private var singlePassVideoTargetSuffix: String {
-        usesTwoPassVideoEncoding ? " · two passes" : " · single pass, size may vary"
+        usesTwoPassVideoEncoding ? "" : " · faster, size may vary"
     }
 
     private func videoAudioBitrateKbps(for targetBytes: Int64) -> Int {

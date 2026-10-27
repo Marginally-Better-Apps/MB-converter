@@ -48,7 +48,7 @@ struct InputMetadataEditor: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(isRootSectionActive ? "Metadata" : "")
+        .navigationTitle(isRootSectionActive ? "File Info" : "")
         .navigationBarTitleDisplayMode(.inline)
         .modifier(ConversionEditorNavigation(
             isActive: selectedGroup == nil,

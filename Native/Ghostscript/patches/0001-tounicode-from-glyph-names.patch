@@ -1,0 +1,40 @@
+--- a/devices/vector/gdevpdte.c
++++ b/devices/vector/gdevpdte.c
+@@ -38,7 +38,10 @@
+ #include "gdevpdtf.h"
+ #include "gdevpdts.h"
+ #include "gdevpdtt.h"
++#include "gsagl.h"              /* MB Converter: Adobe Glyph List for ToUnicode */
+ 
++extern single_glyph_list_t SingleGlyphList[];
++
+ #include "gximage.h"
+ #include "gxcpath.h"
+ 
+@@ -359,6 +362,26 @@
+                         return code;
+                 }
+             }
++            /* MB Converter: a simple font with no ToUnicode (common in PDFs made by Apple's
++             * frameworks) still names its glyphs through its Encoding. Map standard names via
++             * the Adobe Glyph List, as viewers do, so text stays extractable when the font is
++             * re-encoded (PDF/A converts such TrueType fonts to CIDFonts). */
++            if ((length == 0 || length == GS_NO_CHAR) && unicode == NULL && gnstr != NULL && gnstr->size > 0) {
++                const single_glyph_list_t *sgl = SingleGlyphList;
++                int i;
++
++                for (i = 0; sgl[i].Glyph != NULL; i++) {
++                    if (strlen(sgl[i].Glyph) == gnstr->size && !memcmp(sgl[i].Glyph, gnstr->data, gnstr->size)) {
++                        unicode = (ushort *)gs_alloc_bytes(pdev->memory, sizeof(ushort), "temporary Unicode array");
++                        if (unicode == NULL)
++                            return_error(gs_error_VMerror);
++                        ((char *)unicode)[0] = (char)(sgl[i].Unicode >> 8);
++                        ((char *)unicode)[1] = (char)(sgl[i].Unicode & 0xff);
++                        length = 2;
++                        break;
++                    }
++                }
++            }
+         }
+     }
+ 

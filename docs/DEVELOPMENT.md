@@ -40,6 +40,8 @@ Build the pinned custom engine first. See [runtime build details](../Native/FFmp
 python3 -m venv build/ffmpeg/tools
 build/ffmpeg/tools/bin/python -m pip install meson==1.7.2 ninja==1.11.1.3
 python3 Scripts/BuildFFmpeg.py --platform ios --platform ios-simulator
+python3 Scripts/BuildImageMagick.py --platform ios --platform ios-simulator
+python3 Scripts/BuildGhostscript.py --platform ios --platform ios-simulator
 python3 Scripts/VerifyFFmpeg.py
 ```
 
@@ -72,7 +74,7 @@ This checks compilation and app packaging. It does not validate signing, exercis
 
 | Dependency | Pinned version | Role |
 | --- | --- | --- |
-| [MBFFmpeg](../Native/FFmpeg/README.md) | FFmpeg 9.0.1 and codec source hashes in `Native/FFmpeg/sources.json` | Custom LGPL2.1 media conversion and probing; original MIT adapter |
+| [MBFFmpeg](../Native/FFmpeg/README.md) | FFmpeg 9.0.1 and codec source hashes in `Native/FFmpeg/sources.json` | Custom GPL-2.0-or-later (x264) media conversion and probing; original MIT adapter |
 | [MBWebP](../Native/WebP/README.md) | libwebp 1.6.0, vendored hashes in `Native/WebP/provenance.json` | Optimized, threaded still WebP encoding |
 
 Both Swift packages are local. Keep the FFmpeg source manifest and WebP provenance manifest in Git; review dependency upgrades and commit source pins, vendored sources, and notices together.
@@ -114,6 +116,65 @@ recognized file extension list or enable native video trimming for unsupported i
 | `Converter.xcodeproj/` | Project, shared scheme, dependency lockfile |
 | `docs/` | Build/release guides, listing copy, original screenshots |
 
+## Tools layer
+
+The **Tools** tab and the document file hub are driven by a declarative catalog:
+
+```
+Core/
+├── Files/FileFormat.swift      Formats the tools understand + conversion targets
+├── Documents/                  Hub-and-spoke document engine (like Pandoc)
+│   ├── Model/                  RichDocument + export options (page, margins, typography)
+│   ├── Readers/                DOCX, ODT, RTF, TXT, Markdown, HTML, EPUB, PPTX, PDF → RichDocument
+│   ├── Writers/                RichDocument → DOCX, ODT, RTF, TXT, Markdown, HTML, EPUB, PDF (WebKit)
+│   └── Support/                ZIP packages (ZIPFoundation) and a small XML DOM
+├── Spreadsheets/               XLSX, ODS, CSV/TSV, JSON and XML readers/writers
+├── PDF/                        PDFKit structure ops, stamping, compression, OCR, image conversion
+├── ImageTools/                 Core Image + Vision operations
+├── MediaTools/                 AVFoundation compositions + FFmpeg `-af` audio graphs
+└── Tools/                      ToolDefinition model, ConversionEngine, catalog
+```
+
+Each `ToolDefinition` declares accepted formats, declarative options, an optional visual editor (page organizer, PDF markup/signature, crop, media range) and an async `run`. `ToolView` renders any tool from that description, so adding a tool is usually one catalog entry.
+
+- WebKit renders Office files natively on iOS; “Keep original” PDF exports use it. “Use my settings” goes through `RichDocument`.
+- Multi-input video work (merge, soundtrack) uses AVFoundation because the FFmpeg adapter only runs single-input commands. Containers AVFoundation can't open are converted with the app's own pipeline first.
+- `-MBRoute` launch arguments (Debug builds only) open any screen directly, e.g. `-MBRoute tool:pdf.merge -MBInputs /path/a.pdf,/path/b.pdf -MBEditor 1`.
+
+Testing has four layers, all run by `xcodebuild test` and by `.github/workflows/tests.yml` on pull requests:
+
+| Layer | Where | What it proves |
+| --- | --- | --- |
+| Unit and format tests | `Tests/*Tests.swift` (Swift Testing) | Every reader/writer round-trips; PDF, image, media and spreadsheet engines behave; tricky PDFs built object-by-object (`RawPDF`: CMYK JPEG + soft mask, Decode arrays, Indexed color, forms, clipping) decode as a viewer shows them. |
+| Every tool, validated | `ToolCatalogTests.swift` + `OutputValidator.swift` | Each catalog tool runs with defaults and its output is opened and checked: PDFs render and keep the source text, images aren't blank, documents parse back, media has duration and real frames. |
+| Real-world corpus | `CorpusTests.swift` + `Tests/Fixtures/Corpus/` | Public-domain government PDFs (forms, CMYK JPEG 2000 photos, multi-column layouts) through every PDF tool and conversion. Outputs are compared perceptually against the source PDF's own render, and the exact-copy HTML is rendered in WebKit and compared to the page. |
+| End-to-end UI | `UITests/ConverterUITests.swift` (XCUITest) | Taps through the real app: imports real files through the **actual Files and Photos pickers**, runs tools, previews results (must show visible content), Finish, History and Home's Recent shelf, saved history across relaunch, photo and video conversions, and the in-app Self-Test screen. |
+| In-app Self-Test | `Core/SelfTest/` + Settings → Diagnostics → Self-Test | Every tool plus focused checks (PDF fidelity, VideoToolbox/x264/VP9/AV1/audio encoders, Vision, History) on bundled real samples, with each output validated. Runs on a phone for hardware the simulator lacks; `SelfTestSuite` runs the same catalog in CI. |
+
+**Before UI tests**, seed the simulator once (CI does this automatically):
+
+```sh
+Scripts/SeedSimulator.sh <simulator-udid>   # PDFs/Office files into Files → On My iPhone, a photo and a video into Photos
+```
+
+**Self-Test is development-only.** The `SELF_TEST` build setting (on in Debug, off in Release) compiles the screen in and bundles `App/SelfTestSamples`. Production builds — App Store archives and plain Release — contain neither. Gala preview builds are dev builds:
+
+```sh
+Scripts/BuildGalaIPA.sh [build-number] [--publish <gala-app-name>]   # Release optimizations + SELF_TEST=YES
+```
+
+UI tests hand files to the app with debug-only launch arguments (`-MBRoute`, `-MBInputs`, `-MBResetState`, `-MBSavedHistory`, `-MBNoAnimations`; see `App/DebugLaunchRouter.swift`) instead of driving the system file picker. Failures attach screenshots and the UI hierarchy to the result bundle.
+
+To check real files of your own without committing them:
+
+```sh
+TEST_RUNNER_MB_AUDIT_INPUTS=~/Desktop/files TEST_RUNNER_MB_AUDIT_OUTPUT=/tmp/audit \
+  xcodebuild test -project Converter.xcodeproj -scheme Converter \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:ConverterTests/LocalAuditTests
+```
+
+Every applicable tool runs on every file; outputs and a `report.txt` (with any validation problems) land in the output folder.
+
 ## Storage and diagnostics
 
 Imported files and conversion working files use the app's temporary directory and are cleaned at launch. Session-only history is also cleared on the next launch. Saved history copies output files into Application Support until the user deletes them or disables saved history.
@@ -123,6 +184,33 @@ Settings → Error Log displays diagnostics and supports copying or exporting a 
 `App/PrivacyInfo.xcprivacy` declares app-local preferences and file timestamp access. Revisit those declarations whenever storage, diagnostics, networking, or dependencies change.
 
 ## Validation
+
+### Visual audit of every tool
+
+Passing checks don't prove an output looks right, so the audit puts every tool's real output and
+screen in front of a person:
+
+```sh
+rm -rf /tmp/mbaudit
+# 1. Every tool on the Self-Test's real inputs: outputs, inputs and a report per tool.
+TEST_RUNNER_MB_AUDIT_DIR=/tmp/mbaudit xcodebuild test -project Converter.xcodeproj -scheme Converter \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:ConverterTests/AuditTests
+# 2. Optional: a screenshot of every tool screen, opened with those inputs (~20 min).
+TEST_RUNNER_MB_AUDIT_DIR=/tmp/mbaudit xcodebuild test … -only-testing:ConverterUITests/ToolTourUITests
+# 3. Contact sheets: sheet-<category>.png (outputs) and screens-<category>.png (screens).
+Scripts/AuditSheets.sh /tmp/mbaudit
+```
+
+`AuditThumb` previews any output (pages by their crop box, video frames, documents through
+AppKit, audio duration, archive listings); `no-preview.txt` lists anything it couldn't draw, and
+each tool's `report.txt` has the Self-Test summary and problems. `memes/` holds caption renders at
+several fonts, sizes and positions.
+
+For the app's screens rather than each tool's output, install a Debug build on a simulator and run
+`Scripts/AppTour.sh <udid> /tmp/tour [light|dark|bigtext]`. It opens Home, the Tools tab, History,
+file screens, the converter, editors and result screens through the debug launch routes and saves a
+screenshot of each; `bigtext` uses the largest accessibility text size.
+
 
 Run `python3 Scripts/TestMediaPreview.py` after building the macOS FFmpeg framework
 to exercise real unsupported-format posters/playback, stream copy, cache reuse and
@@ -219,7 +307,7 @@ The continued-processing registration smoke test runs only on a physical iOS 26+
 
 ## License
 
-The application and original adapter source are under the [MIT License](../LICENSE). FFmpeg, LAME, libwebp and other bundled libraries have their own licenses. Retain their notices and distribute the matching source/rebuild materials before release. The app's MIT license does not relicense its dependencies.
+The application and original adapter source are under the [GNU General Public License v3.0 or later](../LICENSE) (relicensed from MIT on 2026-10-24 to bundle x264). The FFmpeg runtime is GPL-2.0-or-later because it links x264, and the [Ghostscript runtime](../Native/Ghostscript/README.md) is AGPL-3.0-or-later; ImageMagick, ZIPFoundation and the other bundled libraries keep their own (compatible) licenses. Retain their notices and publish the complete corresponding source — the app, `Native/` recipes and the pinned dependency sources — with every distributed build. See [Releasing](RELEASING.md) for what GPL means for App Store distribution.
 
 
 ## Background conversion

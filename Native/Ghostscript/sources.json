@@ -1,0 +1,10 @@
+{
+  "ghostscript": {
+    "version": "10.08.0",
+    "archive": "ghostscript-10.08.0.tar.xz",
+    "url": "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10080/ghostscript-10.08.0.tar.xz",
+    "sha256": "c20492bc8ebb96c87fa2e52a0926e1cda8cde95d66145e018ac713fed5da38cf",
+    "sha512_upstream": "8006e2a32d03759a905b9548bdd83d4563173041006750e17e428b9eea24ad519aa4452ceecd7c073d3c420a68bf1b07ccc9e0533b1a05935f6b39ea8d9ce875",
+    "license": "AGPL-3.0-or-later"
+  }
+}

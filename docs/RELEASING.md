@@ -2,6 +2,12 @@
 
 [Build and run](DEVELOPMENT.md) · [App Store listing copy](app-store-metadata.md) · [Screenshots](app-store-screenshots/README.md)
 
+## License obligations (GPL)
+
+Since 2026-10-24 the app is GPL-3.0-or-later and its FFmpeg runtime is GPL-2.0-or-later (it links x264). The Ghostscript runtime (PDF compression, PDF/A, repair, EPS/PostScript) is AGPL-3.0-or-later; the app isn't a network service, so its obligations match the GPL's. Every distributed build must come with the complete corresponding source: this repository at the release commit plus the pinned sources in `Native/*/sources.json`. The release workflow already attaches a source archive and checksums to each GitHub release; keep doing that for any other channel too.
+
+**App Store:** Apple's terms of service add usage restrictions that the FSF considers incompatible with the GPL. In practice this means a copyright holder of GPL code in the app — including the x264, FFmpeg and Ghostscript authors — can ask Apple to remove it (VLC was pulled in 2011 for this reason). Sideloaded/AltStore distribution of the unsigned IPA has no such conflict. Decide per release whether App Store distribution is worth that risk; building without x264 (revert to `--disable-gpl` and drop it from `sources.json`) restores the previous LGPL runtime.
+
 ## Automatic GitHub releases with an IPA
 
 The [Release IPA workflow](../.github/workflows/release.yml) runs on every push to `main`, including merged pull requests. It can also be started from **Actions → Release IPA → Run workflow**, with `main` selected.
@@ -40,12 +46,12 @@ This release is for sideloading: users must re-sign the IPA with their own accou
 | Archive configuration | `Release` |
 | Display name | MB Converter |
 | Bundle identifier | `com.marginallybetter.converter` |
-| Marketing version | `1.1` |
-| Current build number | `3` |
+| Marketing version | `1.2` |
+| Current build number | `4` |
 | Minimum OS | iOS / iPadOS 17.0 |
 | Devices | iPhone and iPad |
 
-Use a build number that has not already been uploaded for this version. Update `CURRENT_PROJECT_VERSION` in both app configurations together. The repository is prepared as 1.1 (3); see the [changelog](../CHANGELOG.md).
+Use a build number that has not already been uploaded for this version. Update `CURRENT_PROJECT_VERSION` in both app configurations together. The repository is prepared as 1.2 (4); see the [changelog](../CHANGELOG.md).
 
 ## Repository preparation checks — September 28, 2026
 
@@ -70,6 +76,9 @@ Use the Release build on a physical iPhone and iPad, including iOS 17 where avai
 - Preview, rename, save, and share results. Confirm saved files open outside the app.
 - Check session-only history after relaunch, saved history after relaunch, and deletion/disabling saved history.
 - Review light/dark appearance, larger text, VoiceOver labels, and iPad rotation. Confirm diagnostics can be opened and exported after an error.
+- Tools (1.2): run a handful from each category on real files — merge, organize, sign, compress and repair a PDF; Word to PDF; meme, crop and remove background on a photo; trim a video and make a GIF; a QR code. Save a result to Photos and to Files, then find it in History.
+- Open a PDF and a photo from the Files app with "Open in MB Converter" (and from the share sheet) and confirm each lands on the right screen.
+- Confirm the Release build has no Self-Test entry in Settings (it is compiled only into development/Gala builds).
 
 Run the shared scheme's `ConverterTests` suite as described in [Development](DEVELOPMENT.md). Automated checks do not replace the following physical-device background checks:
 
@@ -105,12 +114,12 @@ Inspect the archive to confirm:
 
 - Version, build number, identifier, app icon, device families, and deployment target are correct.
 - `PrivacyInfo.xcprivacy` is present in `Products/Applications/Converter.app`.
-- The app embeds the single device-arm64 `MBFFmpegBridge.framework` with its build manifest and licenses, plus `WebP-NOTICE.txt`. The framework source hashes must match the release source bundle.
+- The app embeds the device-arm64 `MBFFmpegBridge.framework`, `MBImageMagickBridge.framework` and `MBGhostscriptBridge.framework`, each with its build manifest and licenses, plus `WebP-NOTICE.txt`. The framework source hashes must match the release source bundle.
 - Organizer validation and the processed App Store Connect build have no unresolved errors.
 
 ## Remaining submission work
 
-Repository preparation does not complete the App Store Connect listing. Before submitting version 1.1:
+Repository preparation does not complete the App Store Connect listing. Before submitting version 1.2:
 
 - Finalize the support URL/contact information and copyright owner marked pending in the [listing copy](app-store-metadata.md).
 - Publish the [Privacy Policy](../PRIVACY.md) at a public URL and make it accessible in the app and listing. Complete App Store Connect's privacy questionnaire against the actual shipped app and dependencies.
@@ -120,4 +129,4 @@ Repository preparation does not complete the App Store Connect listing. Before s
 - Upload screenshots for the iPhone and iPad display sizes requested by App Store Connect. The repository currently contains a 6.5-inch iPhone set; check current requirements and capture any additional required sizes from the final build.
 - Provide review notes explaining that no account is needed and how to import, convert, and share a file. Select the validated build and submit for review.
 
-After version 1.1 is publicly available, tag the source revision used for that App Store release. The [main README](../README.md) already links to the App Store product.
+After version 1.2 is publicly available, tag the source revision used for that App Store release. The [main README](../README.md) already links to the App Store product.

@@ -15,7 +15,7 @@ enum MediaCategory: String, Codable, Hashable {
 
 enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
     // Video
-    case mp4_h264, mp4_hevc, mov, webm
+    case mp4_h264, mp4_hevc, mov, webm, mp4_av1, ogv
 
     // Audio
     case mp3, m4a, wav, aac, flac, ogg, opus
@@ -30,9 +30,10 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
 
     var fileExtension: String {
         switch self {
-        case .mp4_h264, .mp4_hevc: "mp4"
+        case .mp4_h264, .mp4_hevc, .mp4_av1: "mp4"
         case .mov: "mov"
         case .webm: "webm"
+        case .ogv: "ogv"
         case .gif: "gif"
         case .mp3: "mp3"
         case .m4a: "m4a"
@@ -55,6 +56,8 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
         case .mp4_hevc: "MP4 (HEVC)"
         case .mov: "MOV"
         case .webm: "WebM"
+        case .mp4_av1: "MP4 (AV1)"
+        case .ogv: "OGV (Theora)"
         case .gif: "GIF"
         case .mp3: "MP3"
         case .m4a: "M4A"
@@ -73,7 +76,7 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
 
     var category: MediaCategory {
         switch self {
-        case .mp4_h264, .mp4_hevc, .mov, .webm: .video
+        case .mp4_h264, .mp4_hevc, .mov, .webm, .mp4_av1, .ogv: .video
         case .gif: .animatedImage
         case .mp3, .m4a, .wav, .aac, .flac, .ogg, .opus: .audio
         case .jpg, .png, .heic, .webpImage, .tiff: .image
@@ -82,7 +85,7 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
 
     var isLossy: Bool {
         switch self {
-        case .mp4_h264, .mp4_hevc, .mov, .webm, .gif,
+        case .mp4_h264, .mp4_hevc, .mov, .webm, .mp4_av1, .ogv, .gif,
              .mp3, .m4a, .aac, .ogg, .opus,
              .jpg, .heic, .webpImage:
             true
@@ -104,9 +107,6 @@ enum OutputFormat: String, CaseIterable, Identifiable, Hashable, Codable {
     /// All converter outputs are regular files; copy puts raw bytes on the pasteboard with a matching UTI.
     var supportsClipboardCopy: Bool { true }
 
-    /// VP9 supports a statistics pass. VideoToolbox H.264/HEVC do not produce
-    /// the pass statistics required by FFmpeg's two-pass encoding interface.
-    var supportsTwoPassVideoEncoding: Bool { self == .webm }
 }
 
 extension OutputFormat {
@@ -116,7 +116,8 @@ extension OutputFormat {
             return t.identifier
         }
         switch self {
-        case .mp4_h264, .mp4_hevc: return UTType.mpeg4Movie.identifier
+        case .mp4_h264, .mp4_hevc, .mp4_av1: return UTType.mpeg4Movie.identifier
+        case .ogv: return "org.xiph.ogv"
         case .mov: return UTType.quickTimeMovie.identifier
         case .webm: return "org.webmproject.webm"
         case .mp3: return UTType.mp3.identifier
@@ -142,7 +143,8 @@ extension OutputFormat {
         switch self {
         case .webm: " -f webm"
         case .mov: " -f mov"
-        case .mp4_h264, .mp4_hevc: " -f mp4"
+        case .mp4_h264, .mp4_hevc, .mp4_av1: " -f mp4"
+        case .ogv: " -f ogg"
         case .mp3, .m4a, .wav, .aac, .flac, .ogg, .opus, .jpg, .png, .heic, .webpImage, .tiff, .gif:
             " -f mp4"
         }
@@ -153,7 +155,8 @@ extension OutputFormat {
         switch self {
         case .webm: " -f webm"
         case .mov: " -f mov"
-        case .mp4_h264, .mp4_hevc: " -f mp4"
+        case .mp4_h264, .mp4_hevc, .mp4_av1: " -f mp4"
+        case .ogv: " -f ogg"
         case .mp3: " -f mp3"
         // MPEG-4 audio in an .m4a file; `ipod` muxer is absent or flaky in some ffmpeg-kit-min iOS builds.
         case .m4a: " -f mp4"
@@ -167,6 +170,16 @@ extension OutputFormat {
         case .webpImage: " -f webp"
         case .tiff: " -f image2"
         case .gif: " -f gif"
+        }
+    }
+
+    /// Speed/quality tuning passed through the adapter's private-option interface.
+    /// SVT-AV1 preset 10 keeps phone encodes near real time; lower presets are much slower.
+    var ffmpegEncoderTuningArgs: String {
+        switch self {
+        case .mp4_av1: " -pix_fmt yuv420p -mb-codec-opt:v preset=10"
+        case .ogv: " -pix_fmt yuv420p"
+        default: ""
         }
     }
 
@@ -592,11 +605,6 @@ struct ConversionConfig: Hashable {
     var prefersRemuxWhenPossible: Bool
     var metadata: MetadataExportPolicy
 
-    /// Use this effective mode for execution and progress, including configurations
-    /// created before the bundled encoder capabilities changed.
-    var usesTwoPassVideoEncoding: Bool {
-        outputFormat.supportsTwoPassVideoEncoding && !usesSinglePassVideoTargetEncode
-    }
 
     init(
         outputFormat: OutputFormat,

@@ -39,7 +39,7 @@ int mbf_has_encoder(const char *name) { return !strcmp(name, "libmp3lame"); }
 int mbf_has_decoder(const char *name) { return !strcmp(name, "mp3"); }
 int mbf_has_muxer(const char *name) { return !strcmp(name, "mp3"); }
 const char *mbf_version(void) { return "fixture"; }
-const char *mbf_license(void) { return "LGPL version 2.1 or later"; }
+const char *mbf_license(void) { return "GPL version 2 or later"; }
 const char *mbf_configuration(void) { return "--enable-libmp3lame --enable-libopus"; }
 '''
 SWIFT_TEST = r'''

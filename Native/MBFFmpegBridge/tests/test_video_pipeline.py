@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[3]
 PREFIX = ROOT / 'build/ffmpeg/macos-arm64/prefix'
 WORK = ROOT / 'build/ffmpeg/video-tests'
 LIBS = ['avfilter', 'avformat', 'avcodec', 'swresample', 'swscale', 'avutil',
-        'mp3lame', 'vorbisenc', 'vorbis', 'ogg', 'opus', 'vpx', 'dav1d', 'zimg']
+        'mp3lame', 'vorbisenc', 'vorbis', 'theoraenc', 'theoradec', 'ogg', 'opus', 'vpx', 'dav1d', 'zimg',
+        'webpmux', 'webp', 'sharpyuv', 'SvtAv1Enc', 'x264']
 
 
 def command(*args):

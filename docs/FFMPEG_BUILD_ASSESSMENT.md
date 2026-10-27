@@ -1,5 +1,7 @@
 # Custom FFmpeg build assessment
 
+> **Update 2026-10-24:** the project now ships a GPL build (FFmpeg `--enable-gpl` with x264) and is GPL-3.0-or-later. This document records the earlier LGPL-only assessment.
+
 Research date: September 15, 2026. This is an engineering recommendation, not a completed build or a legal certification of App Store eligibility.
 
 This document records the pre-implementation investigation. For the implemented runtime and current validation/distribution steps, see [Native/FFmpeg/README.md](../Native/FFmpeg/README.md).

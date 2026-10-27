@@ -1,50 +1,51 @@
 # MB Converter — App Store metadata
 
-## Promotional Text (145/170 characters)
+## Promotional Text
 
-Convert and compress photos, videos, and audio on your iPhone or iPad. Choose formats, resize files, and share the results. Free and open source.
+Over 100 tools for PDFs, documents, photos, video and audio. Merge, sign, compress and convert files right on your iPhone. Free and open source.
 
-## Description (1428/4,000 characters)
+## Description
 
-Convert and compress photos, videos, and audio on your iPhone or iPad with MB Converter. Change formats, make files smaller, and get your media ready to share.
+MB Converter is a whole toolbox for your files, right on your iPhone or iPad. Convert, compress and edit PDFs, documents, photos, video and audio. Nothing is uploaded: every tool runs on your device, with no account.
 
-CONVERT YOUR MEDIA
-- Save images as JPEG, PNG, HEIC, WebP, or TIFF.
-- Export video as MP4 with H.264 or HEVC, MOV, or WebM with VP9/Opus.
-- Convert audio to MP3, FLAC, Ogg/Vorbis, Opus, M4A, AAC, or WAV.
-- Import AV1 video and preview more formats with automatic compatibility conversion.
-- Extract audio from videos.
-- Turn animated GIFs into videos or save a still frame.
+PDF TOOLS
+- Merge, split, reorder, rotate, delete and extract pages by tapping them.
+- Compress PDFs for email, make PDF/A for archiving, and repair damaged files.
+- Sign, fill in, mark up, watermark, number pages and black out private text.
+- Add or remove a password, flatten forms, make scans searchable.
 
-CONTROL THE OUTPUT
-- Choose a target file size for supported formats.
-- Adjust resolution, frame rate, and audio settings where available.
-- Crop and rotate images and videos.
-- Trim supported videos. Trim audio and adjust volume, speed, and channels.
-- Review, edit, or remove metadata before exporting.
+CONVERT ANYTHING
+- PDF to Word, Excel, images or text, and Word, Excel or PowerPoint to PDF.
+- Word, Markdown, RTF, EPUB, HTML, CSV, Excel and more.
+- Photos to JPEG, PNG, HEIC, WebP, TIFF, AVIF and many more formats; photos to PDF.
+- Video to MP4, MOV, WebM or GIF; audio to MP3, M4A, FLAC, WAV, Opus and more.
 
-IMPORT AND SHARE
-Choose media from Photos or Files, paste supported images from the clipboard, or download a file from a direct link. Link imports support files up to 150 MB.
+PHOTO, VIDEO AND AUDIO
+- Crop, resize, rotate, filter, add text and make memes with text anywhere.
+- Remove backgrounds, blur faces, add borders and round corners.
+- Trim, speed up, loop and add music to videos; make GIFs.
+- Compress to a target size, trim audio and adjust volume, speed and fades.
 
-Preview your converted file, compare its size with the original, rename it, and share or save it using the system share sheet. Revisit conversions in History, with optional saved history across app launches.
-
-MADE FOR IPHONE AND IPAD
-Use a layout that adapts to your device, with light and dark appearances. Media conversion runs on your device, with no account required.
+EASY TO USE
+- Search in plain words, like "turn my photo into a pdf".
+- Open files from Files, Mail or the share sheet straight into MB Converter.
+- See a live preview while you change settings, and compare before and after.
+- Save to Photos or Files, share, and find past results in History.
 
 MB Converter is free and open source.
 
-## What's New in Version 1.1
+## What's New in Version 1.2
 
-- More export formats: MP3, FLAC, Ogg/Vorbis, Opus, and WebM, plus AV1 video import.
-- New audio editing: trim, adjust volume and speed, and choose channels with a preview of your edits.
-- Video trimming and improved playback for more media formats.
-- Improved clipboard and link imports, with waveform thumbnails for audio.
-- Background conversion when iOS permits, with progress and interruption handling.
-- Faster WebP encoding, clearer PNG sizing, improved video color handling, and refreshed editing and conversion screens.
+- Over 100 new tools for PDFs, documents, spreadsheets, photos, video and audio.
+- Edit right on the tool screen: drag pages, tap pages to remove, sign, crop, trim and make memes.
+- Live previews with a Before/After button.
+- Smaller PDFs, PDF/A and PDF repair.
+- Open files from other apps with "Open in MB Converter".
+- Plain-English search, clearer wording everywhere, and better support for large text.
 
-## Keywords (98/100 bytes; ASCII)
+## Keywords
 
-video,audio,photo,image,compress,resize,heic,jpg,png,webp,mp4,mov,wav,m4a,aac,extract,crop,offline
+pdf,merge,sign,compress,word,convert,video,audio,photo,heic,jpg,png,mp4,gif,meme,qr,zip,ocr,offline
 
 ## Support URL
 
@@ -56,7 +57,7 @@ https://github.com/Marginally-Better-Apps/MB-converter
 
 ## Version
 
-1.1
+1.2
 
 ## Copyright
 

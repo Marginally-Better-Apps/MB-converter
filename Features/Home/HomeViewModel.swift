@@ -19,6 +19,8 @@ final class HomeViewModel {
     var pasteboardPreviewThumbnail: UIImage?
     var pasteboardFileSizeBytes: Int64?
     var pasteboardDuration: TimeInterval?
+    /// A copied PDF or document; pasting opens it in the file landing screen like Files does.
+    var pasteboardDocumentFormat: FileFormat?
     private var lastSeenPasteboardChangeCount: Int
     private var lastPreviewPasteboardChangeCount: Int?
     private var pasteboardPreviewTask: Task<Void, Never>?
@@ -42,7 +44,15 @@ final class HomeViewModel {
         pasteboardPreviewThumbnail = nil
         pasteboardFileSizeBytes = nil
         pasteboardDuration = nil
-        guard candidateLabel != nil else { return }
+        pasteboardDocumentFormat = nil
+        guard candidateLabel != nil else {
+            if let format = FileIntake.pasteboardDocumentFormat() {
+                pasteboardDocumentFormat = format
+                pasteboardImportLabel = format.badge
+                pasteboardImportFileExtension = format.badge
+            }
+            return
+        }
 
         pasteboardPreviewTask = Task { [weak self] in
             guard let self else { return }
@@ -101,6 +111,76 @@ final class HomeViewModel {
             pasteboardDuration = nil
         }
         return media
+    }
+
+    /// Imports a copied document for the file landing screen.
+    func importDocumentFromPasteboard() -> ToolInputFile? {
+        errorMessage = nil
+        do {
+            let file = try FileIntake.importPasteboard()[0]
+            Haptics.success()
+            return file
+        } catch {
+            errorMessage = error.localizedDescription
+            DiagnosticsLog.shared.record(error: error, context: "Import document from clipboard")
+            Haptics.error()
+            pasteboardDocumentFormat = nil
+            pasteboardImportLabel = nil
+            pasteboardImportFileExtension = nil
+            return nil
+        }
+    }
+
+    enum ImportedItem {
+        case media(MediaFile)
+        case document(ToolInputFile)
+    }
+
+    /// Documents (PDF, Office, data…) go to the tools hub; media keeps the full converter flow.
+    func importDocumentIfNeeded(_ url: URL) -> ToolInputFile?? {
+        guard let format = FileFormat(url: url) ?? FileIntake.sniffFormat(url), !FileIntake.opensInMediaConverter(format) else {
+            return .none
+        }
+        do {
+            let file = try FileIntake.importFile(at: url)
+            Haptics.success()
+            return .some(file)
+        } catch {
+            errorMessage = error.localizedDescription
+            DiagnosticsLog.shared.record(error: error, context: "Import document")
+            Haptics.error()
+            return .some(nil)
+        }
+    }
+
+    /// Downloads any supported file; documents return directly, media is validated as usual.
+    func importAnyFromRemoteLink(_ linkString: String) async -> ImportedItem? {
+        let trimmed = linkString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let path = URL(string: trimmed)?.pathExtension.lowercased() ?? ""
+        guard let format = FileFormat(fileExtension: path), !FileIntake.opensInMediaConverter(format) else {
+            return await importFromRemoteLink(linkString).map(ImportedItem.media)
+        }
+        isImporting = true
+        errorMessage = nil
+        remoteDownloadProgress = RemoteDownloadProgress(bytesReceived: 0, totalBytes: nil)
+        defer {
+            isImporting = false
+            remoteDownloadProgress = nil
+        }
+        do {
+            let url = try await importService.importFromRemoteURL(linkString) { [weak self] progress in
+                await MainActor.run { self?.remoteDownloadProgress = progress }
+            }
+            let name = URL(string: trimmed)?.lastPathComponent ?? url.lastPathComponent
+            let file = try ToolInputFile(url: url, displayName: name)
+            Haptics.success()
+            return .document(file)
+        } catch {
+            errorMessage = error.localizedDescription
+            DiagnosticsLog.shared.record(error: error, context: "Import from link")
+            Haptics.error()
+            return nil
+        }
     }
 
     func importFromRemoteLink(_ linkString: String) async -> MediaFile? {

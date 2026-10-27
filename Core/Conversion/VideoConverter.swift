@@ -40,7 +40,7 @@ final class VideoConverter: Converter {
         progress: @escaping @Sendable (Double) -> Void,
         encodingStats: (@Sendable (FFmpegEncodingDisplayStats) -> Void)?
     ) async throws -> ConversionResult {
-        guard let videoCodec = Self.videoCodec(for: config.outputFormat) else {
+        guard let defaultVideoCodec = Self.videoCodec(for: config.outputFormat) else {
             throw ConversionError.codecUnavailable(
                 reason: CodecCapability.unsupportedReason(for: config.outputFormat) ?? "The selected video encoder is unavailable."
             )
@@ -76,6 +76,9 @@ final class VideoConverter: Converter {
             }
         }
 
+        // Two-pass H.264 runs on x264: VideoToolbox can't produce pass statistics.
+        let twoPassEncoder = config.usesTwoPassVideoEncoding ? config.outputFormat.twoPassVideoEncoder : nil
+        let videoCodec = (twoPassEncoder?.name ?? defaultVideoCodec) + (twoPassEncoder?.arguments ?? "")
         let outputURL = TempStorage.url(for: config.outputFormat)
         let passLog = TempStorage.url(extension: "log")
         let targetBytes = config.targetSizeBytes ?? input.sizeOnDisk
@@ -183,7 +186,11 @@ final class VideoConverter: Converter {
         let hevcTag = config.outputFormat.ffmpegHEVCContainerTagArg
         let audioArguments: String
         if hasAudio {
-            let audioCodec = config.outputFormat == .webm ? "libopus" : "aac"
+            let audioCodec = switch config.outputFormat {
+            case .webm: "libopus"
+            case .ogv: "libvorbis"
+            default: "aac"
+            }
             guard FFmpegRuntimeInfo.hasEncoder(audioCodec) else {
                 throw ConversionError.codecUnavailable(
                     reason: "\(config.outputFormat.displayName) output requires the \(audioCodec) audio encoder in the bundled FFmpeg runtime."
@@ -198,8 +205,8 @@ final class VideoConverter: Converter {
         let inputPath = FFmpegCommandRunner.quoted(input.url.path)
         let outputPath = FFmpegCommandRunner.quoted(outputURL.path)
         let logPath = FFmpegCommandRunner.quoted(passLog.path)
-        let fastStart = config.outputFormat == .webm ? "" : " -movflags +faststart"
-        let outputMuxer = config.outputFormat.ffmpegOutputMuxerArg
+        let fastStart = [.webm, .ogv].contains(config.outputFormat) ? "" : " -movflags +faststart"
+        let outputMuxer = config.outputFormat.ffmpegOutputMuxerArg + config.outputFormat.ffmpegEncoderTuningArgs
         let pass1Discard = TempStorage.url(extension: config.outputFormat.fileExtension)
         let pass1DiscardPath = FFmpegCommandRunner.quoted(pass1Discard.path)
 
@@ -298,7 +305,7 @@ final class VideoConverter: Converter {
         let inputPath = FFmpegCommandRunner.quoted(input.url.path)
         let outputPath = FFmpegCommandRunner.quoted(outputURL.path)
         let outputMuxer = config.outputFormat.ffmpegOutputMuxerArg
-        let fastStart = config.outputFormat == .webm ? "" : " -movflags +faststart"
+        let fastStart = [.webm, .ogv].contains(config.outputFormat) ? "" : " -movflags +faststart"
         let hevcTag = config.outputFormat.ffmpegHEVCContainerTagArg
         let meta = FFmpegMetadataOptions.outputFlags(config.metadata)
         let command = "-y -i \(inputPath) -map 0:v:0 -map 0:a:0? -c copy\(hevcTag)\(outputMuxer)\(fastStart)\(meta) \(outputPath)"
@@ -391,7 +398,9 @@ final class VideoConverter: Converter {
         let paths = [
             url.path,
             "\(url.path)-0.log",
-            "\(url.path)-0.log.mbtree"
+            "\(url.path)-0.log.temp",
+            "\(url.path)-0.log.mbtree",
+            "\(url.path)-0.log.mbtree.temp"
         ]
         for path in paths {
             try? FileManager.default.removeItem(atPath: path)

@@ -77,7 +77,7 @@ struct TargetSizeSlider: View {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     if showsRemuxBadge {
-                        Text("Remux")
+                        Text("Full quality")
                             .font(.title2.weight(.bold))
                             .foregroundStyle(Theme.tint)
                         Button {
@@ -91,7 +91,7 @@ struct TargetSizeSlider: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("What is remux?")
+                        .accessibilityLabel("What does full quality mean?")
                     } else {
                         Text(valueLabel ?? MetadataFormatter.bytes(targetBytes))
                             .font(.title2.weight(.bold))
@@ -102,7 +102,7 @@ struct TargetSizeSlider: View {
 
                 Spacer(minLength: 0)
 
-                Text(minimumLabel ?? "Min: \(MetadataFormatter.bytes(minimumSizeBytes))")
+                Text(minimumLabel ?? "Smallest: \(MetadataFormatter.bytes(minimumSizeBytes))")
                     .font(.footnote)
                     .monospacedDigit()
                     .foregroundStyle(Theme.textMuted)
@@ -121,7 +121,7 @@ struct TargetSizeSlider: View {
             .disabled(minimumFraction >= 1)
             .tint(Theme.tint)
             .accessibilityLabel(accessibilityLabel)
-            .accessibilityValue(valueLabel ?? MetadataFormatter.bytes(targetBytes))
+            .accessibilityValue(showsRemuxBadge ? "Full quality" : (valueLabel ?? MetadataFormatter.bytes(targetBytes)))
 
             if let estimatedLabel, !estimatedLabel.isEmpty {
                 Text(estimatedLabel)
@@ -129,12 +129,12 @@ struct TargetSizeSlider: View {
                     .foregroundStyle(Theme.textMuted)
             }
         }
-        .alert("What is remux?", isPresented: $isRemuxInfoPresented) {
+        .alert("Full quality", isPresented: $isRemuxInfoPresented) {
             Button("OK", role: .cancel) {
                 Haptics.impact(.light)
             }
         } message: {
-            Text("Remux copies compatible streams into the new container without re-encoding (faster, no generation loss). For video, that’s usually the same H.264/HEVC and AAC. For audio output, it applies when the existing codec can live in the target container.")
+            Text("At the biggest size, the picture and sound are copied into the new file as they are. It’s quick and nothing is lost. Slide left to make the file smaller.")
         }
     }
 

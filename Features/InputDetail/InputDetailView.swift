@@ -36,6 +36,7 @@ struct InputDetailView: View {
         outputConfigViewModel.removeAllMetadata = UserDefaults.standard.bool(
             forKey: InputMetadataEditor.removeAllMetadataDefaultsKey
         )
+        outputConfigViewModel.markChoicesAsDefaults()
         self._outputConfigViewModel = State(initialValue: outputConfigViewModel)
     }
 
@@ -193,6 +194,8 @@ struct InputDetailView: View {
                     }
                     .accessibilityLabel("Back to main page")
                 }
+
+                ToolbarItem(placement: .topBarTrailing) { moreToolsMenu }
             }
         }
         .background(
@@ -208,6 +211,7 @@ struct InputDetailView: View {
                 Haptics.impact(.light)
             }
             Button("Discard", role: .destructive) {
+                Haptics.warning()
                 discardConversion()
             }
         } message: {
@@ -490,7 +494,7 @@ struct InputDetailView: View {
                     .tint(Theme.tint)
                     .accessibilityLabel("Quality")
                     .accessibilityValue("\(Int((viewModel.webpQuality * 100).rounded())) percent")
-                    Text("Faster single-pass encoding; the final file size is estimated.")
+                    Text("The final size is an estimate.")
                         .font(.footnote)
                         .foregroundStyle(Theme.textMuted)
                 }
@@ -518,7 +522,7 @@ struct InputDetailView: View {
                     selectedEditor = .advancedOutput
                 } label: {
                     editorLinkLabel(
-                        title: "Advanced Output",
+                        title: "More Options",
                         systemImage: "slider.horizontal.3",
                         detail: advancedOutputSummary(viewModel)
                     )
@@ -533,7 +537,7 @@ struct InputDetailView: View {
                 selectedEditor = .metadata
             } label: {
                 editorLinkLabel(
-                    title: "Metadata",
+                    title: "File Info",
                     systemImage: "info.circle.fill",
                     detail: metadataSummary(viewModel)
                 )
@@ -555,7 +559,7 @@ struct InputDetailView: View {
                 showsConvertButton: false,
                 onConvert: {}
             )
-            .navigationTitle(isRootSectionActive ? "Advanced Output" : "")
+            .navigationTitle(isRootSectionActive ? "More Options" : "")
             .navigationBarTitleDisplayMode(.inline)
             .modifier(ConversionEditorNavigation(backTitle: "Convert") {
                 selectedEditor = nil
@@ -609,33 +613,33 @@ struct InputDetailView: View {
         if viewModel.shouldShowResolution {
             values.append(
                 viewModel.resolutionOptions.first(where: { $0.id == viewModel.selectedResolutionID })?.label
-                    ?? "Original resolution"
+                    ?? "Original size"
             )
         }
         if viewModel.shouldShowFPS {
             values.append(
                 viewModel.fpsOptions.first(where: { $0.value == viewModel.selectedFPS })?.label
-                    ?? "Original FPS"
+                    ?? "Original frame rate"
             )
         }
         if viewModel.shouldShowVideoOutputAudio {
             values.append(viewModel.videoAudioQualitySelectionLabel)
         }
         if viewModel.shouldShowSinglePassVideoTargetToggle {
-            values.append(viewModel.usesTwoPassVideoEncoding ? "Two-pass target" : "Single-pass target")
+            values.append(viewModel.usesTwoPassVideoEncoding ? "Exact size" : "Faster, size may vary")
         }
-        return values.isEmpty ? "Additional encoding controls" : values.joined(separator: " · ")
+        return values.isEmpty ? "Size, frame rate and sound" : values.joined(separator: " · ")
     }
 
     private func metadataSummary(_ viewModel: OutputConfigViewModel) -> String {
         if viewModel.removeAllMetadata {
-            return "All metadata will be removed"
+            return "Date, place and camera info will be removed"
         }
         if viewModel.isLoadingDiscoveredMetadata {
-            return "Reading metadata…"
+            return "Reading the file’s info…"
         }
         let included = viewModel.metadataFieldRows.filter { !$0.isRemoved }.count
-        return "\(included) of \(viewModel.metadataFieldRows.count) fields included"
+        return included == viewModel.metadataFieldRows.count ? "Keeps the date, place and camera info" : "Keeps \(included) of \(viewModel.metadataFieldRows.count) details"
     }
 
     private func convertActionBar(viewModel: OutputConfigViewModel) -> some View {
@@ -643,20 +647,46 @@ struct InputDetailView: View {
             Haptics.impact(.medium)
             handleConvertTap(viewModel: viewModel)
         } label: {
-            PrimaryActionLabel(title: "Convert", systemImage: "arrow.triangle.2.circlepath")
+            PrimaryActionLabel(title: viewModel.convertBlockedReason ?? "Convert",
+                               systemImage: viewModel.convertBlockedReason == nil ? "arrow.triangle.2.circlepath" : "info.circle")
         }
+        .accessibilityIdentifier("media.convert")
         .glassButtonStyle(prominent: true)
         .buttonBorderShape(.capsule)
         .controlSize(.large)
         .tint(Theme.tint)
         .disabled(!viewModel.canConvert)
-        .accessibilityHint(viewModel.canConvert
-            ? "Starts the conversion using the selected settings."
-            : "Change an output setting to convert this file.")
+        .accessibilityHint(viewModel.canConvert ? "Starts the conversion using the selected settings." : "")
         .frame(maxWidth: 520)
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 6)
+    }
+
+    /// Hands this file to the tools layer (remove background, make a GIF, image to PDF…).
+    @ViewBuilder
+    private var moreToolsMenu: some View {
+        let media = viewModel.media
+        if let format = FileFormat(url: media.url) ?? FileFormat(fileExtension: media.containerFormat) {
+            let tools = ToolCatalog.tools(accepting: format).filter { !$0.opensMediaConverter }
+            if !tools.isEmpty {
+                Menu {
+                    ForEach(tools.prefix(14)) { tool in
+                        Button {
+                            if let input = try? ToolInputFile(url: media.url, displayName: media.originalFilename, format: format) {
+                                path.append(.tool(tool.id, inputs: [input]))
+                            }
+                        } label: {
+                            Label(tool.title, systemImage: tool.symbol)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "wand.and.stars")
+                        .foregroundStyle(Theme.tint)
+                }
+                .accessibilityLabel("More tools for this file")
+            }
+        }
     }
 
     private func handleConvertTap(viewModel: OutputConfigViewModel) {
@@ -731,11 +761,15 @@ struct InputDetailView: View {
     private func requestDiscardConfirmation() {
         guard isRootSectionActive, selectedEditor == nil, !isDiscardConfirmationPresented else { return }
         Haptics.impact(.light)
+        // Nothing changed from the defaults: there's nothing to lose, so just go back.
+        guard outputConfigViewModel.hasUserChanges else {
+            discardConversion()
+            return
+        }
         isDiscardConfirmationPresented = true
     }
 
     private func discardConversion() {
-        Haptics.warning()
         invalidateCachedRun()
         try? FileManager.default.removeItem(at: viewModel.media.url)
         for url in outputConfigViewModel.livePhotoOwnedFileURLs {

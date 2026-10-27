@@ -26,7 +26,7 @@ struct OutputConfigForm: View {
                 || viewModel.shouldShowResolution
                 || viewModel.shouldShowFPS
                 || viewModel.shouldShowVideoOutputAudio {
-                Section("Output Options") {
+                Section("Output") {
                     if showsPrimaryControls {
                         optionRow("Format") {
                             FormatPicker(
@@ -45,13 +45,13 @@ struct OutputConfigForm: View {
                     }
 
                     if viewModel.shouldShowFPS {
-                        optionRow("FPS") {
+                        optionRow("Frame Rate") {
                             fpsPicker
                         }
                     }
 
                     if viewModel.shouldShowVideoOutputAudio {
-                        optionRow("Audio") {
+                        optionRow("Sound") {
                             videoAudioQualitySection
                         }
                     }
@@ -69,7 +69,7 @@ struct OutputConfigForm: View {
             }
 
             if !showsPrimaryControls, viewModel.shouldShowSinglePassVideoTargetToggle {
-                Section("Encoding") {
+                Section("Size") {
                     singlePassVideoTargetToggle
                 }
             }
@@ -78,7 +78,7 @@ struct OutputConfigForm: View {
                 Section("Quality") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .firstTextBaseline) {
-                            Text("WebP Quality")
+                            Text("Quality")
                                 .font(.headline)
                                 .foregroundStyle(Theme.text)
                             Spacer()
@@ -100,13 +100,13 @@ struct OutputConfigForm: View {
                         )
                         .tint(Theme.tint)
 
-                        Text("Single-pass encode. Faster than target-size tuning, but final file size is not guaranteed.")
+                        Text("The final size is an estimate.")
                             .font(.footnote)
                             .foregroundStyle(Theme.textMuted)
                     }
                 }
             } else if showsPrimaryControls, !viewModel.shouldShowPNGDimensions, let note = viewModel.losslessNote {
-                Section("Target Size") {
+                Section("File Size") {
                     Text(note)
                         .font(.subheadline)
                         .foregroundStyle(Theme.textMuted)
@@ -329,7 +329,7 @@ struct OutputConfigForm: View {
     }
 
     private var singlePassVideoTargetToggle: some View {
-        Toggle("Two-pass", isOn: Binding(
+        Toggle("Hit the exact size (slower)", isOn: Binding(
             get: { viewModel.usesTwoPassVideoEncoding },
             set: { newValue in
                 Haptics.impact(.light)
@@ -339,7 +339,7 @@ struct OutputConfigForm: View {
         .font(.footnote.weight(.semibold))
         .toggleStyle(.switch)
         .tint(Theme.tint)
-        .accessibilityLabel("Use two-pass target encode")
+        .accessibilityLabel("Hit the exact size, slower")
         .accessibilityValue(viewModel.usesTwoPassVideoEncoding ? "On" : "Off")
     }
 
