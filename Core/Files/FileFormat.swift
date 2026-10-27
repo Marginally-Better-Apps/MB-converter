@@ -120,7 +120,7 @@ enum FileFormat: String, CaseIterable, Codable, Hashable, Identifiable, Sendable
         case .document: self == .epub ? "book.closed" : "doc.text"
         case .spreadsheet: self == .json || self == .xml ? "curlybraces" : "tablecells"
         case .presentation: "rectangle.on.rectangle.angled"
-        case .image: isPostScript ? "scribble.variable" : "photo"
+        case .image: isPostScript ? "printer" : "photo"
         case .video: "film"
         case .audio: "waveform"
         case .archive: "doc.zipper"

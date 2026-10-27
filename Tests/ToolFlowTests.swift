@@ -18,7 +18,7 @@ struct ToolFlowTests {
             #expect(try tool(id).runsOnPick, "\(id) should run as soon as its file is picked")
         }
         // These need a choice, an editor, or more than one file.
-        for id in ["pdf.compress", "pdf.merge", "pdf.organize", "pdf.sign", "image.meme", "image.crop", "video.trim", "pdf.protect", "pdf.delete", "pdf.extract"] {
+        for id in ["pdf.compress", "pdf.merge", "pdf.organize", "pdf.sign", "image.meme", "image.crop", "video.trim", "pdf.protect", "pdf.delete", "pdf.extract", "pdf.split"] {
             #expect(try !tool(id).runsOnPick, "\(id) shouldn't run before the user has decided")
         }
     }
@@ -37,6 +37,9 @@ struct ToolFlowTests {
         #expect(try reason("pdf.protect", ["password": .string("a"), "confirm": .string("b")]) == "The passwords don't match")
         #expect(try reason("pdf.protect", ["password": .string("a"), "confirm": .string("a")]) == nil)
         #expect(try reason("pdf.sign") == "Place your signature")
+        #expect(try reason("pdf.split") == "Tap the page where each new PDF starts")
+        #expect(try reason("pdf.split", editor: .pageSelection([2])) == nil)
+        #expect(try reason("pdf.split", ["mode": .string("each")]) == nil)
         #expect(try reason("pdf.redact") == "Type the words to hide")
         #expect(try reason("image.meme") == "Tap a text box and type")
         #expect(try reason("image.meme", editor: .texts([TextOverlay(text: "hi")])) == nil)
@@ -107,6 +110,16 @@ struct ToolFlowTests {
         #expect(TestSupport.pageTitles(try #require(PDFDocument(url: deleted.files[0].url))) == ["Page 2", "Page 4"])
         let kept = try await Corpus.run("pdf.extract", [input], editor: .pageSelection([1, 3]))
         #expect(TestSupport.pageTitles(try #require(PDFDocument(url: kept.files[0].url))) == ["Page 2", "Page 4"])
+    }
+
+    @Test func tappedPagesSplitThePDF() async throws {
+        #expect(PDFToolkit.SplitMode.ranges(startingAt: [2, 5], pageCount: 8) == "1-2, 3-5, 6-8")
+        #expect(PDFToolkit.SplitMode.ranges(startingAt: [0, 1, 3, 9], pageCount: 4) == "1, 2-3, 4", "page 1 and out-of-range taps are ignored")
+        let url = TestSupport.tempURL("pdf")
+        try PDFToolkit.write(SelfTestFixtures.makePDF(pages: 5, body: "Body"), to: url)
+        let output = try await Corpus.run("pdf.split", [try ToolInputFile(url: url)], editor: .pageSelection([1, 3]))
+        let parts = try output.files.map { try #require(PDFDocument(url: $0.url)) }.map(TestSupport.pageTitles)
+        #expect(parts == [["Page 1"], ["Page 2", "Page 3"], ["Page 4", "Page 5"]])
     }
 
     @Test func exactResizeKeepsProportionsByDefault() async throws {

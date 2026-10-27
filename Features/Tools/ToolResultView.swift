@@ -29,7 +29,7 @@ struct ToolResultView: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
                 header
                 if let file = files.first, files.count == 1, showsLargePreview(file) { largePreview(file) }
-                if let text = run.output.text { textCard(text) }
+                if let text = run.output.text ?? plainTextResult { textCard(text) }
                 filesCard
                 actions
                 Label("You'll also find this in History.", systemImage: "clock.arrow.circlepath")
@@ -116,6 +116,15 @@ struct ToolResultView: View {
         }
         .padding(.top, Theme.Spacing.s)
         .accessibilityElement(children: .combine)
+    }
+
+    /// A single small text result (PDF to Text, CSV, Markdown…) is shown with a Copy button,
+    /// so you don't have to save a file just to paste its words somewhere.
+    private var plainTextResult: String? {
+        guard files.count == 1, let file = files.first,
+              let format = file.format, [.txt, .markdown, .csv, .json].contains(format),
+              file.byteCount < 256_000 else { return nil }
+        return (try? String(contentsOf: file.url, encoding: .utf8))?.nilIfBlank
     }
 
     private func showsLargePreview(_ file: ToolOutputFile) -> Bool {

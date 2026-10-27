@@ -51,16 +51,25 @@ extension ToolCatalog {
         },
 
         ToolDefinition(
-            id: "pdf.split", title: "Split PDF", summary: "Break a PDF into ranges, chunks or single pages",
+            id: "pdf.split", title: "Split PDF", summary: "Cut a PDF into several files",
             symbol: "scissors", category: .pdf, input: .one([.pdf], noun: "PDF"),
             options: [
-                .choice("mode", "Split by", [ToolChoice("ranges", "Ranges"), ToolChoice("every", "Every N pages"), ToolChoice("each", "Each page"), ToolChoice("size", "File size")], segmented: false),
-                .text("ranges", "Ranges", placeholder: "1-3, 4-6, 7-", default: "", footnote: "Each comma-separated range becomes its own PDF.", visible: { $0.string("mode") == "ranges" }),
-                .stepper("every", "Pages per file", range: 1 ... 500, default: 2, visible: { $0.string("mode") == "every" }),
-                .slider("size", "Max file size", range: 1 ... 50, default: 5, format: { "\(Int($0)) MB" }, visible: { $0.string("mode") == "size" })
+                // Tapping the pages is the way; the rest are for big jobs, folded away.
+                ToolOption.choice("mode", "Split by", [ToolChoice("tap", "Pages I tap"), ToolChoice("each", "Every page"), ToolChoice("every", "Every few pages"),
+                                                       ToolChoice("size", "File size"), ToolChoice("ranges", "Typed ranges")], default: "tap", segmented: false).advanced(),
+                ToolOption.text("ranges", "Ranges", placeholder: "1-3, 4-6, 7-", default: "", footnote: "Each comma-separated range becomes its own PDF.", visible: { $0.string("mode") == "ranges" }).advanced(),
+                ToolOption.stepper("every", "Pages per file", range: 1 ... 500, default: 2, visible: { $0.string("mode") == "every" }).advanced(),
+                ToolOption.slider("size", "Max file size", range: 1 ... 50, default: 5, format: { "\(Int($0)) MB" }, visible: { $0.string("mode") == "size" }).advanced()
             ],
+            editor: .splitPicker,
             keywords: ["separate", "divide", "extract"], isFeatured: true, actionTitle: "Split",
-            validate: { values, _, _ in values.string("mode") == "ranges" && values.string("ranges").nilIfBlank == nil ? "Type where to split, like 1-3, 4-6" : nil }
+            validate: { values, editor, _ in
+                switch values.string("mode") {
+                case "tap": editor.selectedPages.isEmpty ? "Tap the page where each new PDF starts" : nil
+                case "ranges": values.string("ranges").nilIfBlank == nil ? "Type where to split, like 1-3, 4-6" : nil
+                default: nil
+                }
+            }
         ) { context in
             let input = try context.first
             let document = try ToolHelpers.openPDF(input, context)
@@ -68,7 +77,11 @@ extension ToolCatalog {
             case "every": .everyNPages(context.options.int("every"))
             case "each": .eachPage
             case "size": .maxFileSize(bytes: Int64(context.options.double("size") * 1_048_576))
-            default: .ranges(context.options.string("ranges").nilIfBlank ?? "1-\(document.pageCount)")
+            case "ranges": .ranges(context.options.string("ranges").nilIfBlank ?? "1-\(document.pageCount)")
+            default:
+                context.editor.selectedPages.isEmpty
+                    ? .ranges(context.options.string("ranges").nilIfBlank ?? "1-\(document.pageCount)")
+                    : .startingAt(context.editor.selectedPages)
             }
             let parts = try await background { try PDFToolkit.split(document, mode: mode) }
             var urls: [URL] = []

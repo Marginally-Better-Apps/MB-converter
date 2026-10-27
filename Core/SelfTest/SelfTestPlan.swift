@@ -22,8 +22,7 @@ enum SelfTestPlan {
         "pdf.redact": ["terms": .string("555-0100")],
         "util.qr": ["text": .string("https://example.com")],
         "util.write": ["body": .string("# Hello\n\nWorld")],
-        "audio.adjust": ["volume": .number(-3)],
-        "pdf.split": ["ranges": .string("1, 2-3")]
+        "audio.adjust": ["volume": .number(-3)]
     ]
 
     /// Tools that only work on hardware the simulator doesn't emulate. On a device they must pass.
@@ -37,6 +36,9 @@ enum SelfTestPlan {
             .crop(CGRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5))
         case .mediaRange:
             .range(start: 0.2, end: 1.0)
+        case .splitPicker:
+            // A new PDF starts at page 2: page 1 alone, then the rest.
+            .pageSelection([1])
         case .textOverlay:
             // Typed and dragged off the default spot, so the check below sees the text land where it was placed.
             .texts([TextOverlay(text: "hello", center: CGPoint(x: 0.3, y: 0.55), relativeSize: 0.08)])

@@ -267,6 +267,8 @@ enum ToolEditorKind: Hashable, Sendable {
     case pageOrganizer
     /// Tap pages to choose them: kept (Extract) or removed (Delete).
     case pagePicker(keepsSelection: Bool)
+    /// Tap the pages where each new file starts (Split).
+    case splitPicker
     /// Place text, signatures, shapes, highlights and redactions on pages.
     case pdfMarkup(signatureFirst: Bool)
     /// Pick a crop rectangle (with aspect presets) on an image.

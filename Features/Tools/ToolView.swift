@@ -86,6 +86,10 @@ struct ToolView: View {
         .animation(.snappy(duration: 0.25), value: showsInlineEditor)
         .onChange(of: previewKey, initial: true) { _, _ in
             guard showsPreview else { preview.reset(); return }
+            if let reason = viewModel.blockingReason {
+                preview.showWaiting(for: reason, tool: tool, inputs: viewModel.inputs)
+                return
+            }
             preview.schedule(tool: tool, inputs: viewModel.inputs, options: viewModel.values, editor: viewModel.editorState)
         }
         .onDisappear { preview.tearDown() }
@@ -545,7 +549,12 @@ struct ToolView: View {
                 viewModel.editorState = .pages(edits)
             }
         case .pagePicker(let keepsSelection):
-            PagePickerView(url: file.url, password: viewModel.password.nilIfBlank, keepsSelection: keepsSelection,
+            PagePickerView(url: file.url, password: viewModel.password.nilIfBlank, mode: keepsSelection ? .keep : .delete,
+                           initialSelection: viewModel.editorState.selectedPages) { pages in
+                viewModel.editorState = .pageSelection(pages)
+            }
+        case .splitPicker:
+            PagePickerView(url: file.url, password: viewModel.password.nilIfBlank, mode: .split,
                            initialSelection: viewModel.editorState.selectedPages) { pages in
                 viewModel.editorState = .pageSelection(pages)
             }

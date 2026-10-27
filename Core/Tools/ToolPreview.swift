@@ -102,6 +102,27 @@ final class ToolPreviewModel {
         }
     }
 
+    /// The tool still needs something from you (words to redact, a filter…): show the file as it
+    /// is with what's missing, rather than running the tool and reporting its complaint.
+    func showWaiting(for reason: String, tool: ToolDefinition, inputs: [ToolInputFile]) {
+        guard let kind = tool.previewKind, !inputs.isEmpty else {
+            reset()
+            return
+        }
+        task?.cancel()
+        generation += 1
+        let current = generation
+        result = nil
+        message = reason
+        isUpdating = false
+        guard original == nil else { return }
+        task = Task { [weak self] in
+            guard let self, let (files, _) = try? await self.proxyInputs(for: kind, inputs: inputs),
+                  current == self.generation, let first = files.first else { return }
+            self.original = try? await Self.originalImage(kind: kind, file: first)
+        }
+    }
+
     func reset() {
         task?.cancel()
         result = nil

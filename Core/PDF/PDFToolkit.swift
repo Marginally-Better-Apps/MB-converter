@@ -66,6 +66,16 @@ enum PDFToolkit {
         case eachPage
         /// Splits into chunks no larger than this many bytes (approximate).
         case maxFileSize(bytes: Int64)
+        /// A new file begins at each of these pages (0-based); the first file always starts at page 0.
+        case startingAt([Int])
+
+        /// The 1-based page ranges a set of tapped starting pages makes, e.g. [2, 5] of 8 → "1-2, 3-5, 6-8".
+        static func ranges(startingAt starts: [Int], pageCount: Int) -> String {
+            let bounds = [0] + Set(starts).filter { $0 > 0 && $0 < pageCount }.sorted() + [pageCount]
+            return zip(bounds, bounds.dropFirst()).map { start, end in
+                end - start == 1 ? "\(start + 1)" : "\(start + 1)-\(end)"
+            }.joined(separator: ", ")
+        }
     }
 
     static func split(_ source: PDFDocument, mode: SplitMode) throws -> [PDFDocument] {
@@ -81,6 +91,8 @@ enum PDFToolkit {
             }
         case .eachPage:
             return (0 ..< count).map { document(from: source, pageIndices: [$0]) }
+        case .startingAt(let starts):
+            return try split(source, mode: .ranges(SplitMode.ranges(startingAt: starts, pageCount: count)))
         case .maxFileSize(let limit):
             guard limit > 0 else { throw DocumentError.invalidOption("Choose a size limit above zero.") }
             var outputs: [PDFDocument] = []

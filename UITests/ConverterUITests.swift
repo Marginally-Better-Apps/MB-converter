@@ -208,6 +208,18 @@ final class ToolFlowUITests: ConverterUITestCase {
                       "Merge summary should mention the page count")
     }
 
+    /// Split by tapping the page where the second PDF begins: no ranges to type.
+    func testSplitByTappingAPage() {
+        openTool("pdf.split", with: ["irs-p1544.pdf"])
+        let run = wait(for: app.buttons["tool.run"], 20, "Split didn't open")
+        XCTAssertFalse(run.isEnabled, "Nothing to split before a page is tapped: \(run.label)")
+        wait(for: app.descendants(matching: .any)["page.3"].firstMatch, 15, "Pages didn't show").tap()
+        XCTAssertTrue(app.staticTexts["Makes 2 PDFs"].waitForExistence(timeout: 5), "The bar should say what the split makes")
+        attach("Split with a cut at page 3", app.screenshot())
+        runTool()
+        XCTAssertEqual(resultFiles.count, 2)
+    }
+
     func testRedactThenPreview() {
         launch(["-MBRoute", "tool:pdf.redact", "-MBInputs", fixture("irs-p1544.pdf")])
         let field = wait(for: app.textViews.firstMatch.exists ? app.textViews.firstMatch : app.textFields.firstMatch, 15, "No terms field")
@@ -543,7 +555,10 @@ final class LivePreviewUITests: ConverterUITestCase {
     func testDraggingSaturationUpdatesThePreview() {
         launch(["-MBRoute", "tool:image.adjust", "-MBInputs", fixture("astronaut-portrait.jpg")])
         let preview = wait(for: app.descendants(matching: .any)["tool.preview"].firstMatch, 20, "No live preview on Filters & Adjust")
-        wait(for: app.staticTexts["tool.preview.caption"], 20, "The preview never rendered")
+        // Nothing changed yet: the photo shows as it is, with what to do, rather than an identical "result".
+        wait(for: app.staticTexts["Pick a filter or move a slider"].firstMatch, 20, "The untouched preview should say what to do")
+        let start = Date().addingTimeInterval(10)
+        while chroma(of: preview) <= 60, Date() < start { Thread.sleep(forTimeInterval: 0.3) }
         XCTAssertGreaterThan(chroma(of: preview), 60, "The portrait preview should start in color")
         attach("Preview before", app.screenshot())
 
@@ -556,10 +571,12 @@ final class LivePreviewUITests: ConverterUITestCase {
         var swipes = 0
         while swipes < 8 {
             let frame = saturation.frame
+            // Drag from the list's upper part (a section title, not a control) so the gesture scrolls.
+            let list = app.scrollViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
             if frame.minY < preview.frame.maxY + 8 {
-                app.scrollViews.firstMatch.swipeDown(velocity: .slow)
+                list.press(forDuration: 0.05, thenDragTo: list.withOffset(CGVector(dx: 0, dy: 120)))
             } else if frame.maxY > actionBar.frame.minY - 8 || !saturation.isHittable {
-                app.scrollViews.firstMatch.swipeUp(velocity: .slow)
+                list.press(forDuration: 0.05, thenDragTo: list.withOffset(CGVector(dx: 0, dy: -160)))
             } else {
                 break
             }
