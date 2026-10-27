@@ -163,7 +163,8 @@ struct ToolResultView: View {
                 }
             }
             ScrollView {
-                Text(text)
+                // One huge text view renders blank, so show the start; Copy still takes all of it.
+                Text(text.count > 3_000 ? String(text.prefix(3_000)) + "…" : text)
                     .font(.callout)
                     .foregroundStyle(Theme.text)
                     .textSelection(.enabled)

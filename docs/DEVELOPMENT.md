@@ -206,6 +206,11 @@ AppKit, audio duration, archive listings); `no-preview.txt` lists anything it co
 each tool's `report.txt` has the Self-Test summary and problems. `memes/` holds caption renders at
 several fonts, sizes and positions.
 
+For the app's screens rather than each tool's output, install a Debug build on a simulator and run
+`Scripts/AppTour.sh <udid> /tmp/tour [light|dark|bigtext]`. It opens Home, the Tools tab, History,
+file screens, the converter, editors and result screens through the debug launch routes and saves a
+screenshot of each; `bigtext` uses the largest accessibility text size.
+
 
 Run `python3 Scripts/TestMediaPreview.py` after building the macOS FFmpeg framework
 to exercise real unsupported-format posters/playback, stream copy, cache reuse and

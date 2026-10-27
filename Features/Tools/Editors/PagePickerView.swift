@@ -83,6 +83,8 @@ struct PagePickerView: View {
     private func partBadge(_ part: Int) -> some View {
         Label("PDF \(part)", systemImage: part == 1 ? "doc" : "scissors")
             .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(Theme.onPrimary)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
