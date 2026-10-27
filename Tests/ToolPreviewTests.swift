@@ -98,6 +98,29 @@ struct ToolPreviewTests {
         #expect(model.message != nil, "An empty caption should explain what's needed")
     }
 
+    /// Audio and video can be heard and watched before anything changes, and kept for "Before".
+    @Test func originalMediaIsPlayableWhileWaitingAndAfter() async throws {
+        let tool = try #require(ToolCatalog.tool("audio.adjust"))
+        let inputs = try await SelfTestPlan.inputs(for: tool)
+        let model = ToolPreviewModel()
+        model.showWaiting(for: "Change the volume or add a fade", tool: tool, inputs: inputs)
+        let deadline = Date().addingTimeInterval(20)
+        while model.originalMediaURL == nil || model.originalWaveform.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        let original = try #require(model.originalMediaURL, "Nothing to listen to before a change")
+        #expect(FileManager.default.fileExists(atPath: original.path))
+        #expect(!model.originalWaveform.isEmpty)
+        #expect(model.message == "Change the volume or add a fade")
+
+        var options = SelfTestPlan.options(for: tool, inputs: inputs)
+        options["fadeIn"] = .number(1)
+        model.schedule(tool: tool, inputs: inputs, options: options, editor: .none)
+        try await settle(model)
+        let after = try #require(model.result?.mediaURL)
+        #expect(after != original, "After must be the processed audio")
+        #expect(model.originalMediaURL == original, "Before stays the original")
+        model.tearDown()
+    }
+
     static func maxChroma(_ image: CGImage) -> Int {
         let pixels = ImageStats.pixels(image, side: 64)
         var best = 0

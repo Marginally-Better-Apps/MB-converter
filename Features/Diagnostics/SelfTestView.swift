@@ -201,7 +201,7 @@ private struct SelfTestDetailView: View {
         .navigationTitle(testCase.title)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $preview) { item in
-            QuickLookPreview(urls: item.urls, initialIndex: item.index).ignoresSafeArea()
+            QuickLookSheet(urls: item.urls, initialIndex: item.index)
         }
     }
 }

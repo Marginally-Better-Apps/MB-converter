@@ -284,6 +284,37 @@ struct FileThumbnail: View {
     }
 }
 
+/// Quick Look in a sheet, with a Close button. Inside a sheet Quick Look shows none of its own,
+/// and a swipe down isn't something everyone knows to try.
+struct QuickLookSheet: View {
+    let urls: [URL]
+    var initialIndex = 0
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        QuickLookPreview(urls: urls, initialIndex: initialIndex)
+            .ignoresSafeArea()
+            .overlay(alignment: .topLeading) {
+                Button {
+                    Haptics.impact(.light)
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Theme.text)
+                        .frame(width: 44, height: 44)
+                        .glassSurface(in: Circle(), interactive: true)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 16)
+                .padding(.top, 10)
+                .accessibilityLabel("Close")
+                .accessibilityIdentifier("quicklook.close")
+            }
+    }
+}
+
 struct QuickLookPreview: UIViewControllerRepresentable {
     let urls: [URL]
     var initialIndex = 0

@@ -13,6 +13,7 @@ Public-domain works of the U.S. Government (17 U.S.C. § 105), downloaded unmodi
 | `irs-p1544.pdf` | https://www.irs.gov/pub/irs-pdf/p1544.pdf | Antenna House output post-processed by iText |
 | `astronaut-portrait.jpg` | NASA photo S69-31741 via Wikimedia Commons (public domain), 500 px | A real photo with a face, for photo tools and live previews |
 | `test-pattern.mp4` | Generated: `ffmpeg -f lavfi -i testsrc2=size=480x270:rate=24 -f lavfi -i sine=frequency=330 -t 3` | 3 s H.264/AAC clip for the media flow in the UI tests |
+| `tone-sweep.m4a` | Generated: a 6 s sine sweeping 220–440 Hz with a slow volume swell (Python `wave` + `afconvert -d aac`) | Audio for the audio previews and Before/After in the UI tests |
 
 Add a file by dropping it in this folder and adding its expectations to `CorpusTests.swift`.
 Only add documents whose license allows redistribution.

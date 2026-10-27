@@ -29,6 +29,9 @@ struct ToolResultView: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
                 header
                 if let file = files.first, files.count == 1, showsLargePreview(file) { largePreview(file) }
+                if let file = files.first, files.count == 1, file.format?.family == .audio {
+                    AudioResultPlayer(after: file.url, before: run.inputs.count == 1 ? run.inputs[0].url : nil)
+                }
                 if let text = run.output.text ?? plainTextResult { textCard(text) }
                 filesCard
                 actions
@@ -57,7 +60,7 @@ struct ToolResultView: View {
             }
         }
         .sheet(item: $preview) { item in
-            QuickLookPreview(urls: item.urls, initialIndex: item.index).ignoresSafeArea()
+            QuickLookSheet(urls: item.urls, initialIndex: item.index)
         }
         .sheet(item: $share) { item in
             ActivityView(items: item.urls).presentationDetents([.medium, .large])
@@ -374,4 +377,29 @@ struct ToolResultView: View {
             withAnimation(.snappy) { toast = nil }
         }
     }
+}
+
+/// The finished audio, playable right here, with the original to compare when there is one.
+private struct AudioResultPlayer: View {
+    let after: URL
+    let before: URL?
+    @State private var afterWaveform: [Float] = []
+    @State private var beforeWaveform: [Float] = []
+
+    var body: some View {
+        AudioCompareView(afterURL: after, afterWaveform: afterWaveform, beforeURL: before, beforeWaveform: beforeWaveform)
+            .frame(height: 130)
+            .background(Theme.surfaceSunken, in: RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous))
+            .task {
+                afterWaveform = await waveform(of: after)
+                if let before {
+                    beforeWaveform = await waveform(of: before)
+                }
+            }
+    }
+}
+
+/// Off the main thread; a free function so `background` isn't the View modifier of the same name.
+private func waveform(of url: URL) async -> [Float] {
+    (try? await background { AudioWaveformThumbnail.samples(from: url, barCount: 64) ?? [] }) ?? []
 }

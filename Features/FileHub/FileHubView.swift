@@ -33,7 +33,7 @@ struct FileHubView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { detail = await FileRow.details(for: file) }
         .sheet(item: $preview) { item in
-            QuickLookPreview(urls: item.urls).ignoresSafeArea()
+            QuickLookSheet(urls: item.urls)
         }
     }
 

@@ -42,9 +42,10 @@ enum ToolPreview {
     /// How long to wait after the last change before re-rendering: quick for pictures, longer for media.
     static func delay(for kind: ToolPreviewKind) -> Duration {
         switch kind {
-        case .image, .pdf: .milliseconds(250)
-        case .animation, .audio: .milliseconds(450)
-        case .video: .milliseconds(600)
+        case .image, .pdf: .milliseconds(200)
+        case .audio: .milliseconds(250)
+        case .animation: .milliseconds(400)
+        case .video: .milliseconds(450)
         }
     }
 
@@ -74,6 +75,9 @@ final class ToolPreviewModel {
     private(set) var result: ToolPreviewResult?
     /// The unprocessed input, for press-and-hold comparison.
     private(set) var original: CGImage?
+    /// The unprocessed audio or video (the same excerpt the preview uses), to hear or watch "Before".
+    private(set) var originalMediaURL: URL?
+    private(set) var originalWaveform: [Float] = []
     private(set) var isUpdating = false
     private(set) var message: String?
     /// Previews of very large inputs run on a scaled copy.
@@ -115,11 +119,10 @@ final class ToolPreviewModel {
         result = nil
         message = reason
         isUpdating = false
-        guard original == nil else { return }
         task = Task { [weak self] in
             guard let self, let (files, _) = try? await self.proxyInputs(for: kind, inputs: inputs),
                   current == self.generation, let first = files.first else { return }
-            self.original = try? await Self.originalImage(kind: kind, file: first)
+            await self.loadOriginal(kind: kind, file: first)
         }
     }
 
@@ -127,6 +130,8 @@ final class ToolPreviewModel {
         task?.cancel()
         result = nil
         original = nil
+        originalMediaURL = nil
+        originalWaveform = []
         message = nil
         isUpdating = false
         proxies = nil
@@ -142,7 +147,7 @@ final class ToolPreviewModel {
         do {
             let (files, ratio) = try await proxyInputs(for: kind, inputs: inputs)
             guard current == generation else { return }
-            if original == nil, let first = files.first { original = try? await Self.originalImage(kind: kind, file: first) }
+            if let first = files.first { await loadOriginal(kind: kind, file: first) }
             let directory = ToolStorage.newRunDirectory()
             runDirectories.append(directory)
             let context = ToolContext(inputs: files, options: options, editor: editor, outputDirectory: directory)
@@ -230,6 +235,21 @@ final class ToolPreviewModel {
             return (try ToolInputFile(url: excerptURL), true, duration / ToolPreview.audioExcerpt)
         case .animation:
             return (input, false, 1)
+        }
+    }
+
+    /// The "Before" side: a picture for images and PDFs, the playable file for audio and video.
+    private func loadOriginal(kind: ToolPreviewKind, file: ToolInputFile) async {
+        switch kind {
+        case .audio, .video:
+            guard originalMediaURL != file.url else { return }
+            originalMediaURL = file.url
+            if kind == .audio {
+                let url = file.url
+                originalWaveform = (try? await background { AudioWaveformThumbnail.samples(from: url, barCount: 64) ?? [] }) ?? []
+            }
+        default:
+            if original == nil { original = try? await Self.originalImage(kind: kind, file: file) }
         }
     }
 

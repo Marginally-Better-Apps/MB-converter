@@ -153,8 +153,10 @@ class ConverterUITestCase: XCTestCase {
         let shown = waitForVisibleContent(timeout: 60)
         attach(name, app.screenshot())
         XCTAssertTrue(shown, "\(fileName) opened in Quick Look but the preview stayed blank")
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
-        start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+        // Quick Look in a sheet has no Done button of its own; ours must get you out.
+        let close = app.buttons["quicklook.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5), "Quick Look has no Close button")
+        close.tap()
         XCTAssertTrue(app.buttons["result.finish"].waitForExistence(timeout: 10), "Quick Look didn't close")
     }
 }
@@ -588,6 +590,34 @@ final class LivePreviewUITests: ConverterUITestCase {
         while chroma(of: preview) > 14, Date() < deadline { Thread.sleep(forTimeInterval: 0.3) }
         attach("Preview after saturation 0", app.screenshot())
         XCTAssertLessThanOrEqual(chroma(of: preview), 14, "Dragging saturation to zero didn't turn the preview gray")
+    }
+
+    /// You can listen before changing anything, drag through the sound, and compare Before/After.
+    func testAudioPreviewPlaysScrubsAndCompares() {
+        launch(["-MBRoute", "tool:audio.adjust", "-MBInputs", fixture("tone-sweep.m4a")])
+        let play = wait(for: app.buttons["tool.preview.play"], 20, "The original should be playable before any change")
+        XCTAssertTrue(app.staticTexts["Change the volume or add a fade"].exists, "Say what to do while there's nothing to compare")
+        let clock = app.staticTexts.containing(NSPredicate(format: "label CONTAINS '/ 0:06'")).firstMatch
+        wait(for: clock, 10, "The length of the audio should show")
+        play.tap()
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertFalse(clock.label.hasPrefix("0:00"), "Playback didn't move: \(clock.label)")
+        play.tap()
+
+        // Drag to the middle of the waveform.
+        let waveform = wait(for: app.descendants(matching: .any)["tool.preview.waveform"].firstMatch, 5, "No waveform")
+        waveform.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5)).tap()
+        XCTAssertTrue(clock.label.hasPrefix("0:03"), "Tapping the waveform should jump there: \(clock.label)")
+
+        // A change makes something to compare.
+        app.sliders.firstMatch.adjust(toNormalizedSliderPosition: 0.85)
+        let listen = app.descendants(matching: .any)["tool.preview.listen"].firstMatch
+        wait(for: listen, 20, "After a change, Before/After should appear")
+        let before = app.buttons["Before"].firstMatch
+        before.tap()
+        XCTAssertTrue(before.isSelected, "Before should be selected")
+        XCTAssertTrue(clock.label.hasPrefix("0:03"), "Switching Before/After keeps your place: \(clock.label)")
+        attach("Audio Before/After", app.screenshot())
     }
 
     func testTrimHandlesScrubTheVideo() {
